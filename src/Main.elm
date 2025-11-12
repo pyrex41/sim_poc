@@ -263,13 +263,14 @@ update msg model =
                         "restitution" ->
                             { props | restitution = propValue }
 
-                         _ ->
-                             props
+                        _ ->
+                            props
 
                 updatedScene =
                     { scene
                         | objects = Dict.map (\_ obj -> updateObject obj) scene.objects
                     }
+
                 modelWithHistory =
                     saveToHistory model
             in
