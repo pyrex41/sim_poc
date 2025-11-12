@@ -31,6 +31,8 @@ type alias Model =
     , uiState : UiState
     , simulationState : SimulationState
     , initialScene : Maybe Scene
+    , history : List Scene
+    , future : List Scene
     }
 
 
@@ -108,6 +110,8 @@ init _ =
       , uiState = { textInput = "", isGenerating = False, errorMessage = Nothing, refineInput = "", isRefining = False }
       , simulationState = { isRunning = False, transformMode = Translate }
       , initialScene = Nothing
+      , history = []
+      , future = []
       }
     , Cmd.none
     )
@@ -131,6 +135,11 @@ type Msg
     | UpdateRefineInput String
     | RefineScene
     | SceneRefined (Result Http.Error Scene)
+    | Undo
+    | Redo
+    | SaveScene
+    | LoadScene
+    | SceneLoadedFromStorage Encode.Value
     | ClearError
     | SelectionChanged (Maybe String)
     | TransformUpdated { objectId : String, transform : Transform }
@@ -252,13 +261,15 @@ update msg model =
                          _ ->
                              props
              in
-             let
-                 updatedScene =
-                     { scene
-                         | objects = Dict.map (\_ obj -> updateObject obj) scene.objects
-                     }
-             in
-            ( { model | scene = updatedScene }
+            let
+                updatedScene =
+                    { scene
+                        | objects = Dict.map (\_ obj -> updateObject obj) scene.objects
+                    }
+                modelWithHistory =
+                    saveToHistory model
+            in
+            ( { modelWithHistory | scene = updatedScene }
             , sendSceneToThreeJs (sceneEncoder updatedScene)
             )
 
@@ -329,8 +340,10 @@ update msg model =
                     let
                         uiState =
                             model.uiState
+                        modelWithHistory =
+                            saveToHistory model
                     in
-                    ( { model
+                    ( { modelWithHistory
                         | scene = scene
                         , initialScene = Just scene
                         , uiState =
@@ -396,8 +409,10 @@ update msg model =
                     let
                         uiState =
                             model.uiState
+                        modelWithHistory =
+                            saveToHistory model
                     in
-                    ( { model
+                    ( { modelWithHistory
                         | scene = scene
                         , uiState =
                             { uiState
@@ -440,6 +455,57 @@ update msg model =
                     , Cmd.none
                     )
 
+        Undo ->
+            case model.history of
+                previousScene :: restHistory ->
+                    ( { model
+                        | scene = previousScene
+                        , history = restHistory
+                        , future = model.scene :: model.future
+                      }
+                    , sendSceneToThreeJs (sceneEncoder previousScene)
+                    )
+
+                [] ->
+                    ( model, Cmd.none )
+
+        Redo ->
+            case model.future of
+                nextScene :: restFuture ->
+                    ( { model
+                        | scene = nextScene
+                        , history = model.scene :: model.history
+                        , future = restFuture
+                      }
+                    , sendSceneToThreeJs (sceneEncoder nextScene)
+                    )
+
+                [] ->
+                    ( model, Cmd.none )
+
+        SaveScene ->
+            ( model, saveSceneToStorage (sceneEncoder model.scene) )
+
+        LoadScene ->
+            ( model, loadSceneFromStorage )
+
+        SceneLoadedFromStorage sceneValue ->
+            case Decode.decodeValue sceneDecoder sceneValue of
+                Ok loadedScene ->
+                    let
+                        modelWithHistory =
+                            saveToHistory model
+                    in
+                    ( { modelWithHistory
+                        | scene = loadedScene
+                        , initialScene = Just loadedScene
+                      }
+                    , sendSceneToThreeJs (sceneEncoder loadedScene)
+                    )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
         SelectionChanged maybeObjectId ->
             let
                 scene =
@@ -466,6 +532,17 @@ update msg model =
               }
             , Cmd.none
             )
+
+
+-- HISTORY MANAGEMENT
+
+
+saveToHistory : Model -> Model
+saveToHistory model =
+    { model
+        | history = model.scene :: List.take 49 model.history  -- Keep last 50 states
+        , future = []  -- Clear future when new change is made
+    }
 
 
 -- VIEW
@@ -508,6 +585,20 @@ viewBottomBar model =
                 , class (if model.simulationState.transformMode == Scale then "active" else "")
                 ]
                 [ text "Scale (S)" ]
+            ]
+        , div [ class "history-controls" ]
+            [ button
+                [ onClick Undo
+                , disabled (List.isEmpty model.history)
+                ]
+                [ text "Undo" ]
+            , button
+                [ onClick Redo
+                , disabled (List.isEmpty model.future)
+                ]
+                [ text "Redo" ]
+            , button [ onClick SaveScene ] [ text "Save" ]
+            , button [ onClick LoadScene ] [ text "Load" ]
             ]
         ]
 
@@ -666,6 +757,7 @@ subscriptions model =
     Sub.batch
         [ sendSelectionToElm SelectionChanged
         , sendTransformUpdateToElm TransformUpdated
+        , sceneLoadedFromStorage SceneLoadedFromStorage
         ]
 
 
@@ -688,6 +780,15 @@ port sendTransformModeToThreeJs : String -> Cmd msg
 
 
 port sendTransformUpdateToElm : ({ objectId : String, transform : Transform } -> msg) -> Sub msg
+
+
+port saveSceneToStorage : Encode.Value -> Cmd msg
+
+
+port loadSceneFromStorage : () -> Cmd msg
+
+
+port sceneLoadedFromStorage : (Encode.Value -> msg) -> Sub msg
 
 
 -- DECODERS
