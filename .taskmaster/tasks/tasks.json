@@ -2,85 +2,430 @@
   "master": {
     "tasks": [
       {
-         "id": 1,
-         "title": "Set up Elm application structure and basic UI layout",
-         "description": "Initialize the Elm project with the main application structure, including the three-panel layout (left panel for generation, canvas for rendering, right panel for properties), and define basic ports for communication with JavaScript.",
-         "details": "Use Elm 0.19.1 to create the Main.elm file with the Browser.element program. Define the Model with Scene, UiState, and SimulationState. Implement the view function to render the app-container with left-panel, canvas-container, and right-panel. Set up ports for sendSceneToThreeJs, sendSelectionToThreeJs, etc. Ensure the HTML includes the canvas-container div. Use Vite for build configuration as specified.",
-         "testStrategy": "Verify that the Elm app compiles without errors, the UI renders the three panels correctly in the browser, and ports are defined without runtime issues.",
-         "priority": "high",
-         "dependencies": [],
-         "status": "completed",
-         "subtasks": [
-           {
-             "id": 1,
-             "title": "Initialize Elm project structure",
-             "description": "Set up the basic Elm project using Elm 0.19.1, create the Main.elm file with Browser.element program, and define the initial Model structure including Scene, UiState, and SimulationState.",
-             "dependencies": [],
-             "details": "Use Elm init to create the project, ensure Vite is configured for building. In Main.elm, import necessary modules, define the Model type with placeholders for Scene, UiState, and SimulationState. Set up the main function with Browser.element, including init, update, view, and subscriptions.",
-             "status": "completed",
-             "testStrategy": "Verify that the Elm project compiles successfully without errors using elm make."
-           },
-           {
-             "id": 2,
-             "title": "Implement three-panel UI layout and basic ports",
-             "description": "Implement the view function to render the app-container with left-panel, canvas-container, and right-panel, and define ports for communication with JavaScript.",
-             "dependencies": [
-               1
-             ],
-             "details": "In the view function, use Html to create divs for the three panels: left-panel for generation, canvas-container for rendering, and right-panel for properties. Ensure the HTML includes the canvas-container div. Define ports such as sendSceneToThreeJs, sendSelectionToThreeJs, and others as specified. Update the update function to handle any initial messages if needed.",
-             "status": "completed",
-             "testStrategy": "Compile the Elm app, load it in the browser, and check that the three panels are rendered correctly, and ports are defined without runtime errors."
-           }
-         ]
-       },
+        "id": 1,
+        "title": "Set up Elm application structure and basic UI layout",
+        "description": "Initialize the Elm project with the main application structure, including the three-panel layout (left panel for generation, canvas for rendering, right panel for properties), and define basic ports for communication with JavaScript.",
+        "details": "Use Elm 0.19.1 to create the Main.elm file with the Browser.element program. Define the Model with Scene, UiState, and SimulationState. Implement the view function to render the app-container with left-panel, canvas-container, and right-panel. Set up ports for sendSceneToThreeJs, sendSelectionToThreeJs, etc. Ensure the HTML includes the canvas-container div. Use Vite for build configuration as specified.",
+        "testStrategy": "Verify that the Elm app compiles without errors, the UI renders the three panels correctly in the browser, and ports are defined without runtime issues.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Initialize Elm project structure",
+            "description": "Set up the basic Elm project using Elm 0.19.1, create the Main.elm file with Browser.element program, and define the initial Model structure including Scene, UiState, and SimulationState.",
+            "dependencies": [],
+            "details": "Use Elm init to create the project, ensure Vite is configured for building. In Main.elm, import necessary modules, define the Model type with placeholders for Scene, UiState, and SimulationState. Set up the main function with Browser.element, including init, update, view, and subscriptions.",
+            "status": "completed",
+            "testStrategy": "Verify that the Elm project compiles successfully without errors using elm make."
+          },
+          {
+            "id": 2,
+            "title": "Implement three-panel UI layout and basic ports",
+            "description": "Implement the view function to render the app-container with left-panel, canvas-container, and right-panel, and define ports for communication with JavaScript.",
+            "dependencies": [1],
+            "details": "In the view function, use Html to create divs for the three panels: left-panel for generation, canvas-container for rendering, and right-panel for properties. Ensure the HTML includes the canvas-container div. Define ports such as sendSceneToThreeJs, sendSelectionToThreeJs, and others as specified. Update the update function to handle any initial messages if needed.",
+            "status": "completed",
+            "testStrategy": "Compile the Elm app, load it in the browser, and check that the three panels are rendered correctly, and ports are defined without runtime errors."
+          }
+        ]
+      },
       {
-         "id": 2,
-         "title": "Implement Elm scene model types and state management",
-         "description": "Define the Elm types for Scene, PhysicsObject, Transform, PhysicsProperties, etc., and implement the update function to handle messages like UpdateTextInput, GenerateScene, SceneGenerated, ObjectClicked, etc.",
-         "details": "Based on the provided Elm code in the PRD, implement the Model, Msg types, and update function. Handle state transitions for text input, scene generation, object selection, transform updates, and simulation toggling. Ensure pure state management without side effects except through ports. Use Dict for objects and track initial states for reset.",
-         "testStrategy": "Test Elm compilation, simulate user interactions in the Elm debugger (e.g., update text input, trigger generate), and verify state changes correctly update the model without errors.",
-         "priority": "high",
-         "dependencies": [
-           1
-         ],
-         "status": "completed",
-         "subtasks": [
-           {
-             "id": 1,
-             "title": "Define Elm Model and Msg types for scene management",
-             "description": "Define the core Elm types including Model, Msg, Scene, PhysicsObject, Transform, PhysicsProperties, and related structures using records and unions.",
-             "dependencies": [
-               1
-             ],
-             "details": "Based on the PRD Elm code, create type aliases and union types for Model (containing scene data, selected object, simulation state, etc.), Msg (covering UpdateTextInput, GenerateScene, SceneGenerated, ObjectClicked, etc.), and nested types like Scene with Dict for objects. Ensure types support state tracking for reset functionality.",
-             "status": "completed",
-             "testStrategy": "Compile the Elm code and verify no type errors; use Elm debugger to inspect initial model structure."
-           },
-           {
-             "id": 2,
-           "title": "Implement update function for message handling",
-             "description": "Implement the update function to handle various Msg types, managing state transitions for text input, scene generation, object selection, transform updates, and simulation toggling.",
-             "dependencies": [
-               1
-             ],
-             "details": "In the update function, pattern match on Msg variants to update the Model accordingly, ensuring pure functions without side effects. Handle dependencies like updating scene from SceneGenerated, selecting objects via ObjectClicked, and toggling simulation state. Use Dict operations for object management and track initial states for reset.",
-             "status": "completed",
-             "testStrategy": "Simulate message dispatches in Elm debugger (e.g., send UpdateTextInput, GenerateScene) and verify model updates correctly without errors or side effects."
-           },
-           {
-             "id": 3,
-             "title": "Integrate ports for pure state management and external communication",
-             "description": "Set up ports for communication with JavaScript (e.g., for scene generation, object clicks, and simulation commands) while maintaining pure Elm state management.",
-             "dependencies": [
-               1,
-               2
-             ],
-             "details": "Define incoming and outgoing ports for messages like sceneGenerated, objectClicked, and commands to update Three.js. Ensure the update function uses Cmd for port calls and subscriptions for incoming data. Track initial scene states in Model for reset, and avoid direct side effects in update logic.",
-             "status": "completed",
-             "testStrategy": "Test port integration by triggering Elm actions (e.g., generate scene) and verify JavaScript receives correct data; check that state remains pure by reloading and confirming no unexpected changes."
-           }
-         ]
-       },
+        "id": 2,
+        "title": "Implement Elm scene model types and state management",
+        "description": "Define the Elm types for Scene, PhysicsObject, Transform, PhysicsProperties, etc., and implement the update function to handle messages like UpdateTextInput, GenerateScene, SceneGenerated, ObjectClicked, etc.",
+        "details": "Based on the provided Elm code in the PRD, implement the Model, Msg types, and update function. Handle state transitions for text input, scene generation, object selection, transform updates, and simulation toggling. Ensure pure state management without side effects except through ports. Use Dict for objects and track initial states for reset.",
+        "testStrategy": "Test Elm compilation, simulate user interactions in the Elm debugger (e.g., update text input, trigger generate), and verify state changes correctly update the model without errors.",
+        "priority": "high",
+        "dependencies": [1],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define Elm Model and Msg types for scene management",
+            "description": "Define the core Elm types including Model, Msg, Scene, PhysicsObject, Transform, PhysicsProperties, and related structures using records and unions.",
+            "dependencies": [1],
+            "details": "Based on the PRD Elm code, create type aliases and union types for Model (containing scene data, selected object, simulation state, etc.), Msg (covering UpdateTextInput, GenerateScene, SceneGenerated, ObjectClicked, etc.), and nested types like Scene with Dict for objects. Ensure types support state tracking for reset functionality.",
+            "status": "completed",
+            "testStrategy": "Compile the Elm code and verify no type errors; use Elm debugger to inspect initial model structure."
+          },
+          {
+            "id": 2,
+            "title": "Implement update function for message handling",
+            "description": "Implement the update function to handle various Msg types, managing state transitions for text input, scene generation, object selection, transform updates, and simulation toggling.",
+            "dependencies": [1],
+            "details": "In the update function, pattern match on Msg variants to update the Model accordingly, ensuring pure functions without side effects. Handle dependencies like updating scene from SceneGenerated, selecting objects via ObjectClicked, and toggling simulation state. Use Dict operations for object management and track initial states for reset.",
+            "status": "completed",
+            "testStrategy": "Simulate message dispatches in Elm debugger (e.g., send UpdateTextInput, GenerateScene) and verify model updates correctly without errors or side effects."
+          },
+          {
+            "id": 3,
+            "title": "Integrate ports for pure state management and external communication",
+            "description": "Set up ports for communication with JavaScript (e.g., for scene generation, object clicks, and simulation commands) while maintaining pure Elm state management.",
+            "dependencies": [1, 2],
+            "details": "Define incoming and outgoing ports for messages like sceneGenerated, objectClicked, and commands to update Three.js. Ensure the update function uses Cmd for port calls and subscriptions for incoming data. Track initial scene states in Model for reset, and avoid direct side effects in update logic.",
+            "status": "completed",
+            "testStrategy": "Test port integration by triggering Elm actions (e.g., generate scene) and verify JavaScript receives correct data; check that state remains pure by reloading and confirming no unexpected changes."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Set up Three.js renderer and basic scene rendering",
+        "description": "Initialize Three.js in the JavaScript bridge, set up the renderer, camera, controls, lights, and ground plane, and implement the loadScene method to render objects from Elm data.",
+        "details": "In index.js, create the PhysicsRenderer class with setupRenderer, setupCamera, setupControls (OrbitControls), setupLights, and setupPhysics (Rapier world). Implement loadScene to clear existing objects and add new ones using addObject, which creates Three.js meshes and Rapier bodies/colliders for Box, Sphere, Cylinder. Handle geometry creation based on object type and apply materials with visual properties.",
+        "testStrategy": "Run the app, verify Three.js renders a basic scene (e.g., ground plane), and check console for no WebGL errors. Manually test camera orbiting and ensure Rapier initializes without issues.",
+        "priority": "high",
+        "dependencies": [1],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Initialize Three.js renderer and camera",
+            "description": "Set up the basic Three.js renderer and camera in the PhysicsRenderer class to enable scene rendering.",
+            "dependencies": [],
+            "details": "In index.js, within the PhysicsRenderer class, implement the setupRenderer method to create a WebGLRenderer, set its size to match the canvas container, and append it to the DOM. Implement setupCamera to create a PerspectiveCamera with appropriate field of view, aspect ratio, near and far planes, and position it suitably for the scene.",
+            "status": "completed",
+            "testStrategy": "Verify that the renderer initializes without WebGL errors and the camera is positioned correctly by checking the canvas renders a basic view."
+          },
+          {
+            "id": 2,
+            "title": "Set up OrbitControls and lighting",
+            "description": "Configure OrbitControls for camera manipulation and add basic lighting to the scene for proper object visibility.",
+            "dependencies": [1],
+            "details": "Implement setupControls to initialize OrbitControls with the camera and renderer DOM element, enabling mouse-based orbiting, zooming, and panning. Implement setupLights to add ambient and directional lights to the scene, positioning them to illuminate objects effectively and include a ground plane mesh for reference.",
+            "status": "completed",
+            "testStrategy": "Test camera controls by orbiting and zooming in the rendered scene, and ensure lights illuminate objects without shadows or rendering artifacts."
+          },
+          {
+            "id": 3,
+            "title": "Implement scene loading with Rapier physics integration",
+            "description": "Develop the loadScene method to handle scene updates from Elm, integrating Three.js meshes with Rapier physics bodies and colliders.",
+            "dependencies": [2],
+            "details": "Implement setupPhysics to initialize the Rapier world with gravity. Create the loadScene method to clear existing meshes and physics bodies, then use addObject to iterate through Elm-provided objects, creating Three.js geometries (BoxGeometry, SphereGeometry, CylinderGeometry) and meshes with materials based on visual properties. For each object, add corresponding Rapier rigid bodies and colliders (cuboid, ball, cylinder) linked to the meshes.",
+            "status": "completed",
+            "testStrategy": "Load a sample scene via Elm ports, verify objects render correctly with physics applied (e.g., falling under gravity), and check console for no Rapier initialization errors."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Integrate Rapier physics simulation loop",
+        "description": "Connect Rapier to the animation loop, sync Three.js meshes with physics bodies during simulation, and handle start/pause/reset commands from Elm.",
+        "details": "In the animate method, step the Rapier world when simulating, update mesh positions and rotations from body data, and send frame updates to Elm via ports. Implement startSimulation, pauseSimulation, and resetSimulation methods that detach transform controls and reload scene on reset. Ensure 60 FPS simulation with proper timestep.",
+        "testStrategy": "Trigger simulation via Elm, observe objects falling realistically under gravity, check that pause stops updates, and reset restores initial positions. Use browser dev tools to monitor FPS and ensure no performance drops.",
+        "priority": "high",
+        "dependencies": [3],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Connect Rapier to the animation loop",
+            "description": "Modify the animate method to step the Rapier world during simulation, ensuring proper timestep for 60 FPS.",
+            "dependencies": [3],
+            "details": "In the PhysicsRenderer class, update the animate method to call world.step() when simulation is active, using a fixed timestep like 1/60 to maintain consistent physics updates. Integrate this with the requestAnimationFrame loop to synchronize physics stepping with rendering.",
+            "status": "completed",
+            "testStrategy": "Monitor FPS in browser dev tools during simulation to ensure it stays at 60 FPS without drops."
+          },
+          {
+            "id": 2,
+            "title": "Sync Three.js meshes with physics bodies",
+            "description": "Update mesh positions and rotations from Rapier body data during each animation frame.",
+            "dependencies": [1],
+            "details": "In the animate method, after stepping the world, iterate through all physics bodies, retrieve their positions and rotations, and apply them to the corresponding Three.js meshes using mesh.position.copy(body.translation()) and mesh.quaternion.copy(body.rotation()). Send frame updates to Elm via ports if needed.",
+            "status": "completed",
+            "testStrategy": "Trigger simulation and observe objects falling realistically under gravity, verifying that meshes follow physics bodies accurately."
+          },
+          {
+            "id": 3,
+            "title": "Implement start, pause, and reset simulation commands",
+            "description": "Add methods to handle startSimulation, pauseSimulation, and resetSimulation commands from Elm.",
+            "dependencies": [2],
+            "details": "Implement startSimulation to begin stepping the world and detach transform controls, pauseSimulation to stop stepping, and resetSimulation to reload the scene, restore initial positions, and reattach controls. Ensure these methods are called via Elm ports and handle state transitions properly.",
+            "status": "completed",
+            "testStrategy": "Send commands from Elm to start, pause, and reset simulation, checking that pause stops updates, reset restores positions, and controls detach/reattach correctly."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Set up FastAPI backend server with CORS and basic structure",
+        "description": "Initialize the FastAPI application, configure CORS for local development, and define the basic endpoint structure including models for Vec3, Transform, PhysicsObject, Scene, etc.",
+        "details": "Create main.py with FastAPI app, add CORSMiddleware for localhost:5173. Define Pydantic models matching the JSON schema. Set up uvicorn for running the server on port 8000. Include placeholders for AI client and cache initialization. Ensure requirements.txt includes fastapi, uvicorn, pydantic.",
+        "testStrategy": "Start the server with uvicorn, verify it runs on localhost:8000, test CORS by making a request from the frontend, and check that models validate JSON correctly without errors.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Initialize FastAPI application with CORS and define Pydantic models",
+            "description": "Set up the FastAPI app in main.py, configure CORSMiddleware for localhost:5173, and define Pydantic models for Vec3, Transform, PhysicsObject, Scene, etc., matching the JSON schema.",
+            "dependencies": [],
+            "details": "Create main.py with FastAPI instance, add CORSMiddleware allowing origins from localhost:5173. Define Pydantic BaseModel classes for Vec3, Transform, PhysicsObject, Scene, and other required models based on the provided JSON schema. Include placeholders for AI client and cache initialization. Ensure requirements.txt includes fastapi, uvicorn, and pydantic. Set up uvicorn to run the server on port 8000.",
+            "status": "completed",
+            "testStrategy": "Start the server with uvicorn and verify it runs on localhost:8000. Test CORS by making a cross-origin request from the frontend and confirm models validate JSON inputs without errors."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Integrate AI for scene generation",
+        "description": "Implement the /api/generate endpoint to use AI API for generating scenes from text prompts, including caching with LMDB.",
+        "details": "In main.py, implement generate_scene function with prompt template, call AI API, parse response as Scene, cache successful results using hashlib and lmdb. Handle errors for JSON parsing and API failures. Use environment variables for AI model configuration.",
+        "testStrategy": "Send POST requests to /api/generate with sample text (e.g., 'red box'), verify JSON response matches schema, check cache by repeating request (should be faster), and ensure invalid prompts return appropriate errors.",
+        "priority": "high",
+        "dependencies": [5],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement /api/generate endpoint with AI API integration",
+            "description": "Create the /api/generate endpoint in main.py that accepts text prompts, uses a prompt template, calls the AI API, and parses the response into a Scene object. Handle errors for API failures and JSON parsing issues. Configure AI model settings via environment variables.",
+            "dependencies": [5],
+            "details": "In main.py, define the generate_scene function that constructs a prompt template for scene generation, makes an API call to AI using the configured model (from env vars), parses the JSON response into a Scene object, and returns it. Implement error handling for invalid responses or API errors, raising appropriate exceptions. Ensure the endpoint is a POST route that accepts JSON with a 'prompt' field.",
+            "status": "completed",
+            "testStrategy": "Send POST requests to /api/generate with valid text prompts (e.g., 'red box'), verify the JSON response conforms to the Scene schema, and check that invalid prompts or API failures return proper error messages."
+          },
+          {
+            "id": 2,
+            "title": "Add LMDB caching for generated scenes",
+            "description": "Integrate LMDB caching to store successful scene generation results using hashlib for key generation, ensuring repeated requests for the same prompt are served from cache for improved performance.",
+            "dependencies": [1],
+            "details": "In the generate_scene function, before calling the Claude API, compute a hash of the prompt using hashlib (e.g., SHA256), check if the result exists in an LMDB database. If cached, return the stored Scene; otherwise, proceed with API call and cache the successful result in LMDB. Handle cache misses and ensure thread-safe access if needed. Use environment variables for LMDB path configuration.",
+            "status": "completed",
+            "testStrategy": "Send identical POST requests to /api/generate, measure response times to verify caching (second request should be faster), and inspect LMDB database to confirm cached entries are stored correctly."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Add Genesis physics validation to backend",
+        "description": "Implement validate_with_genesis function and integrate it into scene generation and a separate /api/validate endpoint.",
+        "details": "Use genesis-world library to create a scene, add entities based on object types, simulate 60 frames, and check for stability. Return validation results. Integrate into generate_scene to reject invalid scenes. Ensure Genesis handles Box and Sphere types primarily.",
+        "testStrategy": "Test /api/validate with valid and invalid scenes (e.g., overlapping objects), verify it detects issues like instability, and ensure generate_scene fails gracefully on validation errors.",
+        "priority": "medium",
+        "dependencies": [5, 6],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement validate_with_genesis function using Genesis library",
+            "description": "Create the validate_with_genesis function that uses genesis-world to build a scene, add Box and Sphere entities, simulate 60 frames, and check for stability.",
+            "dependencies": [5, 6],
+            "details": "In the backend, import genesis-world, define validate_with_genesis(scene_data) that parses object types, creates a Genesis scene, adds rigid bodies for Boxes and Spheres with appropriate properties, runs a 60-frame simulation, and evaluates stability by checking for excessive movement or collisions. Return a validation result object indicating pass/fail with details.",
+            "status": "completed",
+            "testStrategy": "Unit test the function with mock scene data containing stable and unstable configurations, verifying it correctly identifies stability issues like overlapping objects falling apart."
+          },
+          {
+            "id": 2,
+            "title": "Integrate Genesis validation into scene generation and API endpoint",
+            "description": "Integrate the validate_with_genesis function into generate_scene to reject invalid scenes and expose it via a new /api/validate endpoint.",
+            "dependencies": [1],
+            "details": "Modify generate_scene to call validate_with_genesis after scene creation and reject if validation fails, raising an appropriate error. Create a new Flask route /api/validate that accepts scene data via POST, calls validate_with_genesis, and returns the validation results as JSON. Ensure error handling for unsupported object types beyond Box and Sphere.",
+            "status": "completed",
+            "testStrategy": "Test generate_scene by attempting to generate invalid scenes (e.g., unstable stacks) and confirm rejection. Hit /api/validate with valid/invalid JSON payloads and verify correct pass/fail responses, including error messages for unsupported types."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement object selection and raycasting in Three.js",
+        "description": "Add click event handling for object selection using raycasting, highlight selected objects, and communicate selections back to Elm.",
+        "details": "In setupControls, add mouse event listener for clicks, use Raycaster to intersect meshes, send objectClicked event to Elm. Implement selectObject to attach TransformControls to the selected mesh. Update material or add outline for visual feedback.",
+        "testStrategy": "Click on rendered objects in the scene, verify selection highlights appear, TransformControls attach, and Elm receives the correct objectId via ports.",
+        "priority": "high",
+        "dependencies": [2, 3],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add click event handling and raycasting for object detection",
+            "description": "Implement mouse click event listener in setupControls to detect clicks on the canvas, use Three.js Raycaster to intersect with meshes in the scene, and identify the selected object.",
+            "dependencies": [2, 3],
+            "details": "In the setupControls method of the PhysicsRenderer class, add an event listener for 'click' events on the renderer.domElement. Calculate mouse position normalized to [-1,1], create a Raycaster, set its origin from the camera and direction towards the mouse position, and intersect with the scene's meshes. Store the intersected object for further processing.",
+            "status": "completed",
+            "testStrategy": "Click on various objects in the rendered scene and verify that the raycaster correctly detects intersections by logging the selected object ID in the console."
+          },
+          {
+            "id": 2,
+            "title": "Implement object selection with visual feedback and Elm communication",
+            "description": "Handle the selected object by highlighting it, attaching TransformControls, and sending the selection event to Elm via ports.",
+            "dependencies": [1],
+            "details": "After detecting the selected object via raycasting, implement a selectObject method that updates the object's material (e.g., change color or add an outline using a post-processing effect or emissive property), attaches TransformControls to the mesh for manipulation, and sends an 'objectClicked' event with the object ID to Elm through the defined ports. Ensure previous selections are deselected properly.",
+            "status": "completed",
+            "testStrategy": "Click on objects, check that visual highlights appear (e.g., outline or color change), TransformControls attach and allow dragging, and verify Elm receives the correct objectId via port messages in the debugger."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Add transform controls for translate, rotate, and scale",
+        "description": "Integrate TransformControls for manipulating selected objects, handle mode switching from Elm, and sync changes back to Elm state.",
+        "details": "In PhysicsRenderer, set up TransformControls with event listeners for dragging and objectChange. Implement setTransformMode to switch between translate, rotate, scale. On change, send transformUpdate to Elm. Ensure controls detach during simulation.",
+        "testStrategy": "Select an object, press keys (G/R/S) to switch modes, drag to transform, verify real-time updates in Elm model and visual changes in Three.js.",
+        "priority": "high",
+        "dependencies": [8],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up TransformControls with event listeners in PhysicsRenderer",
+            "description": "Initialize TransformControls in the Three.js scene, attach it to the selected object, and add event listeners for 'dragging' and 'objectChange' to handle real-time updates.",
+            "dependencies": [],
+            "details": "In the PhysicsRenderer class, create a new TransformControls instance attached to the camera and scene. Add event listeners: on 'dragging' to prevent other interactions, and on 'objectChange' to capture transform changes. Ensure the controls are properly disposed when not in use.",
+            "status": "completed",
+            "testStrategy": "Attach controls to a selected object and verify that dragging updates the object's position/rotation/scale visually in Three.js without errors."
+          },
+          {
+            "id": 2,
+            "title": "Implement mode switching and Elm synchronization for TransformControls",
+            "description": "Add setTransformMode method to switch between translate, rotate, and scale modes based on Elm input, and send transform updates back to Elm via ports.",
+            "dependencies": [1],
+            "details": "Implement setTransformMode function that sets the controls.mode to 'translate', 'rotate', or 'scale' based on messages from Elm. On 'objectChange' event, send a transformUpdate message to Elm with the updated position, rotation, and scale. Ensure controls detach during simulation to prevent conflicts.",
+            "status": "completed",
+            "testStrategy": "Switch modes via Elm (e.g., key presses), perform transformations, and check that Elm state updates correctly and reflects in the UI or subsequent actions."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Implement simulation controls and property editing panel",
+        "description": "Add play/pause/reset buttons in Elm UI, connect to physics commands, and implement the right panel for editing object properties like mass, friction, etc.",
+        "details": "In Elm, add buttons for ToggleSimulation and ResetSimulation, update viewBottomBar and viewRightPanel. Handle UpdateObjectProperty messages to modify scene. Sync property changes to Three.js by reloading scene or updating colliders. Ensure sliders update physics properties.",
+        "testStrategy": "Edit properties in the panel (e.g., increase mass), simulate, observe different behaviors (e.g., heavier objects fall slower), and test play/pause/reset functionality with button clicks.",
+        "priority": "high",
+        "dependencies": [2, 4, 9],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Add UI buttons for simulation controls",
+            "description": "Implement play/pause/reset buttons in the Elm UI bottom bar, connecting them to ToggleSimulation and ResetSimulation messages.",
+            "dependencies": [2, 4],
+            "details": "Update the viewBottomBar function in Elm to include buttons for toggling simulation state and resetting the scene. Ensure buttons dispatch appropriate messages to the update function, and handle state changes for simulation running/paused.",
+            "status": "completed",
+            "testStrategy": "Click play/pause/reset buttons and verify simulation starts, pauses, or resets correctly, observing physics behavior in the scene."
+          },
+          {
+            "id": 2,
+            "title": "Implement property editing panel",
+            "description": "Create the right panel in Elm UI for editing object properties such as mass, friction, and other physics attributes using sliders and inputs.",
+            "dependencies": [2],
+            "details": "Update the viewRightPanel function to display editable properties for selected objects. Handle UpdateObjectProperty messages in the update function to modify the scene model. Ensure the panel only shows when an object is selected and updates dynamically.",
+            "status": "completed",
+            "testStrategy": "Select an object, adjust properties like mass via sliders, and confirm the UI reflects changes without errors."
+          },
+          {
+            "id": 3,
+            "title": "Sync property changes to physics engine",
+            "description": "Ensure changes from the property panel are synced to Three.js and Rapier physics by reloading the scene or updating colliders.",
+            "dependencies": [9, 1, 2],
+            "details": "In the Elm update function, after handling UpdateObjectProperty, use ports to send updated scene data to JavaScript. In the PhysicsRenderer, implement methods to update existing colliders or reload the scene with new properties. Handle cases where simulation is running or paused.",
+            "status": "completed",
+            "testStrategy": "Edit properties (e.g., increase mass), simulate, and observe if physics behavior changes correctly, such as objects falling at different speeds."
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Add AI refinement feature",
+        "description": "Implement /api/refine endpoint in backend and UI in Elm for refining scenes with text instructions.",
+        "details": "In main.py, create refine_scene function with prompt to modify existing scene JSON. In Elm, add refine textarea and button, handle RefineScene message, update scene on response. Cache refinements if possible.",
+        "testStrategy": "Generate a scene, enter refinement text (e.g., 'make boxes red'), verify scene updates correctly, and check backend returns modified JSON without errors.",
+        "priority": "medium",
+        "dependencies": [6, 10],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement /api/refine endpoint in backend",
+            "description": "Create the refine_scene function in main.py that takes a prompt to modify an existing scene JSON and returns the refined scene.",
+            "dependencies": [6, 10],
+            "details": "In main.py, define a refine_scene function that accepts a scene JSON and a text prompt, uses AI to refine the scene based on the prompt, and returns the modified JSON. Ensure the endpoint handles caching of refinements if possible to optimize performance.",
+            "status": "completed",
+            "testStrategy": "Send a POST request to /api/refine with a sample scene JSON and a refinement prompt (e.g., 'make boxes red'), verify the response is a valid modified JSON without errors, and check that the scene updates correctly."
+          },
+          {
+            "id": 2,
+            "title": "Add UI elements in Elm for scene refinement",
+            "description": "Integrate a textarea and button in the Elm UI to allow users to input refinement instructions and trigger the refinement process.",
+            "dependencies": [6, 10],
+            "details": "In Elm, add a refine textarea and button to the UI, implement a RefineScene message to handle user input, send the refinement request to the backend, and update the scene state upon receiving the response. Include handling for loading states and potential errors.",
+            "status": "completed",
+            "testStrategy": "In the Elm UI, enter refinement text (e.g., 'make boxes red') in the textarea, click the refine button, verify the scene updates visually, and ensure no errors occur during the process."
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Implement undo/redo system and local storage",
+        "description": "Add undo/redo functionality in Elm for scene changes and integrate IndexedDB for saving/loading scenes.",
+        "details": "In Elm, track history of scene states, implement undo/redo messages. Use ports to save/load scenes to/from localStorage or IndexedDB. Add buttons or shortcuts for undo/redo.",
+        "testStrategy": "Make changes to scene (e.g., move object, refine), use undo to revert, verify state restores, and test save/load by refreshing page and reloading scene.",
+        "priority": "medium",
+        "dependencies": [2, 11],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement scene history tracking in Elm model",
+            "description": "Extend the Elm model to maintain a history stack of scene states, allowing for undo and redo operations by storing previous and future states.",
+            "dependencies": [2],
+            "details": "In the Elm code, add a history field to the Model type, such as a list or stack of Scene states. Update the update function to push current state to history on scene changes (e.g., object moves, property edits). Ensure history is limited to prevent memory issues, perhaps keeping the last 50 states.",
+            "status": "completed",
+            "testStrategy": "Simulate scene changes in Elm debugger, verify history list updates correctly, and check that states are stored accurately for reversion."
+          },
+          {
+            "id": 2,
+            "title": "Add undo/redo messages and UI controls",
+            "description": "Implement Msg types for Undo and Redo, handle them in the update function to revert or advance scene states, and add buttons or keyboard shortcuts in the Elm UI.",
+            "dependencies": [1],
+            "details": "Define Undo and Redo messages in the Msg type. In the update function, on Undo, pop from history and set model to previous state; on Redo, advance forward. Add buttons to the UI (e.g., in viewBottomBar) and handle keyboard events (Ctrl+Z, Ctrl+Y). Ensure UI updates reflect current undo/redo availability.",
+            "status": "completed",
+            "testStrategy": "Click undo/redo buttons or use shortcuts after making scene changes, verify the scene reverts or advances correctly, and check that buttons disable when no history is available."
+          },
+          {
+            "id": 3,
+            "title": "Integrate IndexedDB for saving and loading scenes",
+            "description": "Use Elm ports to communicate with JavaScript for saving the current scene to IndexedDB and loading it back, ensuring persistence across sessions.",
+            "dependencies": [2, 11],
+            "details": "Set up ports in Elm for sending save/load commands. In JavaScript, implement IndexedDB operations to store scene data as JSON and retrieve it. Handle save on scene changes or user action, and load on app initialization or user request. Ensure data includes scene objects, properties, and history if needed.",
+            "status": "completed",
+            "testStrategy": "Make scene changes, trigger save, refresh the page, and verify the scene loads correctly from IndexedDB. Test loading invalid data handles errors gracefully."
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Add keyboard shortcuts and UI polish",
+        "description": "Implement keyboard event handling for shortcuts (e.g., Space for play, R for rotate mode) and polish the UI with better styling, loading states, and error handling.",
+        "details": "In Elm subscriptions, add onKeyDown decoder. Handle KeyPressed messages for shortcuts. Update CSS in index.html for better appearance, add loading indicators for generation.",
+        "testStrategy": "Test shortcuts (e.g., press Space to toggle simulation, R to enter rotate mode), verify UI responsiveness, and check error messages display correctly on failures.",
+        "priority": "low",
+        "dependencies": [10, 12],
+        "status": "completed",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Keyboard Shortcuts and UI Polish",
+            "description": "Add keyboard event handling for shortcuts like Space for play and R for rotate mode, and enhance UI with better styling, loading states, and error handling.",
+            "dependencies": [10, 12],
+            "details": "In Elm subscriptions, add an onKeyDown decoder to capture key presses. Handle KeyPressed messages to trigger actions such as toggling simulation or entering rotate mode. Update CSS in index.html for improved appearance, including better button styles and layout. Add loading indicators for scene generation processes and implement error handling to display messages on failures, ensuring the UI remains responsive.",
+            "status": "completed",
+            "testStrategy": "Test keyboard shortcuts by pressing Space to toggle simulation and R to enter rotate mode, verify UI responsiveness with loading indicators during generation, and check that error messages display correctly on failures."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-11-12T21:11:39.802Z",
+      "updated": "2025-11-12T23:30:00.000Z",
+      "description": "Tasks for master context"
+    }
+  }
+}
           {
             "id": 2,
             "title": "Implement update function for message handling",

@@ -265,8 +265,7 @@ update msg model =
 
                          _ ->
                              props
-             in
-            let
+
                 updatedScene =
                     { scene
                         | objects = Dict.map (\_ obj -> updateObject obj) scene.objects
