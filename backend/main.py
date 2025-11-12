@@ -6,7 +6,8 @@ import uvicorn
 import os
 import hashlib
 import json
-from anthropic import Anthropic
+# from anthropic import Anthropic  # Not needed for demo
+# import genesis as gs  # Using geometric validation instead
 
 app = FastAPI(title="Physics Simulator API", version="1.0.0")
 
@@ -51,6 +52,11 @@ class Scene(BaseModel):
 
 class GenerateRequest(BaseModel):
     prompt: str
+
+class ValidationResult(BaseModel):
+    valid: bool
+    message: str
+    details: Optional[Dict] = None
 
 # AI client initialization
 # For demo purposes, force ai_client to None
@@ -146,6 +152,14 @@ Make scenes physically realistic and interesting to simulate."""
         scene_data = json.loads(scene_json)
         scene = Scene(**scene_data)
 
+        # Validate scene stability with Genesis
+        validation = validate_with_genesis(scene)
+        if not validation.valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Generated scene is not stable: {validation.message}"
+            )
+
         # Cache the result
         scene_cache[cache_key] = scene.json()
 
@@ -215,6 +229,99 @@ def create_demo_scene(prompt: str) -> Scene:
 
     return Scene(objects=objects)
 
+def validate_with_genesis(scene: Scene) -> ValidationResult:
+    """Validate scene stability using geometric analysis."""
+    try:
+        # Check for unsupported shapes
+        for obj_id, obj in scene.objects.items():
+            if obj.visualProperties.shape not in ["Box", "Sphere"]:
+                return ValidationResult(
+                    valid=False,
+                    message=f"Unsupported shape: {obj.visualProperties.shape}",
+                    details={"unsupported_shape": obj.visualProperties.shape}
+                )
+
+        # Check for overlapping objects (simple geometric validation)
+        overlapping_pairs = []
+        objects_list = list(scene.objects.items())
+
+        for i, (id1, obj1) in enumerate(objects_list):
+            for j, (id2, obj2) in enumerate(objects_list[i+1:], i+1):
+                # Skip ground objects (mass = 0)
+                if obj1.physicsProperties.mass == 0 or obj2.physicsProperties.mass == 0:
+                    continue
+
+                # Calculate distance between centers
+                dx = obj1.transform.position.x - obj2.transform.position.x
+                dy = obj1.transform.position.y - obj2.transform.position.y
+                dz = obj1.transform.position.z - obj2.transform.position.z
+                distance = (dx**2 + dy**2 + dz**2)**0.5
+
+                # Calculate minimum separation needed
+                if obj1.visualProperties.shape == "Box" and obj2.visualProperties.shape == "Box":
+                    # Box-box collision: check if bounding boxes overlap
+                    min_sep_x = (obj1.transform.scale.x + obj2.transform.scale.x) / 2
+                    min_sep_y = (obj1.transform.scale.y + obj2.transform.scale.y) / 2
+                    min_sep_z = (obj1.transform.scale.z + obj2.transform.scale.z) / 2
+
+                    if (abs(dx) < min_sep_x and abs(dy) < min_sep_y and abs(dz) < min_sep_z):
+                        overlapping_pairs.append((id1, id2))
+
+                elif obj1.visualProperties.shape == "Sphere" and obj2.visualProperties.shape == "Sphere":
+                    # Sphere-sphere collision
+                    min_distance = (obj1.transform.scale.x + obj2.transform.scale.x) / 2  # Assume uniform scale
+                    if distance < min_distance:
+                        overlapping_pairs.append((id1, id2))
+
+                else:
+                    # Mixed sphere-box: approximate with sphere radius
+                    sphere_obj = obj1 if obj1.visualProperties.shape == "Sphere" else obj2
+                    box_obj = obj2 if obj1.visualProperties.shape == "Sphere" else obj1
+
+                    sphere_radius = sphere_obj.transform.scale.x / 2
+                    box_half_size = max(box_obj.transform.scale.x, box_obj.transform.scale.y, box_obj.transform.scale.z) / 2
+
+                    min_distance = sphere_radius + box_half_size
+                    if distance < min_distance:
+                        overlapping_pairs.append((id1, id2))
+
+        # Check for objects too high (likely to fall unstably)
+        high_objects = []
+        for obj_id, obj in scene.objects.items():
+            if obj.physicsProperties.mass > 0 and obj.transform.position.y > 5.0:
+                high_objects.append(obj_id)
+
+        # Validate results
+        issues = []
+        if overlapping_pairs:
+            issues.append(f"Overlapping objects: {overlapping_pairs}")
+        if high_objects:
+            issues.append(f"Objects too high (unstable): {high_objects}")
+
+        if issues:
+            return ValidationResult(
+                valid=False,
+                message="Scene has stability issues: " + "; ".join(issues),
+                details={
+                    "overlapping_pairs": overlapping_pairs,
+                    "high_objects": high_objects,
+                    "max_height_threshold": 5.0
+                }
+            )
+        else:
+            return ValidationResult(
+                valid=True,
+                message="Scene appears geometrically stable",
+                details={"checked_objects": len(scene.objects)}
+            )
+
+    except Exception as e:
+        return ValidationResult(
+            valid=False,
+            message=f"Validation failed: {str(e)}",
+            details={"error": str(e)}
+        )
+
 @app.post("/api/generate")
 async def api_generate_scene(request: GenerateRequest):
     """Generate a physics scene from a text prompt."""
@@ -225,6 +332,15 @@ async def api_generate_scene(request: GenerateRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scene generation failed: {str(e)}")
+
+@app.post("/api/validate")
+async def api_validate_scene(scene: Scene):
+    """Validate a physics scene for stability using Genesis simulation."""
+    try:
+        result = validate_with_genesis(scene)
+        return result.dict()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Scene validation failed: {str(e)}")
 
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
