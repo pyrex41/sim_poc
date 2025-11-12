@@ -7,6 +7,10 @@ import os
 import hashlib
 import json
 import openai
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 # import genesis as gs  # Using geometric validation instead
 
 app = FastAPI(title="Physics Simulator API", version="1.0.0")

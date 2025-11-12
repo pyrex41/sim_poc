@@ -7,6 +7,9 @@ elm-stuff/
 # Vite build cache
 .vite/
 
+# Environment variables
+.env
+
 # OS generated files
 .DS_Store
 Thumbs.db

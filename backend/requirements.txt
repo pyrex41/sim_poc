@@ -3,4 +3,5 @@ uvicorn[standard]>=0.23.0
 pydantic>=2.0.0
 python-multipart>=0.0.6
 openai>=1.0.0
+python-dotenv>=1.0.0
 # genesis-world==0.2.1  # Complex dependencies, using geometric validation instead
