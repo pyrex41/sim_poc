@@ -137,7 +137,7 @@ Make scenes physically realistic and interesting to simulate."""
 
     try:
         response = ai_client.chat.completions.create(
-            model="anthropic/claude-3.5-sonnet",
+            model="anthropic/claude-3.5-sonnet-20241022",
             max_tokens=2000,
             temperature=0.7,
             messages=[
@@ -412,7 +412,7 @@ Make minimal, targeted changes based on the prompt."""
 
     try:
         response = ai_client.chat.completions.create(
-            model="anthropic/claude-3.5-sonnet",
+            model="anthropic/claude-3.5-sonnet-20241022",
             max_tokens=2000,
             temperature=0.7,
             messages=[
