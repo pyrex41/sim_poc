@@ -254,16 +254,17 @@ update msg model =
                         "restitution" ->
                             { props | restitution = propValue }
 
-                        _ ->
-                            props
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | objects = Dict.map (\_ obj -> updateObject obj) scene.objects
-                    }
-              }
-            , Cmd.none
+                         _ ->
+                             props
+             in
+             let
+                 updatedScene =
+                     { scene
+                         | objects = Dict.map (\_ obj -> updateObject obj) scene.objects
+                     }
+             in
+            ( { model | scene = updatedScene }
+            , sendSceneToThreeJs (sceneEncoder updatedScene)
             )
 
         ToggleSimulation ->
