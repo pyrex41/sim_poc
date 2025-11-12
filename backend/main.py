@@ -342,6 +342,120 @@ async def api_validate_scene(scene: Scene):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scene validation failed: {str(e)}")
 
+class RefineRequest(BaseModel):
+    scene: Scene
+    prompt: str
+
+def refine_scene(scene: Scene, prompt: str) -> Scene:
+    """Refine an existing physics scene based on a text prompt using AI."""
+    print(f"Refining scene with prompt: {prompt}")
+    # For demo purposes, return the original scene if AI client is not configured
+    if not ai_client:
+        print("Warning: Using demo scene refinement (AI client not configured)")
+        return scene
+
+    # Create cache key from scene and prompt
+    scene_str = scene.json()
+    cache_key = hashlib.sha256(f"{scene_str}:{prompt}".encode()).hexdigest()
+
+    if cache_key in scene_cache:
+        try:
+            return Scene.parse_raw(scene_cache[cache_key])
+        except Exception:
+            pass  # Cache corrupted, regenerate
+
+    # Create prompt template for refinement
+    system_prompt = """You are a physics scene refiner. Modify existing 3D physics scenes based on text instructions.
+
+Given an existing scene JSON and a refinement prompt, modify the scene accordingly. You can:
+- Change object colors, positions, scales, rotations
+- Add new objects
+- Remove objects
+- Modify physics properties (mass, friction, restitution)
+- Change object shapes
+
+Return ONLY valid JSON matching the scene schema. Preserve the structure and only make the requested changes.
+
+Scene schema:
+{
+  "objects": {
+    "object_id": {
+      "id": "object_id",
+      "transform": {
+        "position": {"x": float, "y": float, "z": float},
+        "rotation": {"x": float, "y": float, "z": float},
+        "scale": {"x": float, "y": float, "z": float}
+      },
+      "physicsProperties": {
+        "mass": float,
+        "friction": float,
+        "restitution": float
+      },
+      "visualProperties": {
+        "color": "hex_color",
+        "shape": "Box|Sphere|Cylinder"
+      }
+    }
+  }
+}
+
+Make minimal, targeted changes based on the prompt."""
+
+    user_prompt = f"Original scene: {scene_str}\n\nRefinement request: {prompt}\n\nReturn the modified scene JSON:"
+
+    try:
+        response = ai_client.messages.create(
+            model="claude-3-sonnet-20240229",
+            max_tokens=2000,
+            temperature=0.7,
+            system=system_prompt,
+            messages=[
+                {"role": "user", "content": user_prompt}
+            ]
+        )
+
+        refined_scene_json = response.content[0].text.strip()
+
+        # Clean up JSON response
+        if refined_scene_json.startswith("```json"):
+            refined_scene_json = refined_scene_json[7:]
+        if refined_scene_json.endswith("```"):
+            refined_scene_json = refined_scene_json[:-3]
+        refined_scene_json = refined_scene_json.strip()
+
+        # Parse and validate the refined scene
+        refined_scene_data = json.loads(refined_scene_json)
+        refined_scene = Scene(**refined_scene_data)
+
+        # Validate the refined scene
+        validation = validate_with_genesis(refined_scene)
+        if not validation.valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Refined scene is not stable: {validation.message}"
+            )
+
+        # Cache the result
+        scene_cache[cache_key] = refined_scene.json()
+
+        return refined_scene
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"Invalid JSON response from AI: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Scene refinement failed: {str(e)}")
+
+@app.post("/api/refine")
+async def api_refine_scene(request: RefineRequest):
+    """Refine an existing physics scene based on a text prompt."""
+    try:
+        refined_scene = refine_scene(request.scene, request.prompt)
+        return refined_scene.dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Scene refinement failed: {str(e)}")
+
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
     uvicorn.run(

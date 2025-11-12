@@ -44,6 +44,8 @@ type alias UiState =
     { textInput : String
     , isGenerating : Bool
     , errorMessage : Maybe String
+    , refineInput : String
+    , isRefining : Bool
     }
 
 
@@ -102,19 +104,9 @@ type Shape
 
 init : () -> ( Model, Cmd Msg )
 init _ =
-    ( { scene =
-            { objects = Dict.empty
-            , selectedObject = Nothing
-            }
-      , uiState =
-            { textInput = ""
-            , isGenerating = False
-            , errorMessage = Nothing
-            }
-      , simulationState =
-            { isRunning = False
-            , transformMode = Translate
-            }
+    ( { scene = { objects = Dict.empty, selectedObject = Nothing }
+      , uiState = { textInput = "", isGenerating = False, errorMessage = Nothing, refineInput = "", isRefining = False }
+      , simulationState = { isRunning = False, transformMode = Translate }
       , initialScene = Nothing
       }
     , Cmd.none
@@ -136,6 +128,9 @@ type Msg
     | ToggleSimulation
     | ResetSimulation
     | SetTransformMode TransformMode
+    | UpdateRefineInput String
+    | RefineScene
+    | SceneRefined (Result Http.Error Scene)
     | ClearError
     | SelectionChanged (Maybe String)
     | TransformUpdated { objectId : String, transform : Transform }
@@ -379,6 +374,72 @@ update msg model =
                     , Cmd.none
                     )
 
+        UpdateRefineInput newInput ->
+            let
+                uiState =
+                    model.uiState
+            in
+            ( { model | uiState = { uiState | refineInput = newInput } }, Cmd.none )
+
+        RefineScene ->
+            let
+                uiState =
+                    model.uiState
+            in
+            ( { model | uiState = { uiState | isRefining = True, errorMessage = Nothing } }
+            , refineSceneRequest model.scene model.uiState.refineInput
+            )
+
+        SceneRefined result ->
+            case result of
+                Ok scene ->
+                    let
+                        uiState =
+                            model.uiState
+                    in
+                    ( { model
+                        | scene = scene
+                        , uiState =
+                            { uiState
+                                | isRefining = False
+                                , refineInput = ""
+                            }
+                      }
+                    , sendSceneToThreeJs (sceneEncoder scene)
+                    )
+
+                Err error ->
+                    let
+                        uiState =
+                            model.uiState
+
+                        errorMessage =
+                            case error of
+                                Http.BadUrl url ->
+                                    "Bad URL: " ++ url
+
+                                Http.Timeout ->
+                                    "Request timed out"
+
+                                Http.NetworkError ->
+                                    "Network error"
+
+                                Http.BadStatus status ->
+                                    "Server error: " ++ String.fromInt status
+
+                                Http.BadBody body ->
+                                    "Invalid response: " ++ body
+                    in
+                    ( { model
+                        | uiState =
+                            { uiState
+                                | isRefining = False
+                                , errorMessage = Just errorMessage
+                            }
+                      }
+                    , Cmd.none
+                    )
+
         SelectionChanged maybeObjectId ->
             let
                 scene =
@@ -476,6 +537,19 @@ viewLeftPanel model =
 
             Nothing ->
                 text ""
+        , h2 [] [ text "Refinement" ]
+        , textarea
+            [ placeholder "Describe how to modify the current scene..."
+            , value model.uiState.refineInput
+            , onInput UpdateRefineInput
+            , disabled (Dict.isEmpty model.scene.objects || model.uiState.isRefining)
+            ]
+            []
+        , button
+            [ onClick RefineScene
+            , disabled (String.isEmpty (String.trim model.uiState.refineInput) || Dict.isEmpty model.scene.objects || model.uiState.isRefining)
+            ]
+            [ text (if model.uiState.isRefining then "Refining..." else "Refine Scene") ]
         ]
 
 
@@ -695,6 +769,15 @@ generateSceneRequest prompt =
         { url = "http://127.0.0.1:8000/api/generate"
         , body = Http.jsonBody (Encode.object [ ( "prompt", Encode.string prompt ) ])
         , expect = Http.expectJson SceneGeneratedResult sceneDecoder
+        }
+
+
+refineSceneRequest : Scene -> String -> Cmd Msg
+refineSceneRequest scene prompt =
+    Http.post
+        { url = "http://127.0.0.1:8000/api/refine"
+        , body = Http.jsonBody (Encode.object [ ( "scene", sceneEncoder scene ), ( "prompt", Encode.string prompt ) ])
+        , expect = Http.expectJson SceneRefined sceneDecoder
         }
 
 
