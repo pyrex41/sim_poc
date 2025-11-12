@@ -15,28 +15,32 @@
         .app-container {
             display: flex;
             height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
         .left-panel {
-            width: 300px;
-            background-color: #ffffff;
-            padding: 20px;
-            border-right: 1px solid #ddd;
+            width: 320px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 24px;
+            border-right: 2px solid #dee2e6;
             overflow-y: auto;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.1);
         }
 
         .canvas-container {
             flex: 1;
             position: relative;
-            background-color: #000000;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            border: 1px solid #333;
         }
 
         .right-panel {
-            width: 300px;
-            background-color: #ffffff;
-            padding: 20px;
-            border-left: 1px solid #ddd;
+            width: 320px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 24px;
+            border-left: 2px solid #dee2e6;
             overflow-y: auto;
+            box-shadow: -2px 0 8px rgba(0,0,0,0.1);
         }
 
         .bottom-bar {
@@ -44,12 +48,14 @@
             bottom: 0;
             left: 0;
             right: 0;
-            background-color: #ffffff;
-            border-top: 1px solid #ddd;
-            padding: 10px 20px;
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border-top: 2px solid #dee2e6;
+            padding: 16px 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
         }
 
         .simulation-controls {
@@ -79,36 +85,66 @@
         }
 
         button {
-            background-color: #007bff;
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
             color: white;
             border: none;
-            padding: 8px 12px;
-            border-radius: 4px;
+            padding: 10px 16px;
+            border-radius: 6px;
             cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,123,255,0.2);
         }
 
         button:hover:not(:disabled) {
-            background-color: #0056b3;
+            background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,123,255,0.3);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
         }
 
         button:disabled {
-            background-color: #ccc;
+            background: #6c757d;
             cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
         }
 
         button.active {
-            background-color: #28a745;
+            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+            box-shadow: 0 2px 4px rgba(40,167,69,0.2);
         }
 
         .error {
-            background-color: #f8d7da;
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
             color: #721c24;
-            padding: 8px;
-            border-radius: 4px;
-            margin-top: 10px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-top: 16px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            border: 1px solid #f5c6cb;
+            box-shadow: 0 2px 4px rgba(247,215,218,0.3);
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
         .property-section {

@@ -1,6 +1,7 @@
 port module Main exposing (main)
 
 import Browser
+import Browser.Events
 import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -33,6 +34,7 @@ type alias Model =
     , initialScene : Maybe Scene
     , history : List Scene
     , future : List Scene
+    , ctrlPressed : Bool
     }
 
 
@@ -112,6 +114,7 @@ init _ =
       , initialScene = Nothing
       , history = []
       , future = []
+      , ctrlPressed = False
       }
     , Cmd.none
     )
@@ -140,6 +143,8 @@ type Msg
     | SaveScene
     | LoadScene
     | SceneLoadedFromStorage Encode.Value
+    | KeyDown String
+    | KeyUp String
     | ClearError
     | SelectionChanged (Maybe String)
     | TransformUpdated { objectId : String, transform : Transform }
@@ -506,6 +511,52 @@ update msg model =
                 Err _ ->
                     ( model, Cmd.none )
 
+        KeyDown key ->
+            case key of
+                "Control" ->
+                    ( { model | ctrlPressed = True }, Cmd.none )
+
+                " " ->
+                    -- Space: toggle simulation
+                    update (ToggleSimulation) model
+
+                "g" ->
+                    -- G: translate mode
+                    update (SetTransformMode Translate) model
+
+                "r" ->
+                    -- R: rotate mode
+                    update (SetTransformMode Rotate) model
+
+                "s" ->
+                    -- S: scale mode
+                    update (SetTransformMode Scale) model
+
+                "z" ->
+                    -- Ctrl+Z: undo
+                    if model.ctrlPressed then
+                        update Undo model
+                    else
+                        ( model, Cmd.none )
+
+                "y" ->
+                    -- Ctrl+Y: redo
+                    if model.ctrlPressed then
+                        update Redo model
+                    else
+                        ( model, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        KeyUp key ->
+            case key of
+                "Control" ->
+                    ( { model | ctrlPressed = False }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
         SelectionChanged maybeObjectId ->
             let
                 scene =
@@ -618,7 +669,12 @@ viewLeftPanel model =
             [ onClick GenerateScene
             , disabled (String.isEmpty (String.trim model.uiState.textInput) || model.uiState.isGenerating)
             ]
-            [ text (if model.uiState.isGenerating then "Generating..." else "Generate Scene") ]
+            [ if model.uiState.isGenerating then
+                span [ class "loading" ] []
+              else
+                text ""
+            , text (if model.uiState.isGenerating then "Generating..." else "Generate Scene")
+            ]
         , case model.uiState.errorMessage of
             Just error ->
                 div [ class "error" ]
@@ -640,7 +696,12 @@ viewLeftPanel model =
             [ onClick RefineScene
             , disabled (String.isEmpty (String.trim model.uiState.refineInput) || Dict.isEmpty model.scene.objects || model.uiState.isRefining)
             ]
-            [ text (if model.uiState.isRefining then "Refining..." else "Refine Scene") ]
+            [ if model.uiState.isRefining then
+                span [ class "loading" ] []
+              else
+                text ""
+            , text (if model.uiState.isRefining then "Refining..." else "Refine Scene")
+            ]
         ]
 
 
@@ -758,7 +819,14 @@ subscriptions model =
         [ sendSelectionToElm SelectionChanged
         , sendTransformUpdateToElm TransformUpdated
         , sceneLoadedFromStorage SceneLoadedFromStorage
+        , Browser.Events.onKeyDown (Decode.map KeyDown keyDecoder)
+        , Browser.Events.onKeyUp (Decode.map KeyUp keyDecoder)
         ]
+
+
+keyDecoder : Decode.Decoder String
+keyDecoder =
+    Decode.field "key" Decode.string
 
 
 -- PORTS
