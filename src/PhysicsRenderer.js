@@ -225,6 +225,10 @@ class PhysicsRenderer {
 
     startSimulation() {
         if (!this.animationId) {
+            // Detach transform controls during simulation to prevent conflicts
+            if (this.transformControls) {
+                this.transformControls.detach();
+            }
             this.animate();
         }
     }
@@ -233,6 +237,13 @@ class PhysicsRenderer {
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
             this.animationId = null;
+            // Re-attach transform controls when simulation is paused
+            if (this.selectedObjectId && this.transformControls) {
+                const selectedObject = this.objects.get(this.selectedObjectId);
+                if (selectedObject) {
+                    this.transformControls.attach(selectedObject.mesh);
+                }
+            }
         }
     }
 
@@ -322,8 +333,10 @@ class PhysicsRenderer {
                     Math.min(originalColor.g * 1.3, 1),
                     Math.min(originalColor.b * 1.3, 1)
                 );
-                // Attach transform controls
-                this.transformControls.attach(selectedObject.mesh);
+                // Attach transform controls (only if not simulating)
+                if (!this.animationId) {
+                    this.transformControls.attach(selectedObject.mesh);
+                }
             }
         }
 
