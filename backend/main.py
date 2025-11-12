@@ -6,7 +6,7 @@ import uvicorn
 import os
 import hashlib
 import json
-# from anthropic import Anthropic  # Not needed for demo
+import openai
 # import genesis as gs  # Using geometric validation instead
 
 app = FastAPI(title="Physics Simulator API", version="1.0.0")
@@ -59,9 +59,16 @@ class ValidationResult(BaseModel):
     details: Optional[Dict] = None
 
 # AI client initialization
-# For demo purposes, force ai_client to None
-ai_client = None
-print("Warning: Using demo scene generation (AI client disabled for demo)")
+openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+if openrouter_api_key:
+    ai_client = openai.OpenAI(
+        api_key=openrouter_api_key,
+        base_url="https://openrouter.ai/api/v1"
+    )
+    print("AI client initialized with OpenRouter")
+else:
+    ai_client = None
+    print("Warning: Using demo scene generation (OPENROUTER_API_KEY not set)")
 
 # Simple in-memory cache (replace with LMDB later)
 scene_cache = {}
@@ -129,17 +136,17 @@ Make scenes physically realistic and interesting to simulate."""
     user_prompt = f"Generate a physics scene for: {prompt}"
 
     try:
-        response = ai_client.messages.create(
-            model="claude-3-sonnet-20240229",
+        response = ai_client.chat.completions.create(
+            model="anthropic/claude-3.5-sonnet",
             max_tokens=2000,
             temperature=0.7,
-            system=system_prompt,
             messages=[
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ]
         )
 
-        scene_json = response.content[0].text.strip()
+        scene_json = response.choices[0].message.content.strip()
 
         # Clean up JSON response (remove markdown code blocks if present)
         if scene_json.startswith("```json"):
@@ -404,17 +411,17 @@ Make minimal, targeted changes based on the prompt."""
     user_prompt = f"Original scene: {scene_str}\n\nRefinement request: {prompt}\n\nReturn the modified scene JSON:"
 
     try:
-        response = ai_client.messages.create(
-            model="claude-3-sonnet-20240229",
+        response = ai_client.chat.completions.create(
+            model="anthropic/claude-3.5-sonnet",
             max_tokens=2000,
             temperature=0.7,
-            system=system_prompt,
             messages=[
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ]
         )
 
-        refined_scene_json = response.content[0].text.strip()
+        refined_scene_json = response.choices[0].message.content.strip()
 
         # Clean up JSON response
         if refined_scene_json.startswith("```json"):
