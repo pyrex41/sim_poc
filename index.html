@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Physics Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+
+        .app-container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .left-panel {
+            width: 300px;
+            background-color: #ffffff;
+            padding: 20px;
+            border-right: 1px solid #ddd;
+            overflow-y: auto;
+        }
+
+        .canvas-container {
+            flex: 1;
+            position: relative;
+            background-color: #000000;
+        }
+
+        .right-panel {
+            width: 300px;
+            background-color: #ffffff;
+            padding: 20px;
+            border-left: 1px solid #ddd;
+            overflow-y: auto;
+        }
+
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #ffffff;
+            border-top: 1px solid #ddd;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .simulation-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .transform-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 100px;
+            margin: 10px 0;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+            font-family: inherit;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        button.active {
+            background-color: #28a745;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .property-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+
+        .vec3-input, .float-input {
+            margin: 10px 0;
+        }
+
+        .vec3-input div:first-child, .float-input div:first-child {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 5px;
+        }
+
+        .input-row input, .float-input input {
+            flex: 1;
+            padding: 5px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        h3 {
+            margin-top: 0;
+            color: #555;
+        }
+
+        h4 {
+            margin-bottom: 10px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="elm-app"></div>
+    <script type="module">
+        import { Elm } from './src/Main.elm';
+        import PhysicsRenderer from './src/PhysicsRenderer.js';
+
+        // Initialize Elm app
+        const app = Elm.Main.init({
+            node: document.getElementById('elm-app')
+        });
+
+        // Make Elm app globally accessible for Three.js callbacks
+        window.elmApp = app;
+
+        // Initialize Three.js renderer
+        const canvasContainer = document.getElementById('canvas-container');
+        const renderer = new PhysicsRenderer(canvasContainer);
+        await renderer.init();
+
+        // Set up Elm ports
+        app.ports.sendSceneToThreeJs.subscribe((sceneData) => {
+            console.log('Received scene data from Elm:', sceneData);
+            renderer.loadScene(sceneData);
+        });
+
+        app.ports.sendSelectionToThreeJs.subscribe((objectId) => {
+            console.log('Selected object:', objectId);
+            renderer.selectObject(objectId);
+        });
+
+        app.ports.sendSimulationCommand.subscribe((command) => {
+            console.log('Simulation command:', command);
+            switch (command) {
+                case 'start':
+                    renderer.startSimulation();
+                    break;
+                case 'pause':
+                    renderer.pauseSimulation();
+                    break;
+                case 'reset':
+                    renderer.resetSimulation();
+                    break;
+            }
+        });
+
+        app.ports.sendTransformModeToThreeJs.subscribe((mode) => {
+            console.log('Transform mode:', mode);
+            renderer.setTransformMode(mode);
+        });
+
+        console.log('Elm and Three.js integration initialized');
+    </script>
+</body>
+</html>
