@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import * as RAPIER from '@dimforge/rapier3d';
+import RAPIER from '@dimforge/rapier3d';
 
 class PhysicsRenderer {
     constructor(canvasContainer) {
@@ -25,9 +25,9 @@ class PhysicsRenderer {
         if (this.isInitialized) return;
 
         try {
-            // Initialize Rapier physics
-            await RAPIER.init();
-            this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
+            // Initialize Rapier physics - default export is already initialized
+            const gravity = { x: 0, y: -9.81, z: 0 };
+            this.world = new RAPIER.World(gravity);
 
             // Initialize Three.js
             this.setupRenderer();
@@ -80,6 +80,12 @@ class PhysicsRenderer {
         this.transformControls.setMode(this.currentTransformMode);
         this.transformControls.setSize(0.8);
         this.transformControls.addEventListener('objectChange', () => this.onTransformChange());
+
+        // Disable orbit controls when dragging transform controls
+        this.transformControls.addEventListener('dragging-changed', (event) => {
+            this.controls.enabled = !event.value;
+        });
+
         this.scene.add(this.transformControls);
 
         // Add mouse event listeners for object selection
@@ -210,14 +216,15 @@ class PhysicsRenderer {
     }
 
     clearScene() {
-        // Remove all meshes from scene
+        // Remove all rigid bodies and meshes
         this.objects.forEach(obj => {
-            this.scene.remove(obj.mesh);
+            if (obj.rigidBody && this.world) {
+                this.world.removeRigidBody(obj.rigidBody);
+            }
+            if (obj.mesh) {
+                this.scene.remove(obj.mesh);
+            }
         });
-
-        // Clear physics world
-        this.world.bodies.clear();
-        this.world.colliders.clear();
 
         // Clear objects map
         this.objects.clear();
@@ -256,6 +263,7 @@ class PhysicsRenderer {
         this.animationId = requestAnimationFrame(this.animate);
 
         // Update physics
+        if (!this.world) return;
         this.world.step();
 
         // Sync Three.js meshes with physics bodies

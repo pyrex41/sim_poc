@@ -1,0 +1,65 @@
+{
+  "scene": {
+    "objects": {
+      "car1": {
+        "id": "car1",
+        "transform": {
+          "position": {"x": 0, "y": 1, "z": 0},
+          "rotation": {"x": 0, "y": 0, "z": 0},
+          "scale": {"x": 2, "y": 1, "z": 4}
+        },
+        "physicsProperties": {
+          "mass": 1500.0,
+          "friction": 0.7,
+          "restitution": 0.1
+        },
+        "visualProperties": {
+          "color": "#0047AB",
+          "shape": "Box"
+        },
+        "description": "blue corvette sports car with glossy metallic paint"
+      },
+      "pole1": {
+        "id": "pole1",
+        "transform": {
+          "position": {"x": 5, "y": 4, "z": 0},
+          "rotation": {"x": 0, "y": 0, "z": 0},
+          "scale": {"x": 0.5, "y": 8, "z": 0.5}
+        },
+        "physicsProperties": {
+          "mass": 100.0,
+          "friction": 0.6,
+          "restitution": 0.2
+        },
+        "visualProperties": {
+          "color": "#808080",
+          "shape": "Cylinder"
+        },
+        "description": "street light pole, galvanized steel, weathered finish"
+      },
+      "ball1": {
+        "id": "ball1",
+        "transform": {
+          "position": {"x": -3, "y": 2, "z": 0},
+          "rotation": {"x": 0, "y": 0, "z": 0},
+          "scale": {"x": 1, "y": 1, "z": 1}
+        },
+        "physicsProperties": {
+          "mass": 0.45,
+          "friction": 0.4,
+          "restitution": 0.8
+        },
+        "visualProperties": {
+          "color": "#FFFFFF",
+          "shape": "Sphere"
+        },
+        "description": "soccer ball with traditional black and white pentagon pattern"
+      }
+    }
+  },
+  "duration": 3.0,
+  "fps": 30,
+  "resolution": [1280, 720],
+  "quality": "draft",
+  "scene_context": "outdoor scene at sunset with warm lighting"
+}

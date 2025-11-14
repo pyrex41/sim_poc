@@ -2,6 +2,7 @@ port module Main exposing (main)
 
 import Browser
 import Browser.Events
+import Browser.Navigation as Nav
 import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -9,6 +10,11 @@ import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
+import Route exposing (Route)
+import Url exposing (Url)
+import Video
+import VideoGallery
+import SimulationGallery
 
 
 -- MAIN
@@ -16,11 +22,13 @@ import Json.Encode as Encode
 
 main : Program () Model Msg
 main =
-    Browser.element
+    Browser.application
         { init = init
         , update = update
         , view = view
         , subscriptions = subscriptions
+        , onUrlChange = UrlChanged
+        , onUrlRequest = LinkClicked
         }
 
 
@@ -28,13 +36,19 @@ main =
 
 
 type alias Model =
-    { scene : Scene
+    { key : Nav.Key
+    , url : Url
+    , route : Maybe Route
+    , scene : Scene
     , uiState : UiState
     , simulationState : SimulationState
     , initialScene : Maybe Scene
     , history : List Scene
     , future : List Scene
     , ctrlPressed : Bool
+    , videoModel : Video.Model
+    , galleryModel : VideoGallery.Model
+    , simulationGalleryModel : SimulationGallery.Model
     }
 
 
@@ -70,6 +84,7 @@ type alias PhysicsObject =
     , transform : Transform
     , physicsProperties : PhysicsProperties
     , visualProperties : VisualProperties
+    , description : Maybe String
     }
 
 
@@ -106,17 +121,40 @@ type Shape
     | Cylinder
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
-    ( { scene = { objects = Dict.empty, selectedObject = Nothing }
+init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
+init _ url key =
+    let
+        ( videoModel, videoCmd ) =
+            Video.init
+
+        ( galleryModel, galleryCmd ) =
+            VideoGallery.init
+
+        ( simulationGalleryModel, simulationGalleryCmd ) =
+            SimulationGallery.init
+
+        route =
+            Route.fromUrl url
+    in
+    ( { key = key
+      , url = url
+      , route = route
+      , scene = { objects = Dict.empty, selectedObject = Nothing }
       , uiState = { textInput = "", isGenerating = False, errorMessage = Nothing, refineInput = "", isRefining = False }
       , simulationState = { isRunning = False, transformMode = Translate }
       , initialScene = Nothing
       , history = []
       , future = []
       , ctrlPressed = False
+      , videoModel = videoModel
+      , galleryModel = galleryModel
+      , simulationGalleryModel = simulationGalleryModel
       }
-    , Cmd.none
+    , Cmd.batch
+        [ Cmd.map VideoMsg videoCmd
+        , Cmd.map GalleryMsg galleryCmd
+        , Cmd.map SimulationGalleryMsg simulationGalleryCmd
+        ]
     )
 
 
@@ -125,6 +163,8 @@ init _ =
 
 type Msg
     = NoOp
+    | LinkClicked Browser.UrlRequest
+    | UrlChanged Url
     | UpdateTextInput String
     | GenerateScene
     | SceneGenerated Encode.Value
@@ -132,6 +172,7 @@ type Msg
     | ObjectClicked String
     | UpdateObjectTransform String Transform
     | UpdateObjectProperty String String Float
+    | UpdateObjectDescription String String
     | ToggleSimulation
     | ResetSimulation
     | SetTransformMode TransformMode
@@ -148,6 +189,9 @@ type Msg
     | ClearError
     | SelectionChanged (Maybe String)
     | TransformUpdated { objectId : String, transform : Transform }
+    | VideoMsg Video.Msg
+    | GalleryMsg VideoGallery.Msg
+    | SimulationGalleryMsg SimulationGallery.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -155,6 +199,19 @@ update msg model =
     case msg of
         NoOp ->
             ( model, Cmd.none )
+
+        LinkClicked urlRequest ->
+            case urlRequest of
+                Browser.Internal url ->
+                    ( model, Nav.pushUrl model.key (Url.toString url) )
+
+                Browser.External href ->
+                    ( model, Nav.load href )
+
+        UrlChanged url ->
+            ( { model | url = url, route = Route.fromUrl url }
+            , Cmd.none
+            )
 
         UpdateTextInput text ->
             let
@@ -265,6 +322,29 @@ update msg model =
 
                         _ ->
                             props
+
+                updatedScene =
+                    { scene
+                        | objects = Dict.map (\_ obj -> updateObject obj) scene.objects
+                    }
+
+                modelWithHistory =
+                    saveToHistory model
+            in
+            ( { modelWithHistory | scene = updatedScene }
+            , sendSceneToThreeJs (sceneEncoder updatedScene)
+            )
+
+        UpdateObjectDescription objectId desc ->
+            let
+                scene =
+                    model.scene
+
+                updateObject obj =
+                    if obj.id == objectId then
+                        { obj | description = if String.isEmpty desc then Nothing else Just desc }
+                    else
+                        obj
 
                 updatedScene =
                     { scene
@@ -492,7 +572,7 @@ update msg model =
             ( model, saveSceneToStorage (sceneEncoder model.scene) )
 
         LoadScene ->
-            ( model, loadSceneFromStorage )
+            ( model, loadSceneFromStorage () )
 
         SceneLoadedFromStorage sceneValue ->
             case Decode.decodeValue sceneDecoder sceneValue of
@@ -584,6 +664,27 @@ update msg model =
             , Cmd.none
             )
 
+        VideoMsg videoMsg ->
+            let
+                ( updatedVideoModel, videoCmd ) =
+                    Video.update videoMsg model.videoModel
+            in
+            ( { model | videoModel = updatedVideoModel }, Cmd.map VideoMsg videoCmd )
+
+        GalleryMsg galleryMsg ->
+            let
+                ( updatedGalleryModel, galleryCmd ) =
+                    VideoGallery.update galleryMsg model.galleryModel
+            in
+            ( { model | galleryModel = updatedGalleryModel }, Cmd.map GalleryMsg galleryCmd )
+
+        SimulationGalleryMsg simulationGalleryMsg ->
+            let
+                ( updatedSimulationGalleryModel, simulationGalleryCmd ) =
+                    SimulationGallery.update simulationGalleryMsg model.simulationGalleryModel
+            in
+            ( { model | simulationGalleryModel = updatedSimulationGalleryModel }, Cmd.map SimulationGalleryMsg simulationGalleryCmd )
+
 
 -- HISTORY MANAGEMENT
 
@@ -599,13 +700,68 @@ saveToHistory model =
 -- VIEW
 
 
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
-    div [ class "app-container" ]
-        [ viewLeftPanel model
-        , viewCanvasContainer
-        , viewRightPanel model
-        , viewBottomBar model
+    { title = "Physics Simulator & Video Models"
+    , body =
+        [ div []
+            [ viewTabs model
+            , case model.route of
+                Just Route.Physics ->
+                    div [ class "app-container" ]
+                        [ viewLeftPanel model
+                        , viewCanvasContainer
+                        , viewRightPanel model
+                        , viewBottomBar model
+                        ]
+
+                Just Route.Videos ->
+                    Video.view model.videoModel
+                        |> Html.map VideoMsg
+
+                Just Route.Gallery ->
+                    VideoGallery.view model.galleryModel
+                        |> Html.map GalleryMsg
+
+                Just Route.SimulationGallery ->
+                    SimulationGallery.view model.simulationGalleryModel
+                        |> Html.map SimulationGalleryMsg
+
+                Nothing ->
+                    div [ class "app-container" ]
+                        [ viewLeftPanel model
+                        , viewCanvasContainer
+                        , viewRightPanel model
+                        , viewBottomBar model
+                        ]
+            ]
+        ]
+    }
+
+
+viewTabs : Model -> Html Msg
+viewTabs model =
+    div [ class "tabs" ]
+        [ a
+            [ href "/videos"
+            , class (if model.route == Just Route.Videos then "active" else "")
+            ]
+            [ text "Video Models" ]
+        , a
+            [ href "/gallery"
+            , class (if model.route == Just Route.Gallery then "active" else "")
+            ]
+            [ text "Video Gallery" ]
+        , a
+            [ href "/simulations"
+            , class (if model.route == Just Route.SimulationGallery then "active" else "")
+            ]
+            [ text "Simulation Gallery" ]
+        , a
+            [ href "/physics"
+            , class (if model.route == Just Route.Physics then "active" else "")
+            ]
+            [ text "Physics Simulator" ]
         ]
 
 
@@ -750,6 +906,19 @@ viewObjectProperties object =
             , div [] [ text ("Color: " ++ object.visualProperties.color) ]
             , div [] [ text ("Shape: " ++ shapeToString object.visualProperties.shape) ]
             ]
+        , div [ class "property-section" ]
+            [ h4 [] [ text "Description (for Genesis)" ]
+            , div [ class "description-help" ]
+                [ text "Describe what this object should look like (e.g., 'blue corvette', 'wooden table')" ]
+            , textarea
+                [ class "description-input"
+                , placeholder "e.g., blue corvette, light pole, wooden coffee table..."
+                , Html.Attributes.value (Maybe.withDefault "" object.description)
+                , onInput (\desc -> UpdateObjectDescription object.id desc)
+                , rows 3
+                ]
+                []
+            ]
         ]
 
 
@@ -815,12 +984,31 @@ shapeToString shape =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
+    let
+        gallerySub =
+            case model.route of
+                Just Route.Gallery ->
+                    Sub.map GalleryMsg (VideoGallery.subscriptions model.galleryModel)
+
+                _ ->
+                    Sub.none
+
+        simulationGallerySub =
+            case model.route of
+                Just Route.SimulationGallery ->
+                    Sub.map SimulationGalleryMsg (SimulationGallery.subscriptions model.simulationGalleryModel)
+
+                _ ->
+                    Sub.none
+    in
     Sub.batch
         [ sendSelectionToElm SelectionChanged
         , sendTransformUpdateToElm TransformUpdated
         , sceneLoadedFromStorage SceneLoadedFromStorage
         , Browser.Events.onKeyDown (Decode.map KeyDown keyDecoder)
         , Browser.Events.onKeyUp (Decode.map KeyUp keyDecoder)
+        , gallerySub
+        , simulationGallerySub
         ]
 
 
@@ -871,11 +1059,12 @@ sceneDecoder =
 
 physicsObjectDecoder : Decode.Decoder PhysicsObject
 physicsObjectDecoder =
-    Decode.map4 PhysicsObject
+    Decode.map5 PhysicsObject
         (Decode.field "id" Decode.string)
         (Decode.field "transform" transformDecoder)
         (Decode.field "physicsProperties" physicsPropertiesDecoder)
         (Decode.field "visualProperties" visualPropertiesDecoder)
+        (Decode.maybe (Decode.field "description" Decode.string))
 
 
 transformDecoder : Decode.Decoder Transform
@@ -935,7 +1124,7 @@ shapeDecoder =
 generateSceneRequest : String -> Cmd Msg
 generateSceneRequest prompt =
     Http.post
-        { url = "http://127.0.0.1:8000/api/generate"
+        { url = "/api/generate"
         , body = Http.jsonBody (Encode.object [ ( "prompt", Encode.string prompt ) ])
         , expect = Http.expectJson SceneGeneratedResult sceneDecoder
         }
@@ -944,7 +1133,7 @@ generateSceneRequest prompt =
 refineSceneRequest : Scene -> String -> Cmd Msg
 refineSceneRequest scene prompt =
     Http.post
-        { url = "http://127.0.0.1:8000/api/refine"
+        { url = "/api/refine"
         , body = Http.jsonBody (Encode.object [ ( "scene", sceneEncoder scene ), ( "prompt", Encode.string prompt ) ])
         , expect = Http.expectJson SceneRefined sceneDecoder
         }
@@ -963,12 +1152,23 @@ sceneEncoder scene =
 
 physicsObjectEncoder : PhysicsObject -> Encode.Value
 physicsObjectEncoder obj =
-    Encode.object
-        [ ( "id", Encode.string obj.id )
-        , ( "transform", transformEncoder obj.transform )
-        , ( "physicsProperties", physicsPropertiesEncoder obj.physicsProperties )
-        , ( "visualProperties", visualPropertiesEncoder obj.visualProperties )
-        ]
+    let
+        baseFields =
+            [ ( "id", Encode.string obj.id )
+            , ( "transform", transformEncoder obj.transform )
+            , ( "physicsProperties", physicsPropertiesEncoder obj.physicsProperties )
+            , ( "visualProperties", visualPropertiesEncoder obj.visualProperties )
+            ]
+
+        descriptionField =
+            case obj.description of
+                Just desc ->
+                    [ ( "description", Encode.string desc ) ]
+
+                Nothing ->
+                    []
+    in
+    Encode.object (baseFields ++ descriptionField)
 
 
 transformEncoder : Transform -> Encode.Value
