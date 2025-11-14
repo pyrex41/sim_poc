@@ -1,12 +1,13 @@
 module Route exposing (Route(..), fromUrl, toHref)
 
 import Url exposing (Url)
-import Url.Parser as Parser exposing (Parser, oneOf, s)
+import Url.Parser as Parser exposing (Parser, oneOf, s, int, (</>))
 
 
 type Route
     = Physics
     | Videos
+    | VideoDetail Int
     | Gallery
     | SimulationGallery
 
@@ -17,6 +18,7 @@ parser =
         [ Parser.map Videos Parser.top
         , Parser.map Physics (s "physics")
         , Parser.map Videos (s "videos")
+        , Parser.map VideoDetail (s "video" </> int)
         , Parser.map Gallery (s "gallery")
         , Parser.map SimulationGallery (s "simulations")
         ]
@@ -35,6 +37,9 @@ toHref route =
 
         Videos ->
             "/videos"
+
+        VideoDetail id ->
+            "/video/" ++ String.fromInt id
 
         Gallery ->
             "/gallery"

@@ -11,8 +11,10 @@ import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
 import Route exposing (Route)
+import Task
 import Url exposing (Url)
 import Video
+import VideoDetail
 import VideoGallery
 import SimulationGallery
 
@@ -47,6 +49,7 @@ type alias Model =
     , future : List Scene
     , ctrlPressed : Bool
     , videoModel : Video.Model
+    , videoDetailModel : Maybe VideoDetail.Model
     , galleryModel : VideoGallery.Model
     , simulationGalleryModel : SimulationGallery.Model
     }
@@ -147,6 +150,7 @@ init _ url key =
       , future = []
       , ctrlPressed = False
       , videoModel = videoModel
+      , videoDetailModel = Nothing
       , galleryModel = galleryModel
       , simulationGalleryModel = simulationGalleryModel
       }
@@ -190,6 +194,7 @@ type Msg
     | SelectionChanged (Maybe String)
     | TransformUpdated { objectId : String, transform : Transform }
     | VideoMsg Video.Msg
+    | VideoDetailMsg VideoDetail.Msg
     | GalleryMsg VideoGallery.Msg
     | SimulationGalleryMsg SimulationGallery.Msg
 
@@ -209,8 +214,33 @@ update msg model =
                     ( model, Nav.load href )
 
         UrlChanged url ->
-            ( { model | url = url, route = Route.fromUrl url }
-            , Cmd.none
+            let
+                newRoute =
+                    Route.fromUrl url
+
+                ( videoDetailModel, videoDetailCmd ) =
+                    case newRoute of
+                        Just (Route.VideoDetail videoId) ->
+                            let
+                                ( detailModel, detailCmd ) =
+                                    VideoDetail.init videoId
+                            in
+                            ( Just detailModel, Cmd.map VideoDetailMsg detailCmd )
+
+                        _ ->
+                            ( Nothing, Cmd.none )
+
+                -- Refresh gallery when navigating to it
+                galleryCmd =
+                    case newRoute of
+                        Just Route.Gallery ->
+                            Task.perform (always (GalleryMsg VideoGallery.FetchVideos)) (Task.succeed ())
+
+                        _ ->
+                            Cmd.none
+            in
+            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel }
+            , Cmd.batch [ videoDetailCmd, galleryCmd ]
             )
 
         UpdateTextInput text ->
@@ -668,8 +698,33 @@ update msg model =
             let
                 ( updatedVideoModel, videoCmd ) =
                     Video.update videoMsg model.videoModel
+
+                -- Handle navigation to video detail page
+                navCmd =
+                    case videoMsg of
+                        Video.NavigateToVideo videoId ->
+                            Nav.pushUrl model.key (Route.toHref (Route.VideoDetail videoId))
+
+                        _ ->
+                            Cmd.none
             in
-            ( { model | videoModel = updatedVideoModel }, Cmd.map VideoMsg videoCmd )
+            ( { model | videoModel = updatedVideoModel }
+            , Cmd.batch [ Cmd.map VideoMsg videoCmd, navCmd ]
+            )
+
+        VideoDetailMsg videoDetailMsg ->
+            case model.videoDetailModel of
+                Just videoDetailModel ->
+                    let
+                        ( updatedVideoDetailModel, videoDetailCmd ) =
+                            VideoDetail.update videoDetailMsg videoDetailModel
+                    in
+                    ( { model | videoDetailModel = Just updatedVideoDetailModel }
+                    , Cmd.map VideoDetailMsg videoDetailCmd
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         GalleryMsg galleryMsg ->
             let
@@ -718,6 +773,15 @@ view model =
                 Just Route.Videos ->
                     Video.view model.videoModel
                         |> Html.map VideoMsg
+
+                Just (Route.VideoDetail _) ->
+                    case model.videoDetailModel of
+                        Just videoDetailModel ->
+                            VideoDetail.view videoDetailModel
+                                |> Html.map VideoDetailMsg
+
+                        Nothing ->
+                            div [ class "loading" ] [ text "Loading..." ]
 
                 Just Route.Gallery ->
                     VideoGallery.view model.galleryModel
@@ -1000,6 +1064,14 @@ subscriptions model =
 
                 _ ->
                     Sub.none
+
+        videoDetailSub =
+            case ( model.route, model.videoDetailModel ) of
+                ( Just (Route.VideoDetail _), Just videoDetailModel ) ->
+                    Sub.map VideoDetailMsg (VideoDetail.subscriptions videoDetailModel)
+
+                _ ->
+                    Sub.none
     in
     Sub.batch
         [ sendSelectionToElm SelectionChanged
@@ -1009,6 +1081,7 @@ subscriptions model =
         , Browser.Events.onKeyUp (Decode.map KeyUp keyDecoder)
         , gallerySub
         , simulationGallerySub
+        , videoDetailSub
         ]
 
 

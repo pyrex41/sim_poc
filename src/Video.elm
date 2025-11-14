@@ -1,4 +1,4 @@
-module Video exposing (Model, Msg, init, update, view)
+module Video exposing (Model, Msg(..), init, update, view)
 
 import Browser.Dom as Dom
 import Html exposing (..)
@@ -8,6 +8,7 @@ import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
 import Task
+import Process
 
 
 -- MODEL
@@ -25,6 +26,7 @@ type alias Model =
     , requiredFields : List String
     , pollingVideoId : Maybe Int
     , videoStatus : String
+    , selectedVersion : Maybe String
     }
 
 
@@ -72,6 +74,7 @@ init =
       , requiredFields = []
       , pollingVideoId = Nothing
       , videoStatus = ""
+      , selectedVersion = Nothing
       }
     , fetchModels "text-to-video"
     )
@@ -86,11 +89,12 @@ type Msg
     | SelectCollection String
     | ModelsFetched (Result Http.Error (List VideoModel))
     | SelectModel String
-    | SchemaFetched String (Result Http.Error { schema : Decode.Value, required : List String })
+    | SchemaFetched String (Result Http.Error { schema : Decode.Value, required : List String, version : Maybe String })
     | UpdateParameter String String
     | UpdateSearch String
     | GenerateVideo
     | VideoGenerated (Result Http.Error { video_id : Int, status : String })
+    | NavigateToVideo Int
     | PollVideoStatus
     | VideoStatusFetched (Result Http.Error VideoRecord)
     | ScrollToModel (Result Dom.Error ())
@@ -106,7 +110,7 @@ update msg model =
             ( model, fetchModels model.selectedCollection )
 
         SelectCollection collection ->
-            ( { model | selectedCollection = collection, selectedModel = Nothing, outputVideo = Nothing, requiredFields = [] }
+            ( { model | selectedCollection = collection, selectedModel = Nothing, outputVideo = Nothing, requiredFields = [], selectedVersion = Nothing }
             , fetchModels collection
             )
 
@@ -136,7 +140,7 @@ update msg model =
 
         SchemaFetched modelId result ->
             case result of
-                Ok { schema, required } ->
+                Ok { schema, required, version } ->
                     let
                         params =
                             case Decode.decodeValue (Decode.keyValuePairs Decode.value) schema of
@@ -146,13 +150,13 @@ update msg model =
                                 Err _ ->
                                     [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ]
                     in
-                    ( { model | parameters = params, requiredFields = required }
+                    ( { model | parameters = params, requiredFields = required, selectedVersion = version }
                     , Task.attempt ScrollToModel (Dom.getElement "selected-model-section" |> Task.andThen (\info -> Dom.setViewport 0 info.element.y))
                     )
 
                 Err _ ->
                     -- Fallback to default prompt parameter
-                    ( { model | parameters = [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ], requiredFields = [ "prompt" ] }
+                    ( { model | parameters = [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ], requiredFields = [ "prompt" ], selectedVersion = Nothing }
                     , Task.attempt ScrollToModel (Dom.getElement "selected-model-section" |> Task.andThen (\info -> Dom.setViewport 0 info.element.y))
                     )
 
@@ -170,7 +174,7 @@ update msg model =
             case model.selectedModel of
                 Just selectedModel ->
                     ( { model | isGenerating = True, error = Nothing }
-                    , generateVideo selectedModel.id model.parameters model.selectedCollection
+                    , generateVideo selectedModel.id model.parameters model.selectedCollection model.selectedVersion
                     )
 
                 Nothing ->
@@ -185,11 +189,15 @@ update msg model =
                         , videoStatus = response.status
                         , error = Nothing
                       }
-                    , Cmd.none
+                    , Task.perform (\_ -> NavigateToVideo response.video_id) (Task.succeed ())
                     )
 
                 Err error ->
                     ( { model | isGenerating = False, error = Just (httpErrorToString error) }, Cmd.none )
+
+        NavigateToVideo _ ->
+            -- This is handled in Main.elm for navigation
+            ( model, Cmd.none )
 
         ScrollToModel _ ->
             ( model, Cmd.none )
@@ -563,19 +571,20 @@ fetchModelSchema modelId =
             }
 
 
-schemaResponseDecoder : Decode.Decoder { schema : Decode.Value, required : List String }
+schemaResponseDecoder : Decode.Decoder { schema : Decode.Value, required : List String, version : Maybe String }
 schemaResponseDecoder =
-    Decode.map2 (\s r -> { schema = s, required = r })
+    Decode.map3 (\s r v -> { schema = s, required = r, version = v })
         (Decode.field "input_schema" Decode.value)
         (Decode.oneOf
             [ Decode.field "required" (Decode.list Decode.string)
             , Decode.succeed []
             ]
         )
+        (Decode.maybe (Decode.field "version" Decode.string))
 
 
-generateVideo : String -> List Parameter -> String -> Cmd Msg
-generateVideo modelId parameters collection =
+generateVideo : String -> List Parameter -> String -> Maybe String -> Cmd Msg
+generateVideo modelId parameters collection maybeVersion =
     let
         encodeParameterValue : Parameter -> Maybe ( String, Encode.Value )
         encodeParameterValue param =
@@ -615,17 +624,24 @@ generateVideo modelId parameters collection =
 
         inputObject =
             Encode.object (List.filterMap encodeParameterValue parameters)
+
+        -- Build request object with optional version field
+        requestFields =
+            [ ( "model_id", Encode.string modelId )
+            , ( "input", inputObject )
+            , ( "collection", Encode.string collection )
+            ]
+                ++ (case maybeVersion of
+                        Just version ->
+                            [ ( "version", Encode.string version ) ]
+
+                        Nothing ->
+                            []
+                   )
     in
     Http.post
         { url = "/api/run-video-model"
-        , body =
-            Http.jsonBody
-                (Encode.object
-                    [ ( "model_id", Encode.string modelId )
-                    , ( "input", inputObject )
-                    , ( "collection", Encode.string collection )
-                    ]
-                )
+        , body = Http.jsonBody (Encode.object requestFields)
         , expect = Http.expectJson VideoGenerated videoResponseDecoder
         }
 
