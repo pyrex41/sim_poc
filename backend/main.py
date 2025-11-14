@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 import uvicorn
 import os
 import hashlib
@@ -492,8 +492,9 @@ class VideoModel(BaseModel):
 
 class RunVideoRequest(BaseModel):
     model_id: str
-    input: Dict[str, str]  # For now, simple dict; extend for files later
+    input: Dict[str, Any]  # Accepts strings, numbers, bools, etc.
     collection: Optional[str] = None
+    version: Optional[str] = None  # Model version ID for reliable predictions
 
 class GenesisRenderRequest(BaseModel):
     scene: Scene
@@ -848,6 +849,7 @@ async def api_get_model_schema(model_owner: str, model_name: str):
 
         # Extract input schema from latest version
         latest_version = data.get("latest_version") or {}
+        version_id = latest_version.get("id")
         openapi_schema = latest_version.get("openapi_schema") or {}
         input_schema = openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
 
@@ -855,11 +857,11 @@ async def api_get_model_schema(model_owner: str, model_name: str):
         properties = input_schema.get("properties", {})
         required_fields = input_schema.get("required", [])
 
-        # Also extract default values from the schema if they exist
-        # OpenAPI schemas can have default values at the property level
+        # Return schema with version ID for reliable predictions
         return {
             "input_schema": properties,
-            "required": required_fields
+            "required": required_fields,
+            "version": version_id  # Include version ID for predictions
         }
     except Exception as e:
         print(f"Error fetching model schema: {str(e)}")
@@ -999,16 +1001,25 @@ async def api_run_video_model(request: RunVideoRequest, background_tasks: Backgr
                 converted_input[key] = value
 
         # Create prediction using HTTP API
-        payload = {
-            "input": converted_input
-        }
+        # Use version-based endpoint if version provided (more reliable)
+        if request.version:
+            payload = {
+                "version": request.version,
+                "input": converted_input
+            }
+            url = "https://api.replicate.com/v1/predictions"
+            print(f"DEBUG: Sending to Replicate API (version-based):")
+            print(f"  Model: {request.model_id}")
+            print(f"  Version: {request.version}")
+        else:
+            payload = {
+                "input": converted_input
+            }
+            url = f"https://api.replicate.com/v1/models/{request.model_id}/predictions"
+            print(f"DEBUG: Sending to Replicate API (model-based):")
+            print(f"  Model: {request.model_id}")
 
-        print(f"DEBUG: Sending to Replicate API:")
-        print(f"  Model: {request.model_id}")
         print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
-
-        # Use the model predictions endpoint
-        url = f"https://api.replicate.com/v1/models/{request.model_id}/predictions"
         response = requests.post(url, headers=headers, json=payload, timeout=60)
 
         # Log the detailed error if request fails

@@ -1,4 +1,4 @@
-module VideoGallery exposing (Model, Msg, init, update, view, subscriptions)
+module VideoGallery exposing (Model, Msg(..), init, update, view, subscriptions)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
