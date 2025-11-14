@@ -1,0 +1,676 @@
+module Video exposing (Model, Msg, init, update, view)
+
+import Browser.Dom as Dom
+import Html exposing (..)
+import Html.Attributes exposing (..)
+import Html.Events exposing (..)
+import Http
+import Json.Decode as Decode
+import Json.Encode as Encode
+import Task
+
+
+-- MODEL
+
+
+type alias Model =
+    { models : List VideoModel
+    , selectedModel : Maybe VideoModel
+    , parameters : List Parameter
+    , isGenerating : Bool
+    , outputVideo : Maybe String
+    , error : Maybe String
+    , searchQuery : String
+    , selectedCollection : String
+    , requiredFields : List String
+    , pollingVideoId : Maybe Int
+    , videoStatus : String
+    }
+
+
+type alias Parameter =
+    { key : String
+    , value : String
+    , paramType : String
+    , enum : Maybe (List String)
+    , description : Maybe String
+    , default : Maybe String
+    , minimum : Maybe Float
+    , maximum : Maybe Float
+    , format : Maybe String
+    }
+
+
+type alias VideoModel =
+    { id : String
+    , name : String
+    , description : String
+    , inputSchema : Maybe Decode.Value
+    }
+
+
+type alias VideoRecord =
+    { id : Int
+    , prompt : String
+    , videoUrl : String
+    , modelId : String
+    , createdAt : String
+    , status : String
+    }
+
+
+init : ( Model, Cmd Msg )
+init =
+    ( { models = []
+      , selectedModel = Nothing
+      , parameters = []
+      , isGenerating = False
+      , outputVideo = Nothing
+      , error = Nothing
+      , searchQuery = ""
+      , selectedCollection = "text-to-video"
+      , requiredFields = []
+      , pollingVideoId = Nothing
+      , videoStatus = ""
+      }
+    , fetchModels "text-to-video"
+    )
+
+
+-- UPDATE
+
+
+type Msg
+    = NoOp
+    | FetchModels
+    | SelectCollection String
+    | ModelsFetched (Result Http.Error (List VideoModel))
+    | SelectModel String
+    | SchemaFetched String (Result Http.Error { schema : Decode.Value, required : List String })
+    | UpdateParameter String String
+    | UpdateSearch String
+    | GenerateVideo
+    | VideoGenerated (Result Http.Error { video_id : Int, status : String })
+    | PollVideoStatus
+    | VideoStatusFetched (Result Http.Error VideoRecord)
+    | ScrollToModel (Result Dom.Error ())
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    case msg of
+        NoOp ->
+            ( model, Cmd.none )
+
+        FetchModels ->
+            ( model, fetchModels model.selectedCollection )
+
+        SelectCollection collection ->
+            ( { model | selectedCollection = collection, selectedModel = Nothing, outputVideo = Nothing, requiredFields = [] }
+            , fetchModels collection
+            )
+
+        ModelsFetched result ->
+            case result of
+                Ok models ->
+                    ( { model | models = models, error = Nothing }, Cmd.none )
+
+                Err error ->
+                    ( { model | models = demoModels, error = Just ("Failed to fetch models: " ++ httpErrorToString error) }, Cmd.none )
+
+        SelectModel modelId ->
+            let
+                selected =
+                    model.models
+                        |> List.filter (\m -> m.id == modelId)
+                        |> List.head
+            in
+            case selected of
+                Just selectedModel ->
+                    ( { model | selectedModel = selected, outputVideo = Nothing, error = Nothing, parameters = [] }
+                    , fetchModelSchema selectedModel.id
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        SchemaFetched modelId result ->
+            case result of
+                Ok { schema, required } ->
+                    let
+                        params =
+                            case Decode.decodeValue (Decode.keyValuePairs Decode.value) schema of
+                                Ok properties ->
+                                    List.map (parseParameter) properties
+
+                                Err _ ->
+                                    [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ]
+                    in
+                    ( { model | parameters = params, requiredFields = required }
+                    , Task.attempt ScrollToModel (Dom.getElement "selected-model-section" |> Task.andThen (\info -> Dom.setViewport 0 info.element.y))
+                    )
+
+                Err _ ->
+                    -- Fallback to default prompt parameter
+                    ( { model | parameters = [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ], requiredFields = [ "prompt" ] }
+                    , Task.attempt ScrollToModel (Dom.getElement "selected-model-section" |> Task.andThen (\info -> Dom.setViewport 0 info.element.y))
+                    )
+
+        UpdateParameter key value ->
+            let
+                updatedParams =
+                    updateParameterInList key value model.parameters
+            in
+            ( { model | parameters = updatedParams }, Cmd.none )
+
+        UpdateSearch query ->
+            ( { model | searchQuery = query }, Cmd.none )
+
+        GenerateVideo ->
+            case model.selectedModel of
+                Just selectedModel ->
+                    ( { model | isGenerating = True, error = Nothing }
+                    , generateVideo selectedModel.id model.parameters model.selectedCollection
+                    )
+
+                Nothing ->
+                    ( { model | error = Just "No model selected" }, Cmd.none )
+
+        VideoGenerated result ->
+            case result of
+                Ok response ->
+                    ( { model
+                        | isGenerating = False
+                        , pollingVideoId = Just response.video_id
+                        , videoStatus = response.status
+                        , error = Nothing
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model | isGenerating = False, error = Just (httpErrorToString error) }, Cmd.none )
+
+        ScrollToModel _ ->
+            ( model, Cmd.none )
+
+        PollVideoStatus ->
+            ( model, Cmd.none )
+
+        VideoStatusFetched result ->
+            case result of
+                Ok videoRecord ->
+                    ( { model
+                        | videoStatus = videoRecord.status
+                        , outputVideo =
+                            if videoRecord.status == "completed" then
+                                Just videoRecord.videoUrl
+                            else
+                                model.outputVideo
+                        , isGenerating = videoRecord.status /= "completed" && videoRecord.status /= "failed"
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model | error = Just (httpErrorToString error) }, Cmd.none )
+
+
+-- HELPER FUNCTIONS
+
+
+parseParameter : ( String, Decode.Value ) -> Parameter
+parseParameter ( key, value ) =
+    let
+        paramType =
+            Decode.decodeValue (Decode.at [ "type" ] Decode.string) value
+                |> Result.withDefault "string"
+
+        enumValues =
+            Decode.decodeValue (Decode.at [ "enum" ] (Decode.list Decode.string)) value
+                |> Result.toMaybe
+
+        description =
+            Decode.decodeValue (Decode.at [ "description" ] Decode.string) value
+                |> Result.toMaybe
+
+        default =
+            Decode.decodeValue (Decode.field "default" Decode.value) value
+                |> Result.toMaybe
+                |> Maybe.andThen
+                    (\v ->
+                        case Decode.decodeValue Decode.string v of
+                            Ok s ->
+                                Just s
+
+                            Err _ ->
+                                case Decode.decodeValue Decode.float v of
+                                    Ok f ->
+                                        Just (String.fromFloat f)
+
+                                    Err _ ->
+                                        case Decode.decodeValue Decode.int v of
+                                            Ok i ->
+                                                Just (String.fromInt i)
+
+                                            Err _ ->
+                                                Nothing
+                    )
+
+        minimum =
+            Decode.decodeValue (Decode.field "minimum" Decode.float) value
+                |> Result.toMaybe
+
+        maximum =
+            Decode.decodeValue (Decode.field "maximum" Decode.float) value
+                |> Result.toMaybe
+
+        format =
+            Decode.decodeValue (Decode.field "format" Decode.string) value
+                |> Result.toMaybe
+
+        initialValue =
+            Maybe.withDefault "" default
+    in
+    Parameter key initialValue paramType enumValues description default minimum maximum format
+
+
+getDefaultParameters : VideoModel -> List Parameter
+getDefaultParameters model =
+    case model.inputSchema of
+        Just schema ->
+            case Decode.decodeValue (Decode.keyValuePairs Decode.value) schema of
+                Ok properties ->
+                    List.map parseParameter properties
+
+                Err _ ->
+                    [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ]
+
+        Nothing ->
+            [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ]
+
+
+updateParameterInList : String -> String -> List Parameter -> List Parameter
+updateParameterInList key value params =
+    List.map
+        (\param ->
+            if param.key == key then
+                { param | value = value }
+
+            else
+                param
+        )
+        params
+
+
+-- VIEW
+
+
+view : Model -> Html Msg
+view model =
+    div [ class "video-page" ]
+        [ h1 [] [ text "Video Models Explorer" ]
+        , div [ class "collection-buttons" ]
+            [ button
+                [ onClick (SelectCollection "text-to-video")
+                , class (if model.selectedCollection == "text-to-video" then "collection-button active" else "collection-button")
+                ]
+                [ text "Text to Video" ]
+            , button
+                [ onClick (SelectCollection "image-to-video")
+                , class (if model.selectedCollection == "image-to-video" then "collection-button active" else "collection-button")
+                ]
+                [ text "Image to Video" ]
+            ]
+        , div [ class "search-section" ]
+            [ input
+                [ type_ "text"
+                , placeholder "Search video models..."
+                , value model.searchQuery
+                , onInput UpdateSearch
+                ]
+                []
+            , button [ onClick FetchModels, disabled (model.models /= []) ] [ text (if model.models == [] then "Loading..." else "Refresh Models") ]
+            ]
+        , if List.isEmpty model.models then
+            div [ class "loading-text" ] [ text "Loading models..." ]
+          else
+            div [ class "models-list" ]
+                (model.models
+                    |> List.filter (\m -> String.contains (String.toLower model.searchQuery) (String.toLower m.name))
+                    |> List.map viewModelOption
+                )
+        , case model.selectedModel of
+            Just selected ->
+                div [ class "selected-model", id "selected-model-section" ]
+                    [ h2 [] [ text selected.name ]
+                    , p [] [ text selected.description ]
+                    , div [ class "parameters-form-grid" ]
+                        (List.map (viewParameter model.isGenerating model.requiredFields) model.parameters)
+                    , button
+                        [ onClick GenerateVideo
+                        , disabled (hasEmptyRequiredParameters model.parameters model.requiredFields || model.isGenerating)
+                        , class "generate-button"
+                        ]
+                        [ text (if model.isGenerating then "Generating..." else "Generate Video") ]
+                    ]
+
+            Nothing ->
+                if not (List.isEmpty model.models) then
+                    div [] [ text "Select a model from the list above" ]
+                else
+                    text ""
+        , case model.outputVideo of
+            Just url ->
+                div [ class "video-output" ]
+                    [ video [ src url, controls True, attribute "width" "100%" ] [] ]
+
+            Nothing ->
+                text ""
+        , case model.error of
+            Just err ->
+                div [ class "error" ] [ text err ]
+
+            Nothing ->
+                text ""
+        ]
+
+
+viewModelOption : VideoModel -> Html Msg
+viewModelOption model =
+    div [ class "model-option", onClick (SelectModel model.id) ]
+        [ h3 [] [ text model.name ]
+        , p [] [ text model.description ]
+        ]
+
+
+viewParameter : Bool -> List String -> Parameter -> Html Msg
+viewParameter isDisabled requiredFields param =
+    let
+        isRequired =
+            List.member param.key requiredFields
+
+        labelText =
+            formatParameterName param.key ++ (if isRequired then " *" else "")
+
+        rangeText =
+            case ( param.minimum, param.maximum ) of
+                ( Just min, Just max ) ->
+                    " (" ++ String.fromFloat min ++ " - " ++ String.fromFloat max ++ ")"
+
+                ( Just min, Nothing ) ->
+                    " (min: " ++ String.fromFloat min ++ ")"
+
+                ( Nothing, Just max ) ->
+                    " (max: " ++ String.fromFloat max ++ ")"
+
+                ( Nothing, Nothing ) ->
+                    ""
+
+        fullDescription =
+            case param.description of
+                Just desc ->
+                    desc ++ rangeText
+
+                Nothing ->
+                    if rangeText /= "" then
+                        String.trim rangeText
+
+                    else
+                        ""
+
+        defaultHint =
+            case param.default of
+                Just def ->
+                    if fullDescription /= "" then
+                        fullDescription ++ " (default: " ++ def ++ ")"
+
+                    else
+                        "default: " ++ def
+
+                Nothing ->
+                    fullDescription
+
+        isImageField =
+            param.format == Just "uri" || String.contains "image" (String.toLower param.key)
+    in
+    div [ class "parameter-field" ]
+        [ label [ class "parameter-label" ]
+            [ text labelText
+            , if defaultHint /= "" then
+                span [ class "parameter-hint" ] [ text (" — " ++ defaultHint) ]
+
+              else
+                text ""
+            ]
+        , case param.enum of
+            Just options ->
+                select
+                    [ onInput (UpdateParameter param.key)
+                    , disabled isDisabled
+                    , class "parameter-select"
+                    , Html.Attributes.value param.value
+                    ]
+                    (option [ Html.Attributes.value "" ] [ text "-- Select --" ]
+                        :: List.map (\opt -> option [ Html.Attributes.value opt ] [ text opt ]) options
+                    )
+
+            Nothing ->
+                if isImageField then
+                    div [ class "image-upload-container" ]
+                        [ input
+                            [ type_ "file"
+                            , Html.Attributes.accept "image/*"
+                            , disabled isDisabled
+                            , class "parameter-file-input"
+                            , Html.Attributes.id ("file-" ++ param.key)
+                            ]
+                            []
+                        , input
+                            [ type_ "text"
+                            , placeholder "Or enter image URL..."
+                            , Html.Attributes.value param.value
+                            , onInput (UpdateParameter param.key)
+                            , disabled isDisabled
+                            , class "parameter-input"
+                            ]
+                            []
+                        ]
+
+                else if param.key == "prompt" then
+                    textarea
+                        [ placeholder (Maybe.withDefault "Enter prompt..." param.default)
+                        , Html.Attributes.value param.value
+                        , onInput (UpdateParameter param.key)
+                        , disabled isDisabled
+                        , class "parameter-input parameter-textarea"
+                        ]
+                        []
+
+                else
+                    input
+                        [ type_ (if param.paramType == "number" || param.paramType == "integer" then "number" else "text")
+                        , placeholder (Maybe.withDefault ("Enter " ++ param.key ++ "...") param.default)
+                        , Html.Attributes.value param.value
+                        , onInput (UpdateParameter param.key)
+                        , disabled isDisabled
+                        , class "parameter-input"
+                        ]
+                        []
+        ]
+
+
+formatParameterName : String -> String
+formatParameterName name =
+    name
+        |> String.split "_"
+        |> List.map capitalize
+        |> String.join " "
+
+
+capitalize : String -> String
+capitalize str =
+    case String.uncons str of
+        Just ( first, rest ) ->
+            String.fromChar (Char.toUpper first) ++ rest
+
+        Nothing ->
+            str
+
+
+hasEmptyRequiredParameters : List Parameter -> List String -> Bool
+hasEmptyRequiredParameters params requiredFields =
+    List.any
+        (\param ->
+            List.member param.key requiredFields && String.isEmpty (String.trim param.value)
+        )
+        params
+
+
+-- HTTP
+
+
+fetchModels : String -> Cmd Msg
+fetchModels collection =
+    Http.get
+        { url = "/api/video-models?collection=" ++ collection
+        , expect = Http.expectJson ModelsFetched (Decode.field "models" (Decode.list videoModelDecoder))
+        }
+
+
+fetchModelSchema : String -> Cmd Msg
+fetchModelSchema modelId =
+    let
+        -- Split modelId into owner/name
+        parts =
+            String.split "/" modelId
+
+        url =
+            case parts of
+                [ owner, name ] ->
+                    "/api/video-models/" ++ owner ++ "/" ++ name ++ "/schema"
+
+                _ ->
+                    ""
+    in
+    if String.isEmpty url then
+        Cmd.none
+
+    else
+        Http.get
+            { url = url
+            , expect = Http.expectJson (SchemaFetched modelId) schemaResponseDecoder
+            }
+
+
+schemaResponseDecoder : Decode.Decoder { schema : Decode.Value, required : List String }
+schemaResponseDecoder =
+    Decode.map2 (\s r -> { schema = s, required = r })
+        (Decode.field "input_schema" Decode.value)
+        (Decode.oneOf
+            [ Decode.field "required" (Decode.list Decode.string)
+            , Decode.succeed []
+            ]
+        )
+
+
+generateVideo : String -> List Parameter -> String -> Cmd Msg
+generateVideo modelId parameters collection =
+    let
+        encodeParameterValue : Parameter -> Maybe ( String, Encode.Value )
+        encodeParameterValue param =
+            if String.isEmpty (String.trim param.value) then
+                Nothing
+            else
+                let
+                    encoded =
+                        case param.paramType of
+                            "integer" ->
+                                case String.toInt param.value of
+                                    Just i ->
+                                        Encode.int i
+                                    Nothing ->
+                                        Encode.string param.value
+
+                            "number" ->
+                                case String.toFloat param.value of
+                                    Just f ->
+                                        Encode.float f
+                                    Nothing ->
+                                        Encode.string param.value
+
+                            "boolean" ->
+                                case String.toLower param.value of
+                                    "true" ->
+                                        Encode.bool True
+                                    "false" ->
+                                        Encode.bool False
+                                    _ ->
+                                        Encode.string param.value
+
+                            _ ->
+                                Encode.string param.value
+                in
+                Just ( param.key, encoded )
+
+        inputObject =
+            Encode.object (List.filterMap encodeParameterValue parameters)
+    in
+    Http.post
+        { url = "/api/run-video-model"
+        , body =
+            Http.jsonBody
+                (Encode.object
+                    [ ( "model_id", Encode.string modelId )
+                    , ( "input", inputObject )
+                    , ( "collection", Encode.string collection )
+                    ]
+                )
+        , expect = Http.expectJson VideoGenerated videoResponseDecoder
+        }
+
+videoResponseDecoder : Decode.Decoder { video_id : Int, status : String }
+videoResponseDecoder =
+    Decode.map2 (\id s -> { video_id = id, status = s })
+        (Decode.field "video_id" Decode.int)
+        (Decode.field "status" Decode.string)
+
+
+videoModelDecoder : Decode.Decoder VideoModel
+videoModelDecoder =
+    Decode.map4 VideoModel
+        (Decode.field "id" Decode.string)
+        (Decode.field "name" Decode.string)
+        (Decode.oneOf
+            [ Decode.field "description" Decode.string
+            , Decode.succeed "No description available"
+            ]
+        )
+        (Decode.maybe (Decode.field "input_schema" Decode.value))
+
+
+httpErrorToString : Http.Error -> String
+httpErrorToString error =
+    case error of
+        Http.BadUrl url ->
+            "Bad URL: " ++ url
+
+        Http.Timeout ->
+            "Request timed out"
+
+        Http.NetworkError ->
+            "Network error"
+
+        Http.BadStatus status ->
+            "Server error: " ++ String.fromInt status
+
+        Http.BadBody body ->
+            "Invalid response: " ++ body
+
+
+-- Demo models for fallback
+demoModels : List VideoModel
+demoModels =
+    [ VideoModel "demo/text-to-video" "Demo Text-to-Video" "Generates a demo video from text prompt" Nothing
+    , VideoModel "demo/image-to-video" "Demo Image-to-Video" "Generates a demo video from image and prompt" Nothing
+    ]

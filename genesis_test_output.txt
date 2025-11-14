@@ -1,0 +1,4 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100  1706    0     0  100  1706      0   1701  0:00:01  0:00:01 --:--:--  1702100  1706    0     0  100  1706      0    850  0:00:02  0:00:02 --:--:--   850100  1851  100   145  100  1706     58    685  0:00:02  0:00:02 --:--:--   743100  1851  100   145  100  1706     58    685  0:00:02  0:00:02 --:--:--   743
+{"detail":"Genesis not available. Install with: pip install genesis-world==0.3.7. Error: attempted relative import with no known parent package"}

@@ -147,6 +147,14 @@
             100% { transform: rotate(360deg); }
         }
 
+        .loading-text {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
         .property-section {
             margin: 20px 0;
             padding: 15px;
@@ -190,6 +198,582 @@
             margin-bottom: 10px;
             color: #666;
         }
+
+        .tabs {
+            display: flex;
+            background: #2c3e50;
+            border-bottom: 3px solid #34495e;
+            padding: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .tabs a {
+            padding: 16px 32px;
+            background: transparent;
+            color: #ecf0f1;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            border: none;
+            border-radius: 0;
+            transition: all 0.3s ease;
+            position: relative;
+            box-shadow: none;
+        }
+
+        .tabs a:hover {
+            background: #34495e;
+            color: #fff;
+            transform: none;
+        }
+
+        .tabs a.active {
+            background: #3498db;
+            color: white;
+            box-shadow: inset 0 -3px 0 #2980b9;
+        }
+
+        .video-page {
+            padding: 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            min-height: calc(100vh - 50px);
+        }
+
+        .video-page h1 {
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 32px;
+        }
+
+        .search-section {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .search-section input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .models-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .model-option {
+            background: white;
+            border: 2px solid #dee2e6;
+            border-radius: 12px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .model-option:hover {
+            border-color: #3498db;
+            transform: translateY(-4px);
+            box-shadow: 0 6px 16px rgba(52,152,219,0.2);
+        }
+
+        .model-option h3 {
+            color: #2c3e50;
+            margin: 0 0 10px 0;
+            font-size: 20px;
+        }
+
+        .model-option p {
+            color: #7f8c8d;
+            margin: 0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .selected-model {
+            background: white;
+            border: 2px solid #3498db;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 16px rgba(52,152,219,0.15);
+        }
+
+        .selected-model h2 {
+            color: #2c3e50;
+            margin-top: 0;
+        }
+
+        .video-output {
+            margin-top: 30px;
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+
+        .video-output video {
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .parameters-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .parameter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .parameter-field label {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 14px;
+            text-transform: capitalize;
+        }
+
+        .parameter-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.3s ease;
+        }
+
+        .parameter-input:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        .parameter-input:disabled {
+            background: #f8f9fa;
+            cursor: not-allowed;
+        }
+
+        .parameter-field textarea.parameter-input {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        /* Collection buttons */
+        .collection-buttons {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .collection-button {
+            flex: 1;
+            padding: 12px 24px;
+            background: white;
+            color: #2c3e50;
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .collection-button:hover:not(:disabled) {
+            background: #f8f9fa;
+            border-color: #3498db;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(52,152,219,0.2);
+        }
+
+        .collection-button.active {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            border-color: #3498db;
+            box-shadow: 0 2px 8px rgba(52,152,219,0.3);
+        }
+
+        /* Parameters grid layout */
+        .parameters-form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px 16px;
+            margin: 20px 0;
+        }
+
+        @media (max-width: 768px) {
+            .parameters-form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .parameter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        /* Make prompt field span both columns */
+        .parameter-field:has(.parameter-textarea) {
+            grid-column: 1 / -1;
+        }
+
+        .parameter-label {
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 12px;
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+            margin-bottom: 2px;
+        }
+
+        .parameter-hint {
+            font-weight: 400;
+            color: #7f8c8d;
+            font-size: 10px;
+            font-style: italic;
+            display: block;
+            margin-top: 2px;
+            line-height: 1.3;
+        }
+
+        .parameter-input,
+        .parameter-select {
+            width: 100%;
+            padding: 6px 10px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.2s ease;
+            background: white;
+            box-sizing: border-box;
+        }
+
+        .parameter-select {
+            cursor: pointer;
+            height: 32px;
+        }
+
+        .parameter-input:focus,
+        .parameter-select:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .parameter-input:disabled,
+        .parameter-select:disabled {
+            background: #f8f9fa;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        /* Textarea specific styling */
+        .parameter-textarea {
+            min-height: 70px;
+            resize: vertical;
+            line-height: 1.4;
+        }
+
+        /* Regular input height */
+        input.parameter-input {
+            height: 32px;
+        }
+
+        .generate-button {
+            margin-top: 20px;
+            width: 100%;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        /* Image upload styling */
+        .image-upload-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .parameter-file-input {
+            padding: 6px;
+            border: 1px dashed #dee2e6;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            background: #f8f9fa;
+        }
+
+        .parameter-file-input:hover {
+            border-color: #3498db;
+            background: white;
+        }
+
+        .parameter-file-input::-webkit-file-upload-button {
+            padding: 4px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 3px;
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            margin-right: 8px;
+        }
+
+        .parameter-file-input::-webkit-file-upload-button:hover {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+
+        /* Video Gallery Styles */
+        .video-gallery-page {
+            padding: 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            min-height: calc(100vh - 50px);
+        }
+
+        .video-gallery-page h1 {
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 32px;
+        }
+
+        .refresh-button {
+            margin-bottom: 20px;
+        }
+
+        .videos-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 24px;
+            margin-top: 20px;
+        }
+
+        .video-card {
+            background: white;
+            border: 2px solid #dee2e6;
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .video-card:hover {
+            border-color: #3498db;
+            transform: translateY(-4px);
+            box-shadow: 0 6px 16px rgba(52,152,219,0.2);
+        }
+
+        .video-thumbnail {
+            width: 100%;
+            height: 200px;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .video-thumbnail video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .video-card-info {
+            padding: 16px;
+        }
+
+        .video-prompt {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 12px;
+            font-size: 14px;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .video-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+
+        .video-model {
+            font-family: monospace;
+            background: #f8f9fa;
+            padding: 4px 8px;
+            border-radius: 4px;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .video-date {
+            white-space: nowrap;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 80px 40px;
+            color: #7f8c8d;
+            font-size: 16px;
+            background: white;
+            border-radius: 12px;
+            border: 2px dashed #dee2e6;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            max-width: 1000px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 32px;
+            position: relative;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            background: #c0392b;
+            transform: rotate(90deg);
+        }
+
+        .modal-video {
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+
+        .modal-details {
+            margin-top: 24px;
+        }
+
+        .detail-row {
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            line-height: 1.6;
+        }
+
+        .detail-row strong {
+            color: #2c3e50;
+            display: inline-block;
+            min-width: 100px;
+        }
+
+        /* Raw Data Section */
+        .raw-data-section {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 2px solid #dee2e6;
+        }
+
+        .toggle-raw-data {
+            width: 100%;
+            background: #f8f9fa;
+            color: #2c3e50;
+            border: 2px solid #dee2e6;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .toggle-raw-data:hover {
+            background: #e9ecef;
+            border-color: #3498db;
+        }
+
+        .raw-data-content {
+            margin-top: 16px;
+        }
+
+        .raw-data-field {
+            margin-bottom: 16px;
+        }
+
+        .raw-data-field h4 {
+            color: #2c3e50;
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .raw-json {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            margin: 0;
+            border: 1px solid #333;
+        }
     </style>
 </head>
 <body>
@@ -198,48 +782,78 @@
         import { Elm } from './src/Main.elm';
         import PhysicsRenderer from './src/PhysicsRenderer.js';
 
-        // Initialize Elm app
-        const app = Elm.Main.init({
-            node: document.getElementById('elm-app')
-        });
+        // Wrap initialization in async function
+        (async () => {
+            // Initialize Elm app
+            const app = Elm.Main.init({
+                node: document.getElementById('elm-app')
+            });
 
-        // Make Elm app globally accessible for Three.js callbacks
-        window.elmApp = app;
+            // Make Elm app globally accessible for Three.js callbacks
+            window.elmApp = app;
 
-        // Initialize Three.js renderer
-        const canvasContainer = document.getElementById('canvas-container');
-        const renderer = new PhysicsRenderer(canvasContainer);
-        await renderer.init();
+            // Wait for Elm to render the DOM
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Initialize Three.js renderer only if canvas container exists
+            let renderer = null;
+            const initRenderer = async () => {
+                const canvasContainer = document.getElementById('canvas-container');
+                if (canvasContainer && !renderer) {
+                    renderer = new PhysicsRenderer(canvasContainer);
+                    await renderer.init();
+                    console.log('Three.js renderer initialized');
+                }
+            };
+
+            // Try to initialize renderer immediately
+            await initRenderer();
+
+            // Re-initialize renderer when URL changes (in case we navigate to physics page)
+            const observer = new MutationObserver(() => {
+                if (!renderer) {
+                    initRenderer();
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
 
         // Set up Elm ports
         app.ports.sendSceneToThreeJs.subscribe((sceneData) => {
             console.log('Received scene data from Elm:', sceneData);
-            renderer.loadScene(sceneData);
+            if (renderer) {
+                renderer.loadScene(sceneData);
+            }
         });
 
         app.ports.sendSelectionToThreeJs.subscribe((objectId) => {
             console.log('Selected object:', objectId);
-            renderer.selectObject(objectId);
+            if (renderer) {
+                renderer.selectObject(objectId);
+            }
         });
 
         app.ports.sendSimulationCommand.subscribe((command) => {
             console.log('Simulation command:', command);
-            switch (command) {
-                case 'start':
-                    renderer.startSimulation();
-                    break;
-                case 'pause':
-                    renderer.pauseSimulation();
-                    break;
-                case 'reset':
-                    renderer.resetSimulation();
-                    break;
+            if (renderer) {
+                switch (command) {
+                    case 'start':
+                        renderer.startSimulation();
+                        break;
+                    case 'pause':
+                        renderer.pauseSimulation();
+                        break;
+                    case 'reset':
+                        renderer.resetSimulation();
+                        break;
+                }
             }
         });
 
         app.ports.sendTransformModeToThreeJs.subscribe((mode) => {
             console.log('Transform mode:', mode);
-            renderer.setTransformMode(mode);
+            if (renderer) {
+                renderer.setTransformMode(mode);
+            }
         });
 
         // IndexedDB for scene storage
@@ -296,6 +910,7 @@
         });
 
         console.log('Elm and Three.js integration initialized');
+        })(); // Close async IIFE
     </script>
 </body>
 </html>
