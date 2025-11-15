@@ -717,6 +717,10 @@ def mark_image_download_failed(image_id: int, error: str) -> None:
 
 def get_image_by_id(image_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve a specific image by ID."""
+    import os
+    # Get ngrok URL if available
+    ngrok_url = os.getenv("NGROK_URL", "").strip()
+
     with get_db() as conn:
         row = conn.execute(
             "SELECT * FROM generated_images WHERE id = ?",
@@ -727,8 +731,8 @@ def get_image_by_id(image_id: int) -> Optional[Dict[str, Any]]:
             return {
                 "id": row["id"],
                 "prompt": row["prompt"],
-                "image_url": row["image_url"],
-                "thumbnail_url": f"/api/images/{row['id']}/thumbnail",
+                "image_url": _convert_to_full_url(row["image_url"], ngrok_url),
+                "thumbnail_url": _convert_to_full_url(f"/api/images/{row['id']}/thumbnail", ngrok_url),
                 "model_id": row["model_id"],
                 "parameters": json.loads(row["parameters"]),
                 "status": row["status"],
@@ -745,6 +749,7 @@ def list_images(
     collection: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """List generated images with pagination and optional filters."""
+    import os
     query = "SELECT * FROM generated_images WHERE 1=1"
     params = []
 
@@ -759,6 +764,9 @@ def list_images(
     query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
+    # Get ngrok URL if available
+    ngrok_url = os.getenv("NGROK_URL", "").strip()
+
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
 
@@ -766,8 +774,8 @@ def list_images(
             {
                 "id": row["id"],
                 "prompt": row["prompt"],
-                "image_url": row["image_url"],
-                "thumbnail_url": f"/api/images/{row['id']}/thumbnail",
+                "image_url": _convert_to_full_url(row["image_url"], ngrok_url),
+                "thumbnail_url": _convert_to_full_url(f"/api/images/{row['id']}/thumbnail", ngrok_url),
                 "model_id": row["model_id"],
                 "parameters": json.loads(row["parameters"]),
                 "status": row["status"],
@@ -777,6 +785,16 @@ def list_images(
             }
             for row in rows
         ]
+
+def _convert_to_full_url(url: str, ngrok_url: str) -> str:
+    """Convert relative URL to full URL using ngrok if available."""
+    if not url:
+        return url
+    if url.startswith("http"):
+        return url  # Already a full URL
+    if ngrok_url:
+        return f"{ngrok_url}{url}"
+    return url  # Return relative URL
 
 def delete_image(image_id: int) -> bool:
     """Delete an image by ID."""
