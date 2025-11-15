@@ -210,6 +210,19 @@ async def verify_auth(
 ) -> Dict[str, Any]:
     """Verify authentication from cookie, Bearer token, or API key."""
 
+    # Bypass authentication in local development
+    base_url = os.getenv("BASE_URL", "http://localhost:8000")
+    if base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
+        # Return a mock user for local development
+        return {
+            "id": 1,
+            "username": "dev_user",
+            "email": "dev@localhost",
+            "is_active": True,
+            "is_admin": True,
+            "created_at": datetime.utcnow().isoformat()
+        }
+
     # Try cookie first (most common for web UI)
     cookie_token = request.cookies.get(COOKIE_NAME)
     if cookie_token:
