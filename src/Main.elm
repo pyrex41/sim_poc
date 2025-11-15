@@ -17,6 +17,7 @@ import Video
 import VideoDetail
 import VideoGallery
 import SimulationGallery
+import Auth
 
 
 -- MAIN
@@ -52,6 +53,7 @@ type alias Model =
     , videoDetailModel : Maybe VideoDetail.Model
     , galleryModel : VideoGallery.Model
     , simulationGalleryModel : SimulationGallery.Model
+    , authModel : Auth.Auth
     }
 
 
@@ -131,10 +133,10 @@ init _ url key =
             Video.init
 
         ( galleryModel, galleryCmd ) =
-            VideoGallery.init
+            VideoGallery.init Nothing
 
         ( simulationGalleryModel, simulationGalleryCmd ) =
-            SimulationGallery.init
+            SimulationGallery.init Nothing
 
         route =
             Route.fromUrl url
@@ -153,11 +155,13 @@ init _ url key =
       , videoDetailModel = Nothing
       , galleryModel = galleryModel
       , simulationGalleryModel = simulationGalleryModel
+      , authModel = Auth.init
       }
     , Cmd.batch
         [ Cmd.map VideoMsg videoCmd
         , Cmd.map GalleryMsg galleryCmd
         , Cmd.map SimulationGalleryMsg simulationGalleryCmd
+        , loadToken ()
         ]
     )
 
@@ -197,6 +201,8 @@ type Msg
     | VideoDetailMsg VideoDetail.Msg
     | GalleryMsg VideoGallery.Msg
     | SimulationGalleryMsg SimulationGallery.Msg
+    | AuthMsg Auth.Msg
+    | TokenLoadedFromStorage (Maybe String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -262,7 +268,7 @@ update msg model =
                         , errorMessage = Nothing
                     }
               }
-            , generateSceneRequest model.uiState.textInput
+            , generateSceneRequest (Auth.getToken model.authModel) model.uiState.textInput
             )
 
         SceneGenerated sceneJson ->
@@ -515,7 +521,7 @@ update msg model =
                     model.uiState
             in
             ( { model | uiState = { uiState | isRefining = True, errorMessage = Nothing } }
-            , refineSceneRequest model.scene model.uiState.refineInput
+            , refineSceneRequest (Auth.getToken model.authModel) model.scene model.uiState.refineInput
             )
 
         SceneRefined result ->
@@ -740,6 +746,132 @@ update msg model =
             in
             ( { model | simulationGalleryModel = updatedSimulationGalleryModel }, Cmd.map SimulationGalleryMsg simulationGalleryCmd )
 
+        AuthMsg authMsg ->
+            let
+                ( updatedAuthModel, authCmd ) =
+                    Auth.update authMsg model.authModel
+
+                -- Get the new token if login succeeded
+                newToken =
+                    case authMsg of
+                        Auth.LoginResult (Ok response) ->
+                            Just response.access_token
+
+                        Auth.Logout ->
+                            Nothing
+
+                        _ ->
+                            model.authModel.token
+
+                -- Save token to localStorage when user logs in or logs out
+                saveTokenCmd =
+                    case authMsg of
+                        Auth.LoginResult (Ok response) ->
+                            saveToken (Just response.access_token)
+
+                        Auth.Logout ->
+                            saveToken Nothing
+
+                        _ ->
+                            Cmd.none
+
+                -- Update gallery models with the new token
+                ( updatedGalleryModel, updatedSimulationGalleryModel, fetchCmd ) =
+                    case authMsg of
+                        Auth.LoginResult (Ok response) ->
+                            let
+                                token =
+                                    Just response.access_token
+
+                                galleryModel =
+                                    model.galleryModel
+
+                                newGalleryModel =
+                                    { galleryModel | token = token }
+
+                                simulationGalleryModel =
+                                    model.simulationGalleryModel
+
+                                newSimulationGalleryModel =
+                                    { simulationGalleryModel | token = token }
+                            in
+                            ( newGalleryModel
+                            , newSimulationGalleryModel
+                            , Cmd.batch
+                                [ Cmd.map GalleryMsg (VideoGallery.fetchVideos token)
+                                , Cmd.map SimulationGalleryMsg (SimulationGallery.fetchVideos token)
+                                ]
+                            )
+
+                        Auth.Logout ->
+                            let
+                                galleryModel =
+                                    model.galleryModel
+
+                                newGalleryModel =
+                                    { galleryModel | token = Nothing }
+
+                                simulationGalleryModel =
+                                    model.simulationGalleryModel
+
+                                newSimulationGalleryModel =
+                                    { simulationGalleryModel | token = Nothing }
+                            in
+                            ( newGalleryModel, newSimulationGalleryModel, Cmd.none )
+
+                        _ ->
+                            ( model.galleryModel, model.simulationGalleryModel, Cmd.none )
+            in
+            ( { model
+                | authModel = updatedAuthModel
+                , galleryModel = updatedGalleryModel
+                , simulationGalleryModel = updatedSimulationGalleryModel
+              }
+            , Cmd.batch
+                [ Cmd.map AuthMsg authCmd
+                , saveTokenCmd
+                , fetchCmd
+                ]
+            )
+
+        TokenLoadedFromStorage maybeToken ->
+            let
+                ( updatedAuthModel, authCmd ) =
+                    Auth.update (Auth.TokenLoaded maybeToken) model.authModel
+
+                -- Update gallery models with the token
+                galleryModel =
+                    model.galleryModel
+
+                updatedGalleryModel =
+                    { galleryModel | token = maybeToken }
+
+                simulationGalleryModel =
+                    model.simulationGalleryModel
+
+                updatedSimulationGalleryModel =
+                    { simulationGalleryModel | token = maybeToken }
+
+                -- Trigger fetches if we have a token
+                fetchCmd =
+                    case maybeToken of
+                        Just _ ->
+                            Cmd.batch
+                                [ Cmd.map GalleryMsg (VideoGallery.fetchVideos maybeToken)
+                                , Cmd.map SimulationGalleryMsg (SimulationGallery.fetchVideos maybeToken)
+                                ]
+
+                        Nothing ->
+                            Cmd.none
+            in
+            ( { model
+                | authModel = updatedAuthModel
+                , galleryModel = updatedGalleryModel
+                , simulationGalleryModel = updatedSimulationGalleryModel
+              }
+            , Cmd.batch [ Cmd.map AuthMsg authCmd, fetchCmd ]
+            )
+
 
 -- HISTORY MANAGEMENT
 
@@ -759,9 +891,13 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "Physics Simulator & Video Models"
     , body =
-        [ div []
-            [ viewTabs model
-            , case model.route of
+        if not (Auth.isAuthenticated model.authModel) then
+            [ Html.map AuthMsg (Auth.view model.authModel) ]
+
+        else
+            [ div []
+                [ viewTabs model
+                , case model.route of
                 Just Route.Physics ->
                     div [ class "app-container" ]
                         [ viewLeftPanel model
@@ -1077,6 +1213,7 @@ subscriptions model =
         [ sendSelectionToElm SelectionChanged
         , sendTransformUpdateToElm TransformUpdated
         , sceneLoadedFromStorage SceneLoadedFromStorage
+        , tokenLoadedFromStorage TokenLoadedFromStorage
         , Browser.Events.onKeyDown (Decode.map KeyDown keyDecoder)
         , Browser.Events.onKeyUp (Decode.map KeyUp keyDecoder)
         , gallerySub
@@ -1118,6 +1255,15 @@ port loadSceneFromStorage : () -> Cmd msg
 
 
 port sceneLoadedFromStorage : (Encode.Value -> msg) -> Sub msg
+
+
+port saveToken : Maybe String -> Cmd msg
+
+
+port loadToken : () -> Cmd msg
+
+
+port tokenLoadedFromStorage : (Maybe String -> msg) -> Sub msg
 
 
 -- DECODERS
@@ -1194,21 +1340,47 @@ shapeDecoder =
 -- HTTP REQUESTS
 
 
-generateSceneRequest : String -> Cmd Msg
-generateSceneRequest prompt =
-    Http.post
-        { url = "/api/generate"
+generateSceneRequest : Maybe String -> String -> Cmd Msg
+generateSceneRequest maybeToken prompt =
+    let
+        headers =
+            case maybeToken of
+                Just token ->
+                    [ Http.header "Authorization" ("Bearer " ++ token) ]
+
+                Nothing ->
+                    []
+    in
+    Http.request
+        { method = "POST"
+        , headers = headers
+        , url = "/api/generate"
         , body = Http.jsonBody (Encode.object [ ( "prompt", Encode.string prompt ) ])
         , expect = Http.expectJson SceneGeneratedResult sceneDecoder
+        , timeout = Nothing
+        , tracker = Nothing
         }
 
 
-refineSceneRequest : Scene -> String -> Cmd Msg
-refineSceneRequest scene prompt =
-    Http.post
-        { url = "/api/refine"
+refineSceneRequest : Maybe String -> Scene -> String -> Cmd Msg
+refineSceneRequest maybeToken scene prompt =
+    let
+        headers =
+            case maybeToken of
+                Just token ->
+                    [ Http.header "Authorization" ("Bearer " ++ token) ]
+
+                Nothing ->
+                    []
+    in
+    Http.request
+        { method = "POST"
+        , headers = headers
+        , url = "/api/refine"
         , body = Http.jsonBody (Encode.object [ ( "scene", sceneEncoder scene ), ( "prompt", Encode.string prompt ) ])
         , expect = Http.expectJson SceneRefined sceneDecoder
+        , timeout = Nothing
+        , tracker = Nothing
         }
 
 

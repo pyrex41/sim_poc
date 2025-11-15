@@ -32,4 +32,5 @@ coverage/
 
 # Build outputs
 dist/
-build/
+build/TEAM_CREDENTIALS.md
+backend/DATA/

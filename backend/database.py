@@ -16,6 +16,45 @@ DB_PATH = DATA_DIR / "scenes.db"
 def init_db():
     """Initialize the database with required tables."""
     with get_db() as conn:
+        # Authentication tables
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                email TEXT UNIQUE NOT NULL,
+                hashed_password TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                is_admin BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP
+            )
+        """)
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key_hash TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_used TIMESTAMP,
+                expires_at TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_api_keys_hash
+            ON api_keys(key_hash)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_users_username
+            ON users(username)
+        """)
+
+        # Existing tables
         conn.execute("""
             CREATE TABLE IF NOT EXISTS generated_scenes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -451,6 +490,135 @@ def get_genesis_video_count(quality: Optional[str] = None) -> int:
     with get_db() as conn:
         row = conn.execute(query, params).fetchone()
         return row["count"]
+
+# Authentication helper functions
+def create_user(username: str, email: str, hashed_password: str, is_admin: bool = False) -> int:
+    """Create a new user."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO users (username, email, hashed_password, is_admin)
+            VALUES (?, ?, ?, ?)
+            """,
+            (username, email, hashed_password, is_admin)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
+    """Get user by username."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ?",
+            (username,)
+        ).fetchone()
+
+        if row:
+            return {
+                "id": row["id"],
+                "username": row["username"],
+                "email": row["email"],
+                "hashed_password": row["hashed_password"],
+                "is_active": bool(row["is_active"]),
+                "is_admin": bool(row["is_admin"]),
+                "created_at": row["created_at"],
+                "last_login": row["last_login"]
+            }
+    return None
+
+def update_user_last_login(user_id: int) -> None:
+    """Update user's last login timestamp."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
+            (user_id,)
+        )
+        conn.commit()
+
+def create_api_key(key_hash: str, name: str, user_id: int, expires_at: Optional[str] = None) -> int:
+    """Create a new API key."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO api_keys (key_hash, name, user_id, expires_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (key_hash, name, user_id, expires_at)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+def get_api_key_by_hash(key_hash: str) -> Optional[Dict[str, Any]]:
+    """Get API key by hash."""
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT ak.*, u.username, u.is_active as user_is_active
+            FROM api_keys ak
+            JOIN users u ON ak.user_id = u.id
+            WHERE ak.key_hash = ?
+            """,
+            (key_hash,)
+        ).fetchone()
+
+        if row:
+            return {
+                "id": row["id"],
+                "key_hash": row["key_hash"],
+                "name": row["name"],
+                "user_id": row["user_id"],
+                "username": row["username"],
+                "is_active": bool(row["is_active"]),
+                "user_is_active": bool(row["user_is_active"]),
+                "created_at": row["created_at"],
+                "last_used": row["last_used"],
+                "expires_at": row["expires_at"]
+            }
+    return None
+
+def update_api_key_last_used(key_hash: str) -> None:
+    """Update API key's last used timestamp."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE api_keys SET last_used = CURRENT_TIMESTAMP WHERE key_hash = ?",
+            (key_hash,)
+        )
+        conn.commit()
+
+def list_api_keys(user_id: int) -> List[Dict[str, Any]]:
+    """List all API keys for a user."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, name, is_active, created_at, last_used, expires_at
+            FROM api_keys
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            """,
+            (user_id,)
+        ).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "is_active": bool(row["is_active"]),
+                "created_at": row["created_at"],
+                "last_used": row["last_used"],
+                "expires_at": row["expires_at"]
+            }
+            for row in rows
+        ]
+
+def revoke_api_key(key_id: int, user_id: int) -> bool:
+    """Revoke an API key."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE api_keys SET is_active = 0 WHERE id = ? AND user_id = ?",
+            (key_id, user_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
 
 # Initialize database on import
 init_db()
