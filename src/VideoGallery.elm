@@ -134,6 +134,10 @@ view model =
 
 viewVideoCard : VideoRecord -> Html Msg
 viewVideoCard videoRecord =
+    let
+        errorMessage =
+            extractErrorMessage videoRecord
+    in
     div [ class "video-card", onClick (SelectVideo videoRecord) ]
         [ div [ class "video-thumbnail" ]
             [ if String.isEmpty videoRecord.videoUrl then
@@ -141,12 +145,22 @@ viewVideoCard videoRecord =
                     [ style "width" "100%"
                     , style "height" "100%"
                     , style "display" "flex"
+                    , style "flex-direction" "column"
                     , style "align-items" "center"
                     , style "justify-content" "center"
-                    , style "background" "#333"
+                    , style "background" (if videoRecord.status == "failed" then "#c33" else "#333")
                     , style "color" "#fff"
+                    , style "padding" "10px"
                     ]
-                    [ text (String.toUpper videoRecord.status) ]
+                    [ div [ style "font-weight" "bold", style "margin-bottom" "5px" ]
+                        [ text (String.toUpper videoRecord.status) ]
+                    , case errorMessage of
+                        Just err ->
+                            div [ style "font-size" "12px", style "text-align" "center" ]
+                                [ text (truncateString 60 err) ]
+                        Nothing ->
+                            text ""
+                    ]
               else
                 video [ src videoRecord.videoUrl, attribute "preload" "metadata" ] []
             ]
@@ -162,11 +176,41 @@ viewVideoCard videoRecord =
 
 viewVideoModal : Model -> VideoRecord -> Html Msg
 viewVideoModal model videoRecord =
+    let
+        errorMessage =
+            extractErrorMessage videoRecord
+    in
     div [ class "modal-overlay", onClick CloseVideo ]
         [ div [ class "modal-content", onClickNoBubble ]
             [ button [ class "modal-close", onClick CloseVideo ] [ text "×" ]
             , h2 [] [ text "Generated Video" ]
-            , video [ src videoRecord.videoUrl, controls True, attribute "width" "100%", class "modal-video" ] []
+            , case errorMessage of
+                Just err ->
+                    div
+                        [ style "background" "#fee"
+                        , style "color" "#c33"
+                        , style "padding" "15px"
+                        , style "border-radius" "4px"
+                        , style "margin-bottom" "15px"
+                        , style "border" "1px solid #fcc"
+                        ]
+                        [ strong [] [ text "Error: " ]
+                        , text err
+                        ]
+                Nothing ->
+                    text ""
+            , if not (String.isEmpty videoRecord.videoUrl) then
+                video [ src videoRecord.videoUrl, controls True, attribute "width" "100%", class "modal-video" ] []
+              else
+                div
+                    [ style "background" "#333"
+                    , style "color" "#fff"
+                    , style "padding" "40px"
+                    , style "text-align" "center"
+                    , style "border-radius" "4px"
+                    , style "margin-bottom" "15px"
+                    ]
+                    [ text ("Video " ++ String.toUpper videoRecord.status) ]
             , div [ class "modal-details" ]
                 [ div [ class "detail-row" ]
                     [ strong [] [ text "Prompt: " ]
@@ -191,7 +235,11 @@ viewVideoModal model videoRecord =
                     ]
                 , div [ class "detail-row" ]
                     [ strong [] [ text "Status: " ]
-                    , text videoRecord.status
+                    , span
+                        [ style "color" (if videoRecord.status == "failed" then "#c33" else "inherit")
+                        , style "font-weight" (if videoRecord.status == "failed" then "bold" else "normal")
+                        ]
+                        [ text videoRecord.status ]
                     ]
                 ]
             , div [ class "raw-data-section" ]
@@ -235,6 +283,26 @@ formatDate : String -> String
 formatDate dateStr =
     -- Simple formatter - just show the date part
     String.left 19 dateStr
+
+
+extractErrorMessage : VideoRecord -> Maybe String
+extractErrorMessage videoRecord =
+    -- Try to extract error message from metadata
+    case videoRecord.metadata of
+        Just metadataValue ->
+            Decode.decodeValue (Decode.field "error" Decode.string) metadataValue
+                |> Result.toMaybe
+
+        Nothing ->
+            Nothing
+
+
+truncateString : Int -> String -> String
+truncateString maxLength str =
+    if String.length str <= maxLength then
+        str
+    else
+        String.left (maxLength - 3) str ++ "..."
 
 
 -- HTTP
