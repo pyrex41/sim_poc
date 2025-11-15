@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<genesis_docs>
+    <section name="Scene">
+        <api name="gs.Scene">
+            <description>Creates a new Genesis simulation scene with physics and rendering capabilities.</description>
+            <parameters>renderer: Renderer instance (RayTracer or Rasterizer), show_viewer: bool, sim_options: SimOptions</parameters>
+            <example>scene = gs.Scene(renderer=gs.renderers.RayTracer(...), show_viewer=False, sim_options=gs.options.SimOptions(dt=1/60, gravity=(0, -9.81, 0)))</example>
+        </api>
+    </section>
+    
+    <section name="Renderers">
+        <api name="gs.renderers.RayTracer">
+            <description>Path tracing renderer for photorealistic rendering with global illumination.</description>
+            <parameters>lights: list of dicts with pos, color, intensity, radius; env_radius: float; logging_level: str</parameters>
+            <example>renderer = gs.renderers.RayTracer(lights=[{"pos": (10, 20, 10), "color": (1, 0.95, 0.9), "intensity": 15, "radius": 6}], env_radius=1000)</example>
+        </api>
+        
+        <api name="gs.renderers.Rasterizer">
+            <description>Real-time rasterizer with PBR materials for faster rendering.</description>
+            <parameters>No parameters - uses default configuration</parameters>
+            <example>renderer = gs.renderers.Rasterizer()</example>
+        </api>
+    </section>
+    
+    <section name="Camera">
+        <api name="scene.add_camera">
+            <description>Adds a camera to the scene for rendering with options for depth of field and ray tracing quality.</description>
+            <parameters>res: (width, height), fov: degrees, pos: (x,y,z), lookat: (x,y,z), model: "pinhole" or "thinlens", spp: samples per pixel, aperture: f-stop, focus_dist: float or None, denoise: bool</parameters>
+            <example>camera = scene.add_camera(model="thinlens", spp=256, aperture=2.8, denoise=True, res=(1920, 1080), fov=40, pos=(8, 6, 8), lookat=(0, 2, 0))</example>
+        </api>
+    </section>
+    
+    <section name="Materials">
+        <api name="PBR_Materials">
+            <description>Physically Based Rendering materials use metallic-roughness workflow with color, metallic (0-1), roughness (0-1), opacity (0-1), and emissive properties.</description>
+            <parameters>color: RGB (0-1), metallic: 0=dielectric 1=metal, roughness: 0=smooth 1=rough, opacity: 0=transparent 1=opaque, emissive: RGB self-illumination</parameters>
+            <example>Glossy car paint: color=(0.8, 0.1, 0.1), metallic=0.9, roughness=0.2; Matte plastic: metallic=0.0, roughness=0.8; Glass: metallic=0.0, roughness=0.0, opacity=0.1</example>
+        </api>
+    </section>
+</genesis_docs>

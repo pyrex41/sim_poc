@@ -10,6 +10,7 @@ import json
 from typing import Dict, List, Optional
 from openai import OpenAI
 from pydantic import BaseModel
+from docs_search import search_genesis_docs
 
 
 class GenesisProperties(BaseModel):
@@ -61,8 +62,11 @@ class LLMInterpreter:
             GenesisProperties with enhanced rendering properties
         """
 
+        # Search for relevant Genesis API documentation
+        docs_context = await self._get_relevant_docs(description, shape)
+
         prompt = self._build_augmentation_prompt(
-            shape, base_dimensions, description, context
+            shape, base_dimensions, description, context, docs_context
         )
 
         response = self.client.chat.completions.create(
@@ -78,16 +82,39 @@ class LLMInterpreter:
 
         return properties
 
+    async def _get_relevant_docs(self, description: str, shape: str) -> str:
+        """Search for relevant Genesis API documentation"""
+        try:
+            # Search for material/rendering docs
+            query = f"PBR material properties {description} {shape}"
+            docs = await search_genesis_docs(query, method="hybrid", limit=2)
+
+            if not docs:
+                return ""
+
+            # Format docs for inclusion in prompt
+            docs_text = "\n\nRELEVANT GENESIS API REFERENCE:\n"
+            for doc in docs:
+                api_name = doc.get("api_name", "")
+                description_text = doc.get("description") or doc.get("content", "")
+                docs_text += f"\n{api_name}:\n{description_text[:200]}...\n"
+
+            return docs_text
+        except Exception as e:
+            # Docs search failed, continue without it
+            return ""
+
     def _build_augmentation_prompt(
         self,
         shape: str,
         base_dimensions: Dict[str, float],
         description: str,
-        context: Optional[str] = None
+        context: Optional[str] = None,
+        docs_context: str = ""
     ) -> str:
         """Build the prompt for the LLM"""
 
-        return f"""You are helping create a photorealistic 3D scene. A user has placed a simple {shape} shape and wants it rendered as: "{description}"
+        return f"""You are helping create a photorealistic 3D scene. A user has placed a simple {shape} shape and wants it rendered as: "{description}"{docs_context}
 
 Base shape dimensions:
 {json.dumps(base_dimensions, indent=2)}
