@@ -29,6 +29,8 @@ type alias Model =
     , videoStatus : String
     , selectedVersion : Maybe String
     , uploadingFile : Maybe String  -- Track which parameter key is uploading
+    , pendingParameters : List ( String, String )  -- Parameters to apply after schema loads
+    , pendingModelSelection : Maybe String  -- Model ID to select after models are fetched
     }
 
 
@@ -78,6 +80,8 @@ init =
       , videoStatus = ""
       , selectedVersion = Nothing
       , uploadingFile = Nothing
+      , pendingParameters = []
+      , pendingModelSelection = Nothing
       }
     , fetchModels "text-to-video"
     )
@@ -115,33 +119,93 @@ update msg model =
             ( model, fetchModels model.selectedCollection )
 
         SelectCollection collection ->
-            ( { model | selectedCollection = collection, selectedModel = Nothing, outputVideo = Nothing, requiredFields = [], selectedVersion = Nothing }
-            , fetchModels collection
-            )
+            let
+                _ =
+                    Debug.log "SelectCollection called with" collection
+
+                _ =
+                    Debug.log "current selectedCollection" model.selectedCollection
+
+                _ =
+                    Debug.log "are they equal?" (model.selectedCollection == collection)
+            in
+            -- Don't refetch if we're already on this collection
+            if model.selectedCollection == collection then
+                ( model, Cmd.none )
+            else
+                ( { model | selectedCollection = collection, selectedModel = Nothing, outputVideo = Nothing, requiredFields = [], selectedVersion = Nothing, pendingParameters = [], pendingModelSelection = Nothing }
+                , fetchModels collection
+                )
 
         ModelsFetched result ->
             case result of
                 Ok models ->
-                    ( { model | models = models, error = Nothing }, Cmd.none )
+                    let
+                        _ =
+                            Debug.log "ModelsFetched" (List.map .id models)
+
+                        _ =
+                            Debug.log "pendingModelSelection" model.pendingModelSelection
+                    in
+                    -- If there's a pending model selection, select it now
+                    case model.pendingModelSelection of
+                        Just modelId ->
+                            let
+                                selected =
+                                    models
+                                        |> List.filter (\m -> m.id == modelId)
+                                        |> List.head
+
+                                _ =
+                                    Debug.log "selected model" selected
+                            in
+                            case selected of
+                                Just selectedModel ->
+                                    ( { model | models = models, error = Nothing, selectedModel = selected, pendingModelSelection = Nothing }
+                                    , fetchModelSchema selectedModel.id
+                                    )
+
+                                Nothing ->
+                                    ( { model | models = models, error = Nothing, pendingModelSelection = Nothing }, Cmd.none )
+
+                        Nothing ->
+                            ( { model | models = models, error = Nothing }, Cmd.none )
 
                 Err error ->
                     ( { model | models = demoModels, error = Just ("Failed to fetch models: " ++ httpErrorToString error) }, Cmd.none )
 
         SelectModel modelId ->
             let
-                selected =
-                    model.models
-                        |> List.filter (\m -> m.id == modelId)
-                        |> List.head
-            in
-            case selected of
-                Just selectedModel ->
-                    ( { model | selectedModel = selected, outputVideo = Nothing, error = Nothing, parameters = [] }
-                    , fetchModelSchema selectedModel.id
-                    )
+                _ =
+                    Debug.log "SelectModel called with" modelId
 
-                Nothing ->
-                    ( model, Cmd.none )
+                _ =
+                    Debug.log "models list is empty?" (List.isEmpty model.models)
+
+                _ =
+                    Debug.log "models list length" (List.length model.models)
+            in
+            -- If models haven't loaded yet, store as pending
+            if List.isEmpty model.models then
+                ( { model | pendingModelSelection = Just modelId }, Cmd.none )
+            else
+                let
+                    selected =
+                        model.models
+                            |> List.filter (\m -> m.id == modelId)
+                            |> List.head
+
+                    _ =
+                        Debug.log "found selected model?" selected
+                in
+                case selected of
+                    Just selectedModel ->
+                        ( { model | selectedModel = selected, outputVideo = Nothing, error = Nothing, parameters = [] }
+                        , fetchModelSchema selectedModel.id
+                        )
+
+                    Nothing ->
+                        ( model, Cmd.none )
 
         SchemaFetched modelId result ->
             case result of
@@ -154,23 +218,57 @@ update msg model =
 
                                 Err _ ->
                                     [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ]
+
+                        -- Apply pending parameters to the loaded schema
+                        paramsWithPending =
+                            List.foldl
+                                (\( key, value ) accParams -> updateParameterInList key value accParams)
+                                params
+                                model.pendingParameters
                     in
-                    ( { model | parameters = params, requiredFields = required, selectedVersion = version }
-                    , Task.attempt ScrollToModel (Dom.getElement "selected-model-section" |> Task.andThen (\info -> Dom.setViewport 0 info.element.y))
+                    ( { model | parameters = paramsWithPending, requiredFields = required, selectedVersion = version, pendingParameters = [] }
+                    , Task.attempt ScrollToModel
+                        (Process.sleep 100
+                            |> Task.andThen (\_ -> Dom.getElement "selected-model-section")
+                            |> Task.andThen (\info -> Dom.setViewport 0 info.element.y)
+                        )
                     )
 
                 Err _ ->
                     -- Fallback to default prompt parameter
-                    ( { model | parameters = [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ], requiredFields = [ "prompt" ], selectedVersion = Nothing }
-                    , Task.attempt ScrollToModel (Dom.getElement "selected-model-section" |> Task.andThen (\info -> Dom.setViewport 0 info.element.y))
+                    let
+                        defaultParams =
+                            [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ]
+
+                        -- Apply pending parameters even to fallback
+                        paramsWithPending =
+                            List.foldl
+                                (\( key, value ) accParams -> updateParameterInList key value accParams)
+                                defaultParams
+                                model.pendingParameters
+                    in
+                    ( { model | parameters = paramsWithPending, requiredFields = [ "prompt" ], selectedVersion = Nothing, pendingParameters = [] }
+                    , Task.attempt ScrollToModel
+                        (Process.sleep 100
+                            |> Task.andThen (\_ -> Dom.getElement "selected-model-section")
+                            |> Task.andThen (\info -> Dom.setViewport 0 info.element.y)
+                        )
                     )
 
         UpdateParameter key value ->
-            let
-                updatedParams =
-                    updateParameterInList key value model.parameters
-            in
-            ( { model | parameters = updatedParams }, Cmd.none )
+            -- If parameters haven't loaded yet (schema not fetched), store in pendingParameters
+            if List.isEmpty model.parameters then
+                let
+                    updatedPending =
+                        ( key, value ) :: List.filter (\( k, _ ) -> k /= key) model.pendingParameters
+                in
+                ( { model | pendingParameters = updatedPending }, Cmd.none )
+            else
+                let
+                    updatedParams =
+                        updateParameterInList key value model.parameters
+                in
+                ( { model | parameters = updatedParams }, Cmd.none )
 
         UpdateSearch query ->
             ( { model | searchQuery = query }, Cmd.none )

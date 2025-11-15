@@ -2107,7 +2107,12 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
 
             print(f"Image {image_id} downloaded successfully: {file_size} bytes stored in DB")
             # Return a database URL instead of file path
-            return f"/api/images/{image_id}/data"
+            # Use NGROK_URL if available for local development
+            ngrok_url = os.getenv("NGROK_URL", "").strip()
+            if ngrok_url:
+                return f"{ngrok_url}/api/images/{image_id}/data"
+            else:
+                return f"/api/images/{image_id}/data"
 
         except Exception as e:
             last_error = e
