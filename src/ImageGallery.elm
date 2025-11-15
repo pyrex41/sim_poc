@@ -88,7 +88,11 @@ update msg model =
         ImagesFetched result ->
             case result of
                 Ok images ->
-                    ( { model | images = images, loading = False, error = Nothing }, Cmd.none )
+                    -- Only update if images actually changed
+                    if images == model.images then
+                        ( { model | loading = False }, Cmd.none )
+                    else
+                        ( { model | images = images, loading = False, error = Nothing }, Cmd.none )
 
                 Err error ->
                     -- Don't show 401 errors (authentication issues are handled by login screen)
@@ -113,7 +117,8 @@ update msg model =
             ( { model | showRawData = not model.showRawData }, Cmd.none )
 
         Tick _ ->
-            ( { model | loading = True }, fetchImages )
+            -- Don't set loading=True on background refresh to prevent flicker
+            ( model, fetchImages )
 
         FetchVideoModels ->
             ( { model | loadingModels = True }, fetchVideoModels )

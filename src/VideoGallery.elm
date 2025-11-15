@@ -71,7 +71,11 @@ update msg model =
         VideosFetched result ->
             case result of
                 Ok videos ->
-                    ( { model | videos = videos, loading = False, error = Nothing }, Cmd.none )
+                    -- Only update if videos actually changed
+                    if videos == model.videos then
+                        ( { model | loading = False }, Cmd.none )
+                    else
+                        ( { model | videos = videos, loading = False, error = Nothing }, Cmd.none )
 
                 Err error ->
                     -- Don't show 401 errors (authentication issues are handled by login screen)
@@ -96,7 +100,8 @@ update msg model =
             ( { model | showRawData = not model.showRawData }, Cmd.none )
 
         Tick _ ->
-            ( { model | loading = True }, fetchVideos )
+            -- Don't set loading=True on background refresh to prevent flicker
+            ( model, fetchVideos )
 
 
 -- VIEW
