@@ -786,52 +786,93 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "Physics Simulator & Video Models"
     , body =
-        if not (Auth.isAuthenticated model.authModel) then
-            [ Html.map AuthMsg (Auth.view model.authModel) ]
-
-        else
-            [ div []
-                [ viewTabs model
-                , case model.route of
-                Just Route.Physics ->
-                    div [ class "app-container" ]
-                        [ viewLeftPanel model
-                        , viewCanvasContainer
-                        , viewRightPanel model
-                        , viewBottomBar model
+        case model.authModel.loginState of
+            Auth.Checking ->
+                -- Show blurred page with loading spinner
+                [ div [ style "position" "relative" ]
+                    [ div [ style "filter" "blur(4px)", style "pointer-events" "none" ]
+                        [ viewMainContent model ]
+                    , div
+                        [ style "position" "fixed"
+                        , style "top" "0"
+                        , style "left" "0"
+                        , style "width" "100%"
+                        , style "height" "100%"
+                        , style "display" "flex"
+                        , style "align-items" "center"
+                        , style "justify-content" "center"
+                        , style "background" "rgba(0, 0, 0, 0.3)"
+                        , style "z-index" "9999"
                         ]
-
-                Just Route.Videos ->
-                    Video.view model.videoModel
-                        |> Html.map VideoMsg
-
-                Just (Route.VideoDetail _) ->
-                    case model.videoDetailModel of
-                        Just videoDetailModel ->
-                            VideoDetail.view videoDetailModel
-                                |> Html.map VideoDetailMsg
-
-                        Nothing ->
-                            div [ class "loading" ] [ text "Loading..." ]
-
-                Just Route.Gallery ->
-                    VideoGallery.view model.galleryModel
-                        |> Html.map GalleryMsg
-
-                Just Route.SimulationGallery ->
-                    SimulationGallery.view model.simulationGalleryModel
-                        |> Html.map SimulationGalleryMsg
-
-                Nothing ->
-                    div [ class "app-container" ]
-                        [ viewLeftPanel model
-                        , viewCanvasContainer
-                        , viewRightPanel model
-                        , viewBottomBar model
+                        [ div
+                            [ style "width" "60px"
+                            , style "height" "60px"
+                            , style "border" "6px solid #f3f3f3"
+                            , style "border-top" "6px solid #667eea"
+                            , style "border-radius" "50%"
+                            , style "animation" "spin 1s linear infinite"
+                            ]
+                            []
                         ]
-            ]
-        ]
+                    ]
+                ]
+
+            Auth.NotLoggedIn ->
+                -- Show login screen
+                [ Html.map AuthMsg (Auth.view model.authModel) ]
+
+            Auth.LoggingIn ->
+                -- Show login screen while logging in
+                [ Html.map AuthMsg (Auth.view model.authModel) ]
+
+            Auth.LoggedIn ->
+                -- Show normal page
+                [ viewMainContent model ]
     }
+
+
+viewMainContent : Model -> Html Msg
+viewMainContent model =
+    div []
+        [ viewTabs model
+        , case model.route of
+            Just Route.Physics ->
+                div [ class "app-container" ]
+                    [ viewLeftPanel model
+                    , viewCanvasContainer
+                    , viewRightPanel model
+                    , viewBottomBar model
+                    ]
+
+            Just Route.Videos ->
+                Video.view model.videoModel
+                    |> Html.map VideoMsg
+
+            Just (Route.VideoDetail _) ->
+                case model.videoDetailModel of
+                    Just videoDetailModel ->
+                        VideoDetail.view videoDetailModel
+                            |> Html.map VideoDetailMsg
+
+                    Nothing ->
+                        div [ class "loading" ] [ text "Loading..." ]
+
+            Just Route.Gallery ->
+                VideoGallery.view model.galleryModel
+                    |> Html.map GalleryMsg
+
+            Just Route.SimulationGallery ->
+                SimulationGallery.view model.simulationGalleryModel
+                    |> Html.map SimulationGalleryMsg
+
+            Nothing ->
+                div [ class "app-container" ]
+                    [ viewLeftPanel model
+                    , viewCanvasContainer
+                    , viewRightPanel model
+                    , viewBottomBar model
+                    ]
+        ]
 
 
 viewTabs : Model -> Html Msg
