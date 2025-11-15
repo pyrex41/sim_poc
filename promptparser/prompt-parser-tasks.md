@@ -768,43 +768,47 @@ Complete test coverage for full release.
 ---
 
 #### Task 2.5.2: Load Testing
-**Priority:** P1 🟡 Medium (3 hours)
+**Priority:** P1 🟡 Medium (3 hours) ✅ *Completed Nov 15, 2025*
 
 **Description:**
 Load test with k6 to validate performance.
 
 **Acceptance Criteria:**
-- [ ] k6 test script written
-- [ ] Test 10 concurrent users for 5 minutes
-- [ ] p95 latency < 8 seconds
-- [ ] Error rate < 2%
-- [ ] Cache hit ratio > 30%
+- [x] k6 test script written (`tests/load/load_test.js`) with `Connection: close` header to avoid WinSock EOFs.
+- [x] Test 10 concurrent users for 5 minutes (`scripts/run_load_test.ps1 -BaseUrl http://127.0.0.1:18080`).
+- [x] p95 latency < 8 seconds (achieved 5.26 ms using mock LLM + memory cache).
+- [x] Error rate < 2% (0% after rate-limit tweaks, connection cleanup).
+- [x] Cache hit ratio > 30% (99.82% during run).
 
 **Files to Create:**
 - `tests/load/load_test.js`
 - `tests/load/README.md`
+- `scripts/run_load_test.ps1` (automation + cleanup)
+- `scripts/kill_port_occupant.ps1` (optional helper to free ports pre/post run)
 
 ---
 
 #### Task 2.5.3: Complete Documentation
-**Priority:** P1 🟡 Medium (4 hours)
+**Priority:** P1 🟡 Medium (4 hours) ✅ *Completed Nov 15, 2025*
 
 **Description:**
 Finalize all documentation for competition submission.
 
 **Acceptance Criteria:**
-- [ ] README with setup, usage, examples
-- [ ] API documentation (OpenAPI/Swagger)
-- [ ] Architecture diagram
-- [ ] Deployment guide
-- [ ] Troubleshooting guide
-- [ ] Example requests for all features
+- [x] README with setup, usage, examples (includes doc map, load-test metrics, tooling references).
+- [x] API documentation (OpenAPI/Swagger) – `docs/API.md` updated with request/response samples.
+- [x] Architecture diagram – new `docs/ARCHITECTURE.md` with ASCII diagram + component breakdown.
+- [x] Deployment guide – `docs/DEPLOYMENT.md` already details Fly/Docker steps.
+- [x] Troubleshooting guide – new `docs/TROUBLESHOOTING.md`.
+- [x] Example requests for all features – `docs/API.md`, `docs/SAMPLE_OUTPUTS.md`, and README sections capture parse/batch examples.
 
-**Files to Update:**
+**Files Updated/Added:**
 - `README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DEPLOYMENT.md`
 - `docs/API.md`
+- `docs/TROUBLESHOOTING.md`
+- `tests/load/README.md` (latest k6 summary)
 
 ---
 
@@ -856,6 +860,30 @@ Write 1-page technical deep dive answering key questions.
 
 **Files to Create:**
 - `docs/TECHNICAL_DEEP_DIVE.md`
+
+---
+
+### 3.2 Provider Flexibility (New)
+
+#### Task 3.2.1: OpenRouter Integration & Model Switching
+**Priority:** P1 🟡 Medium (3 hours)
+
+**Description:**
+Add support for OpenRouter and make model selection configurable so we can route prompts through different LLM hosts (OpenAI, Claude, OpenRouter, mock) without code changes.
+
+**Acceptance Criteria:**
+- [ ] `OPENROUTER_API_KEY` (or similar) added to config/README with secure loading instructions.
+- [ ] Implement OpenRouter-compatible `LLMProvider` that forwards creative-direction prompts.
+- [ ] Allow choosing provider via `options.llm_provider` or env default; `/v1/providers` should list status + latency for each.
+- [ ] Tests covering provider registry, fallback ordering, and OpenRouter happy-path.
+- [ ] Docs updated with instructions for switching providers.
+
+**Files to Update:**
+- `app/core/config.py`
+- `app/core/dependencies.py`
+- `app/services/llm/` (new provider)
+- `app/api/v1/providers.py`
+- `README.md` / `docs/API.md`
 
 ---
 

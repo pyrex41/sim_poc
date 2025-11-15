@@ -138,4 +138,6 @@ Prometheus-formatted metrics endpoint. Scrape via Fly or Prometheus to collect r
 - `/v1/parse/batch` mirrors the single parse behavior for multiple prompts.
 - `/v1/parse` enforces ~60 requests per minute per IP (SlowAPI). Prompt text is moderated via OpenAI when an API key is configured; flagged prompts return HTTP 400.
 - Admin/ops: `/v1/providers`, `/v1/cache/clear`, and `/metrics` support observability and cache management.
+- Scene responses are validated server-side; malformed outputs from upstream LLMs are automatically regenerated with deterministic defaults and surfaced via `metadata.warnings` so clients still receive a complete response.
+- Local smoke-test helper: `scripts/run_prompt_local.ps1` installs deps (if needed), starts uvicorn on a chosen port, fires a prompt via `scripts/prompt_cli.py`, prints the `creative_direction` block, and tears everything down. Flags include `-Prompt`, `-OpenAIKey`, `-BaseUrl`, `-IncludeCost`, and `-UseMockLLM`.
 

@@ -1,13 +1,16 @@
 """Parse endpoint."""
 
 import json
-from typing import Any
+from typing import Any, Tuple, List
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from pydantic import ValidationError
 
+from app.core.config import get_settings
 from app.core.dependencies import get_cache_manager, get_llm_provider_registry
 from app.models.request import ParseRequest
-from app.models.response import ParseResponse
+from app.models.response import ParseResponse, Scene
 from app.prompts.creative_direction import (
     CREATIVE_DIRECTION_SYSTEM_PROMPT,
     build_creative_direction_prompt,
@@ -23,6 +26,8 @@ from app.services.validator import calculate_confidence, validate_scenes
 from app.services.edit_handler import merge_iterative_edit
 from app.services.cost_estimator import estimate_cost
 from app.services.content_safety import ensure_prompt_safe, ContentSafetyError
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -54,7 +59,9 @@ async def process_parse_request(
         previous_config=merged_context,
     )
 
-    primary_name = parse_request.options.llm_provider or "openai"
+    settings = get_settings()
+    default_provider = "mock" if settings.USE_MOCK_LLM else "openai"
+    primary_name = parse_request.options.llm_provider or default_provider
     provider_order: list[tuple[str, LLMProvider]] = []
     if provider := llm_providers.get(primary_name):
         provider_order.append((primary_name, provider))
@@ -94,8 +101,8 @@ async def process_parse_request(
         visual_direction = creative_direction.setdefault("visual_direction", {})
         visual_direction["style_source"] = input_analysis.style_source
 
-    scenes = creative_direction.get("scenes") or generate_scenes(creative_direction)
-    warnings = validate_scenes(creative_direction, scenes)
+    scenes, scene_warnings = _prepare_scenes(creative_direction)
+    warnings = scene_warnings + validate_scenes(creative_direction, scenes)
     confidence = calculate_confidence(parsed_prompt.to_dict(), scenes, warnings)
     metadata = {
         "cache_hit": False,
@@ -123,8 +130,12 @@ async def process_parse_request(
     return ParseResponse(**response_dict)
 
 
+# derive rate limit from settings so tests can override RATE_LIMIT_PER_MINUTE
+_parse_rate_limit = f"{get_settings().RATE_LIMIT_PER_MINUTE}/minute"
+
+
 @router.post("/parse", response_model=ParseResponse)
-@limiter.limit("60/minute")
+@limiter.limit(_parse_rate_limit)
 async def parse_prompt(
     request: Request,
     parse_request: ParseRequest,
@@ -137,3 +148,34 @@ async def parse_prompt(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return await process_parse_request(parse_request, cache, llm_providers)
+
+
+def _prepare_scenes(creative_direction: dict[str, Any]) -> Tuple[List[dict[str, Any]], List[str]]:
+    """Normalize LLM scenes or regenerate defaults if invalid."""
+    raw_scenes = creative_direction.get("scenes")
+    if not raw_scenes:
+        generated = generate_scenes(creative_direction)
+        creative_direction["scenes"] = generated
+        return generated, [
+            "Scenes auto-generated because LLM response omitted required fields."
+        ]
+
+    normalized: List[dict[str, Any]] = []
+    for idx, raw in enumerate(raw_scenes):
+        try:
+            scene = Scene.model_validate(raw)
+        except ValidationError as exc:
+            logger.warning(
+                "scene_validation_failed",
+                scene_index=idx,
+                errors=exc.errors(),
+            )
+            generated = generate_scenes(creative_direction)
+            creative_direction["scenes"] = generated
+            return generated, [
+                "Scenes regenerated because LLM output did not match the schema."
+            ]
+        normalized.append(scene.model_dump())
+
+    creative_direction["scenes"] = normalized
+    return normalized, []

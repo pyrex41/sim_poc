@@ -13,5 +13,3 @@ build/
 *.pyd
 *.log
 .env
-memory-bank/
-

@@ -9,6 +9,7 @@ from app.services.cache import CacheManager
 from app.services.llm.base import LLMProvider
 from app.services.llm.openai_provider import OpenAIProvider
 from app.services.llm.claude_provider import ClaudeProvider
+from app.services.llm.mock_provider import MockProvider
 
 
 @lru_cache
@@ -19,11 +20,15 @@ def _cache_manager() -> CacheManager:
 
 @lru_cache
 def _llm_providers() -> dict[str, LLMProvider]:
-    providers: dict[str, LLMProvider] = {"openai": OpenAIProvider()}
-    try:
+    settings = get_settings()
+    providers: dict[str, LLMProvider] = {}
+    if settings.USE_MOCK_LLM:
+        providers["mock"] = MockProvider()
+        return providers
+
+    providers["openai"] = OpenAIProvider()
+    if settings.ANTHROPIC_API_KEY:
         providers["claude"] = ClaudeProvider()
-    except RuntimeError:
-        providers["claude"] = providers["openai"]
     return providers
 
 

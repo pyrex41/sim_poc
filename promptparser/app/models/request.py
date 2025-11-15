@@ -30,7 +30,7 @@ class PromptInput(BaseModel):
 
 
 class ParseOptions(BaseModel):
-    llm_provider: str = "openai"
+    llm_provider: str | None = None
     include_cost_estimate: bool = False
     cost_fallback_enabled: bool = True
 

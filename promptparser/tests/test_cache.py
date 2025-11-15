@@ -62,6 +62,22 @@ async def test_cache_manager_clear_all(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "other:key" in dummy.store
 
 
+@pytest.mark.asyncio
+async def test_memory_cache_backend_expires() -> None:
+    cache = CacheManager("memory://")
+    key = "prompt_parse:v1:memory"
+    payload = {"foo": "bar"}
+
+    assert await cache.get(key) is None
+
+    await cache.set(key, payload, ttl=1)
+    cached = await cache.get(key)
+    assert cached == payload
+
+    await asyncio.sleep(1.1)
+    assert await cache.get(key) is None
+
+
 def test_generate_cache_key_deterministic() -> None:
     request = {
         "prompt": {"text": "luxury watch ad"},
