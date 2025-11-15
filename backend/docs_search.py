@@ -12,6 +12,12 @@ from typing import List, Dict, Optional
 import struct
 from openai import AsyncOpenAI
 
+try:
+    import sqlite_vec
+    SQLITE_VEC_PATH = sqlite_vec.loadable_path()
+except ImportError:
+    SQLITE_VEC_PATH = None
+
 logger = logging.getLogger(__name__)
 
 # Initialize OpenAI client
@@ -26,26 +32,27 @@ class GenesisDocsSearch:
         self._init_db()
         logger.info(f"Initialized GenesisDocsSearch with db: {db_path}")
 
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get a database connection with vec extension loaded"""
+        conn = sqlite3.connect(self.db_path)
+        if SQLITE_VEC_PATH:
+            try:
+                conn.enable_load_extension(True)
+                conn.load_extension(SQLITE_VEC_PATH)
+            except Exception as e:
+                logger.debug(f"Could not load vec extension: {e}")
+        return conn
+
     def _init_db(self):
         """Initialize database with FTS5 and vector tables"""
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
 
-        # Enable sqlite-vec extension
-        try:
-            conn.enable_load_extension(True)
-            try:
-                conn.load_extension("vec0")
-            except:
-                # Try alternate extension name
-                try:
-                    conn.load_extension("sqlite_vec")
-                except Exception as e:
-                    logger.warning(f"Could not load sqlite-vec extension: {e}")
-                    logger.warning("Vector search will not be available")
-        except Exception as e:
-            logger.warning(f"Extension loading not supported: {e}")
+        if SQLITE_VEC_PATH:
+            logger.info(f"Loaded sqlite-vec from {SQLITE_VEC_PATH}")
+        else:
+            logger.warning("sqlite-vec not installed, vector search will not be available")
 
         # Create FTS5 table for keyword search
         conn.execute("""
@@ -109,7 +116,7 @@ class GenesisDocsSearch:
         example: str
     ):
         """Index a single API documentation section"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
 
         # Combine all text for full context
         combined_text = f"{section}: {api_name}\n{description}\n{parameters}\n{example}"
@@ -146,7 +153,7 @@ class GenesisDocsSearch:
 
     def fts_search(self, query: str, limit: int = 5) -> List[Dict]:
         """FTS5 keyword search"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
 
         try:
             cursor = conn.execute("""
@@ -182,18 +189,13 @@ class GenesisDocsSearch:
         if not query_embedding:
             return []
 
-        conn = sqlite3.connect(self.db_path)
+        if not SQLITE_VEC_PATH:
+            logger.warning("sqlite-vec not available, skipping vector search")
+            return []
+
+        conn = self._get_connection()
 
         try:
-            conn.enable_load_extension(True)
-            try:
-                conn.load_extension("vec0")
-            except:
-                try:
-                    conn.load_extension("sqlite_vec")
-                except:
-                    logger.warning("sqlite-vec not available, skipping vector search")
-                    return []
 
             query_blob = self._embedding_to_blob(query_embedding)
 
@@ -273,7 +275,7 @@ class GenesisDocsSearch:
 
     def get_stats(self) -> Dict:
         """Get statistics about indexed documentation"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
 
         stats = {}
 

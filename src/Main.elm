@@ -116,6 +116,7 @@ type alias SimulationState =
     , snapToGrid : Bool
     , gridSize : Float
     , shiftPressed : Bool
+    , typingInInput : Bool
     }
 
 
@@ -208,7 +209,7 @@ init _ url key =
       , route = route
       , scene = { objects = Dict.empty, selectedObject = Nothing, selectedObjects = Set.empty, sceneContext = defaultSceneContext }
       , uiState = { textInput = "", isGenerating = False, errorMessage = Nothing, refineInput = "", isRefining = False, populateInput = "", isPopulating = False, populateNumObjects = 5, populatePlacementStrategy = "natural", motionInput = "", isGeneratingMotion = False, motionData = Nothing }
-      , simulationState = { isRunning = False, transformMode = Translate, snapToGrid = False, gridSize = 1.0, shiftPressed = False }
+      , simulationState = { isRunning = False, transformMode = Translate, snapToGrid = False, gridSize = 1.0, shiftPressed = False, typingInInput = False }
       , initialScene = Nothing
       , history = []
       , future = []
@@ -280,6 +281,8 @@ type Msg
     | SceneLoadedFromStorage Encode.Value
     | KeyDown String
     | KeyUp String
+    | InputFocused
+    | InputBlurred
     | ClearError
     | SelectionChanged (Maybe String)
     | TransformUpdated { objectId : String, transform : Transform }
@@ -1246,62 +1249,66 @@ update msg model =
                     ( model, Cmd.none )
 
         KeyDown key ->
-            case key of
-                "Control" ->
-                    ( { model | ctrlPressed = True }, Cmd.none )
+            -- Ignore keyboard shortcuts when typing in an input field
+            if model.simulationState.typingInInput then
+                ( model, Cmd.none )
+            else
+                case key of
+                    "Control" ->
+                        ( { model | ctrlPressed = True }, Cmd.none )
 
-                " " ->
-                    -- Space: toggle simulation
-                    update (ToggleSimulation) model
+                    " " ->
+                        -- Space: toggle simulation
+                        update (ToggleSimulation) model
 
-                "g" ->
-                    -- G: translate mode
-                    update (SetTransformMode Translate) model
+                    "g" ->
+                        -- G: translate mode
+                        update (SetTransformMode Translate) model
 
-                "r" ->
-                    -- R: rotate mode
-                    update (SetTransformMode Rotate) model
+                    "r" ->
+                        -- R: rotate mode
+                        update (SetTransformMode Rotate) model
 
-                "s" ->
-                    -- S: scale mode
-                    update (SetTransformMode Scale) model
+                    "s" ->
+                        -- S: scale mode
+                        update (SetTransformMode Scale) model
 
-                "z" ->
-                    -- Ctrl+Z: undo
-                    if model.ctrlPressed then
-                        update Undo model
-                    else
+                    "z" ->
+                        -- Ctrl+Z: undo
+                        if model.ctrlPressed then
+                            update Undo model
+                        else
+                            ( model, Cmd.none )
+
+                    "y" ->
+                        -- Ctrl+Y: redo
+                        if model.ctrlPressed then
+                            update Redo model
+                        else
+                            ( model, Cmd.none )
+
+                    "d" ->
+                        -- D: duplicate selected
+                        update DuplicateSelected model
+
+                    "Delete" ->
+                        -- Delete: delete selected
+                        update DeleteSelected model
+
+                    "Backspace" ->
+                        -- Backspace: delete selected (alternative)
+                        update DeleteSelected model
+
+                    "Shift" ->
+                        -- Shift: enable multi-select mode
+                        update (ShiftKeyDown True) model
+
+                    "Escape" ->
+                        -- Escape: clear selection
+                        update ClearSelection model
+
+                    _ ->
                         ( model, Cmd.none )
-
-                "y" ->
-                    -- Ctrl+Y: redo
-                    if model.ctrlPressed then
-                        update Redo model
-                    else
-                        ( model, Cmd.none )
-
-                "d" ->
-                    -- D: duplicate selected
-                    update DuplicateSelected model
-
-                "Delete" ->
-                    -- Delete: delete selected
-                    update DeleteSelected model
-
-                "Backspace" ->
-                    -- Backspace: delete selected (alternative)
-                    update DeleteSelected model
-
-                "Shift" ->
-                    -- Shift: enable multi-select mode
-                    update (ShiftKeyDown True) model
-
-                "Escape" ->
-                    -- Escape: clear selection
-                    update ClearSelection model
-
-                _ ->
-                    ( model, Cmd.none )
 
         KeyUp key ->
             case key of
@@ -1314,6 +1321,18 @@ update msg model =
 
                 _ ->
                     ( model, Cmd.none )
+
+        InputFocused ->
+            let
+                simState = model.simulationState
+            in
+            ( { model | simulationState = { simState | typingInInput = True } }, Cmd.none )
+
+        InputBlurred ->
+            let
+                simState = model.simulationState
+            in
+            ( { model | simulationState = { simState | typingInInput = False } }, Cmd.none )
 
         SelectionChanged maybeObjectId ->
             let
@@ -1582,6 +1601,8 @@ viewSceneSettings context =
                 [ placeholder "Describe the overall scene, mood, and what's happening..."
                 , value context.narrative
                 , onInput UpdateSceneNarrative
+                , onFocus InputFocused
+                , onBlur InputBlurred
                 , rows 3
                 ]
                 []
@@ -1655,6 +1676,8 @@ viewLeftPanel model =
             [ placeholder "Describe a scene to generate..."
             , value model.uiState.textInput
             , onInput UpdateTextInput
+            , onFocus InputFocused
+            , onBlur InputBlurred
             , disabled model.uiState.isGenerating
             ]
             []
@@ -1682,6 +1705,8 @@ viewLeftPanel model =
             [ placeholder "Describe how to modify the current scene..."
             , value model.uiState.refineInput
             , onInput UpdateRefineInput
+            , onFocus InputFocused
+            , onBlur InputBlurred
             , disabled (Dict.isEmpty model.scene.objects || model.uiState.isRefining)
             ]
             []
@@ -1700,6 +1725,8 @@ viewLeftPanel model =
             [ placeholder "Add objects to scene (e.g., 'add 3 cars and 2 street lights in a parking lot')"
             , value model.uiState.populateInput
             , onInput UpdatePopulateInput
+            , onFocus InputFocused
+            , onBlur InputBlurred
             , disabled model.uiState.isPopulating
             ]
             []
@@ -1744,6 +1771,8 @@ viewLeftPanel model =
             [ placeholder "Describe motion (e.g., 'car drives forward slowly', 'ball bounces 3 times')"
             , value model.uiState.motionInput
             , onInput UpdateMotionInput
+            , onFocus InputFocused
+            , onBlur InputBlurred
             , disabled model.uiState.isGeneratingMotion
             ]
             []
@@ -1823,6 +1852,8 @@ viewObjectProperties object =
                 , placeholder "e.g., blue corvette, light pole, wooden coffee table..."
                 , Html.Attributes.value (Maybe.withDefault "" object.description)
                 , onInput (\desc -> UpdateObjectDescription object.id desc)
+                , onFocus InputFocused
+                , onBlur InputBlurred
                 , rows 3
                 ]
                 []

@@ -176,9 +176,9 @@ REALISM GUIDELINES:
 - Use realistic materials (cars are metallic, furniture is wood/metal)
 
 OUTPUT FORMAT (JSON):
-{
+{{
   "objects": [
-    {
+    {{
       "position": [x, y, z],
       "rotation": [rx, ry, rz],
       "shape": "box",
@@ -188,10 +188,10 @@ OUTPUT FORMAT (JSON):
       "friction": 0.5,
       "restitution": 0.3,
       "color": "#RRGGBB"
-    }
+    }}
   ],
   "reasoning": "brief explanation of placement decisions"
-}"""
+}}"""
 
     def _build_user_prompt(
         self,
