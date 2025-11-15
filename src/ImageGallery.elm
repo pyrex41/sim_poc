@@ -28,6 +28,7 @@ type alias ImageRecord =
     { id : Int
     , prompt : String
     , imageUrl : String
+    , thumbnailUrl : String
     , modelId : String
     , createdAt : String
     , collection : Maybe String
@@ -209,7 +210,7 @@ viewImageCard imageRecord =
                             text ""
                     ]
               else
-                img [ src imageRecord.imageUrl, style "width" "100%", style "height" "100%", style "object-fit" "cover" ] []
+                img [ src imageRecord.thumbnailUrl, style "width" "100%", style "height" "100%", style "object-fit" "cover" ] []
             ]
         , div [ class "image-card-info" ]
             [ div [ class "image-prompt" ] [ text imageRecord.prompt ]
@@ -447,35 +448,37 @@ videoModelDecoder =
 imageDecoder : Decode.Decoder ImageRecord
 imageDecoder =
     Decode.map8
-        (\id prompt imageUrl modelId createdAt collection parameters metadata ->
+        (\id prompt imageUrl thumbnailUrl modelId createdAt collection parameters ->
             { id = id
             , prompt = prompt
             , imageUrl = imageUrl
+            , thumbnailUrl = thumbnailUrl
             , modelId = modelId
             , createdAt = createdAt
             , collection = collection
             , parameters = parameters
-            , metadata = metadata
+            , metadata = Nothing
             , status = "completed"  -- Default, will be overridden below
             }
         )
         (Decode.field "id" Decode.int)
         (Decode.field "prompt" Decode.string)
         (Decode.field "image_url" Decode.string)
+        (Decode.field "thumbnail_url" Decode.string)
         (Decode.field "model_id" Decode.string)
         (Decode.field "created_at" Decode.string)
         (Decode.maybe (Decode.field "collection" Decode.string))
         (Decode.maybe (Decode.field "parameters" Decode.value))
-        (Decode.maybe (Decode.field "metadata" Decode.value))
         |> Decode.andThen
             (\record ->
-                Decode.map
-                    (\status -> { record | status = status })
+                Decode.map2
+                    (\status metadata -> { record | status = status, metadata = metadata })
                     (Decode.oneOf
                         [ Decode.field "status" Decode.string
                         , Decode.succeed "completed"
                         ]
                     )
+                    (Decode.maybe (Decode.field "metadata" Decode.value))
             )
 
 

@@ -2174,6 +2174,44 @@ async def api_get_image_data(
         from fastapi.responses import Response
         return Response(content=row["image_data"], media_type="image/png")
 
+@app.get("/api/images/{image_id}/thumbnail")
+async def api_get_image_thumbnail(
+    image_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get a thumbnail (400px width) of the image for gallery display. Requires authentication."""
+    from database import get_db
+    from PIL import Image
+    import io
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT image_data FROM generated_images WHERE id = ?",
+            (image_id,)
+        ).fetchone()
+
+        if not row or not row["image_data"]:
+            raise HTTPException(status_code=404, detail=f"Image data not found for ID {image_id}")
+
+        # Load image and create thumbnail
+        image = Image.open(io.BytesIO(row["image_data"]))
+
+        # Resize to max width of 400px, maintaining aspect ratio
+        max_width = 400
+        if image.width > max_width:
+            ratio = max_width / image.width
+            new_height = int(image.height * ratio)
+            image = image.resize((max_width, new_height), Image.Resampling.LANCZOS)
+
+        # Convert to bytes
+        output = io.BytesIO()
+        image.save(output, format='JPEG', quality=85, optimize=True)
+        thumbnail_data = output.getvalue()
+
+        # Return thumbnail
+        from fastapi.responses import Response
+        return Response(content=thumbnail_data, media_type="image/jpeg")
+
 @app.get("/api/videos/{video_id}/data")
 async def api_get_video_data(
     video_id: int,
