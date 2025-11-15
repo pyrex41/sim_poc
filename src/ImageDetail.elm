@@ -25,6 +25,7 @@ type alias ImageRecord =
     , modelId : String
     , createdAt : String
     , status : String
+    , metadata : Maybe Decode.Value
     }
 
 
@@ -171,7 +172,13 @@ viewImageDetail image =
 
             "failed" ->
                 div [ class "error" ]
-                    [ text "Image generation failed. Please try again with different parameters." ]
+                    [ text (case extractErrorMessage image of
+                        Just errorMsg ->
+                            "Image generation failed: " ++ errorMsg
+
+                        Nothing ->
+                            "Image generation failed. Please try again with different parameters."
+                    ) ]
 
             "canceled" ->
                 div [ class "info" ]
@@ -202,6 +209,18 @@ statusText status =
             status
 
 
+extractErrorMessage : ImageRecord -> Maybe String
+extractErrorMessage imageRecord =
+    -- Try to extract error message from metadata
+    case imageRecord.metadata of
+        Just metadataValue ->
+            Decode.decodeValue (Decode.field "error" Decode.string) metadataValue
+                |> Result.toMaybe
+
+        Nothing ->
+            Nothing
+
+
 
 -- HTTP
 
@@ -216,13 +235,14 @@ fetchImage imageId =
 
 imageDecoder : Decode.Decoder ImageRecord
 imageDecoder =
-    Decode.map6 ImageRecord
+    Decode.map7 ImageRecord
         (Decode.field "id" Decode.int)
         (Decode.field "prompt" Decode.string)
         (Decode.field "image_url" Decode.string)
         (Decode.field "model_id" Decode.string)
         (Decode.field "created_at" Decode.string)
         (Decode.field "status" Decode.string)
+        (Decode.maybe (Decode.field "metadata" Decode.value))
 
 
 httpErrorToString : Http.Error -> String
