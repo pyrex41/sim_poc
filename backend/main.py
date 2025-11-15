@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Response
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -1650,6 +1650,66 @@ async def api_delete_video_file(
     else:
         raise HTTPException(status_code=500, detail="Failed to delete video from database")
 
+@app.post("/api/upload-image")
+async def upload_image(
+    file: UploadFile = File(...),
+    current_user: Dict = Depends(verify_auth)
+):
+    """Upload an image file and return its URL. Requires authentication."""
+    import uuid
+    from pathlib import Path
+
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {file.content_type}. Allowed types: {', '.join(allowed_types)}"
+        )
+
+    # Create uploads directory
+    uploads_dir = Path(__file__).parent / "DATA" / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique filename
+    file_ext = Path(file.filename).suffix.lower()
+    if not file_ext:
+        file_ext = ".jpg"  # Default extension
+
+    unique_filename = f"upload_{uuid.uuid4().hex[:12]}{file_ext}"
+    file_path = uploads_dir / unique_filename
+
+    # Save file
+    try:
+        contents = await file.read()
+
+        # Validate file size (max 10MB)
+        max_size = 10 * 1024 * 1024  # 10MB
+        if len(contents) > max_size:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB"
+            )
+
+        with open(file_path, "wb") as f:
+            f.write(contents)
+
+        # Return URL
+        image_url = f"/data/uploads/{unique_filename}"
+        print(f"Uploaded image: {file_path} -> {image_url}")
+
+        return {
+            "success": True,
+            "url": image_url,
+            "filename": unique_filename
+        }
+
+    except Exception as e:
+        # Clean up file if it was created
+        if file_path.exists():
+            file_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
+
 @app.post("/api/genesis/render")
 async def api_genesis_render(
     request: GenesisRenderRequest,
@@ -1837,6 +1897,11 @@ if GENESIS_VIDEO_DIR.exists():
 VIDEOS_DIR = Path(__file__).parent / "DATA" / "videos"
 VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/data/videos", StaticFiles(directory=str(VIDEOS_DIR)), name="videos")
+
+# Serve uploaded images
+UPLOADS_DIR = Path(__file__).parent / "DATA" / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/data/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
 
 # Serve frontend (must be last to catch all other routes)
 @app.get("/{full_path:path}")

@@ -1,6 +1,7 @@
 module Video exposing (Model, Msg(..), init, update, view)
 
 import Browser.Dom as Dom
+import File exposing (File)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -27,6 +28,7 @@ type alias Model =
     , pollingVideoId : Maybe Int
     , videoStatus : String
     , selectedVersion : Maybe String
+    , uploadingFile : Maybe String  -- Track which parameter key is uploading
     }
 
 
@@ -75,6 +77,7 @@ init =
       , pollingVideoId = Nothing
       , videoStatus = ""
       , selectedVersion = Nothing
+      , uploadingFile = Nothing
       }
     , fetchModels "text-to-video"
     )
@@ -98,6 +101,8 @@ type Msg
     | PollVideoStatus
     | VideoStatusFetched (Result Http.Error VideoRecord)
     | ScrollToModel (Result Dom.Error ())
+    | FileSelected String File
+    | ImageUploaded String (Result Http.Error String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -222,6 +227,34 @@ update msg model =
 
                 Err error ->
                     ( { model | error = Just (httpErrorToString error) }, Cmd.none )
+
+        FileSelected paramKey file ->
+            ( { model | uploadingFile = Just paramKey }
+            , uploadImage paramKey file
+            )
+
+        ImageUploaded paramKey result ->
+            case result of
+                Ok imageUrl ->
+                    let
+                        updatedParams =
+                            updateParameterInList paramKey imageUrl model.parameters
+                    in
+                    ( { model
+                        | uploadingFile = Nothing
+                        , parameters = updatedParams
+                        , error = Nothing
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model
+                        | uploadingFile = Nothing
+                        , error = Just ("Upload failed: " ++ httpErrorToString error)
+                      }
+                    , Cmd.none
+                    )
 
 
 -- HELPER FUNCTIONS
@@ -354,7 +387,7 @@ view model =
                     [ h2 [] [ text selected.name ]
                     , p [] [ text selected.description ]
                     , div [ class "parameters-form-grid" ]
-                        (List.map (viewParameter model.isGenerating model.requiredFields) model.parameters)
+                        (List.map (viewParameter model) model.parameters)
                     , button
                         [ onClick GenerateVideo
                         , disabled (hasEmptyRequiredParameters model.parameters model.requiredFields || model.isGenerating)
@@ -392,11 +425,14 @@ viewModelOption model =
         ]
 
 
-viewParameter : Bool -> List String -> Parameter -> Html Msg
-viewParameter isDisabled requiredFields param =
+viewParameter : Model -> Parameter -> Html Msg
+viewParameter model param =
     let
+        isDisabled =
+            model.isGenerating
+
         isRequired =
-            List.member param.key requiredFields
+            List.member param.key model.requiredFields
 
         labelText =
             formatParameterName param.key ++ (if isRequired then " *" else "")
@@ -441,6 +477,9 @@ viewParameter isDisabled requiredFields param =
 
         isImageField =
             param.format == Just "uri" || String.contains "image" (String.toLower param.key)
+
+        isUploading =
+            model.uploadingFile == Just param.key
     in
     div [ class "parameter-field" ]
         [ label [ class "parameter-label" ]
@@ -469,17 +508,22 @@ viewParameter isDisabled requiredFields param =
                         [ input
                             [ type_ "file"
                             , Html.Attributes.accept "image/*"
-                            , disabled isDisabled
+                            , disabled (isDisabled || isUploading)
                             , class "parameter-file-input"
                             , Html.Attributes.id ("file-" ++ param.key)
+                            , on "change" (fileDecoder param.key)
                             ]
                             []
+                        , if isUploading then
+                            div [ class "upload-status" ] [ text "Uploading..." ]
+                          else
+                            text ""
                         , input
                             [ type_ "text"
                             , placeholder "Or enter image URL..."
                             , Html.Attributes.value param.value
                             , onInput (UpdateParameter param.key)
-                            , disabled isDisabled
+                            , disabled (isDisabled || isUploading)
                             , class "parameter-input"
                             ]
                             []
@@ -533,6 +577,12 @@ hasEmptyRequiredParameters params requiredFields =
             List.member param.key requiredFields && String.isEmpty (String.trim param.value)
         )
         params
+
+
+fileDecoder : String -> Decode.Decoder Msg
+fileDecoder paramKey =
+    Decode.at [ "target", "files", "0" ] File.decoder
+        |> Decode.map (FileSelected paramKey)
 
 
 -- HTTP
@@ -651,6 +701,20 @@ videoResponseDecoder =
     Decode.map2 (\id s -> { video_id = id, status = s })
         (Decode.field "video_id" Decode.int)
         (Decode.field "status" Decode.string)
+
+
+uploadImage : String -> File -> Cmd Msg
+uploadImage paramKey file =
+    Http.post
+        { url = "/api/upload-image"
+        , body = Http.multipartBody [ Http.filePart "file" file ]
+        , expect = Http.expectJson (ImageUploaded paramKey) uploadResponseDecoder
+        }
+
+
+uploadResponseDecoder : Decode.Decoder String
+uploadResponseDecoder =
+    Decode.field "url" Decode.string
 
 
 videoModelDecoder : Decode.Decoder VideoModel
