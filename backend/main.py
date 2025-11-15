@@ -2449,6 +2449,10 @@ app.mount("/data/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
     """Serve the frontend application for all non-API routes."""
+    # Don't intercept API routes - they should be handled by their specific endpoints
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="API endpoint not found")
+
     # Check if we're in production mode with static files
     if STATIC_DIR.exists() and STATIC_DIR.is_dir():
         index_file = STATIC_DIR / "index.html"
