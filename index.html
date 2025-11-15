@@ -792,42 +792,6 @@
             // Make Elm app globally accessible for Three.js callbacks
             window.elmApp = app;
 
-            // Set up authentication ports IMMEDIATELY (before any async operations)
-            // so they're ready when Elm's init calls loadToken()
-            app.ports.saveToken.subscribe((maybeToken) => {
-                console.log('Saving auth token to localStorage');
-                if (maybeToken) {
-                    localStorage.setItem('auth_token', maybeToken);
-                    localStorage.setItem('login_time', Date.now());
-                } else {
-                    localStorage.removeItem('auth_token');
-                    localStorage.removeItem('login_time');
-                }
-            });
-
-            app.ports.loadToken.subscribe(() => {
-                console.log('Loading auth token from localStorage');
-                const token = localStorage.getItem('auth_token');
-                const loginTime = localStorage.getItem('login_time');
-
-                // Check if token has expired (5 days = 432000000 milliseconds)
-                const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
-                const now = Date.now();
-
-                if (token && loginTime && (now - parseInt(loginTime) < FIVE_DAYS_MS)) {
-                    console.log('Valid token found');
-                    app.ports.tokenLoadedFromStorage.send(token);
-                } else {
-                    console.log('No valid token found');
-                    if (token) {
-                        // Clear expired token
-                        localStorage.removeItem('auth_token');
-                        localStorage.removeItem('login_time');
-                    }
-                    app.ports.tokenLoadedFromStorage.send(null);
-                }
-            });
-
             // Wait for Elm to render the DOM
             await new Promise(resolve => setTimeout(resolve, 100));
 
