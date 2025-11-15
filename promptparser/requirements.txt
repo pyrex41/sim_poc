@@ -1,0 +1,16 @@
+fastapi==0.109.2
+uvicorn[standard]==0.27.0.post1
+pydantic==2.6.4
+python-dotenv==1.0.1
+python-multipart==0.0.9
+redis[asyncio]==5.0.1
+structlog==23.2.0
+tenacity==8.2.3
+openai==1.3.5
+pydantic-settings==2.1.0
+anthropic==0.7.7
+pillow==10.1.0
+numpy==1.26.4
+opencv-python==4.8.1.78
+slowapi==0.1.9
+prometheus-client==0.23.1
