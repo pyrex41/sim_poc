@@ -1170,7 +1170,12 @@ async def api_run_video_model(
     background_tasks: BackgroundTasks,
     current_user: Dict = Depends(verify_auth)
 ):
-    """Initiate video generation and return immediately with a video ID. Requires authentication."""
+    """Initiate video generation and return immediately with a video ID. Requires authentication.
+
+    Note: Input validation is handled by the frontend (Elm) which validates required fields
+    against the model schema before submission. Replicate API also validates and will return
+    clear error messages if inputs are invalid.
+    """
     try:
         if not ai_client:
             # Demo response - create a pending video
@@ -1183,6 +1188,13 @@ async def api_run_video_model(
                 status="processing"
             )
             return {"video_id": video_id, "status": "processing"}
+
+        # Basic validation: ensure we have at least a prompt or image parameter
+        if not request.input.get("prompt") and not any(k for k in request.input.keys() if "image" in k.lower()):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required input: must provide either 'prompt' or an image parameter"
+            )
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
@@ -1415,9 +1427,13 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
             print("No replicate_id in webhook")
             return {"status": "ignored"}
 
-        # Find the video by replicate_id in metadata
+        # Find the video or image by replicate_id in metadata
         from database import get_db
+        video_id = None
+        image_id = None
+
         with get_db() as conn:
+            # Check videos first
             row = conn.execute(
                 """
                 SELECT id FROM generated_videos
@@ -1426,53 +1442,110 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 (replicate_id,)
             ).fetchone()
 
-            if not row:
-                print(f"No video found for replicate_id: {replicate_id}")
+            if row:
+                video_id = row["id"]
+            else:
+                # Check images
+                row = conn.execute(
+                    """
+                    SELECT id FROM generated_images
+                    WHERE json_extract(metadata, '$.replicate_id') = ?
+                    """,
+                    (replicate_id,)
+                ).fetchone()
+
+                if row:
+                    image_id = row["id"]
+
+            if not video_id and not image_id:
+                print(f"No video or image found for replicate_id: {replicate_id}")
                 return {"status": "ignored"}
 
-            video_id = row["id"]
+        if video_id:
+            print(f"Found video_id: {video_id} for replicate_id: {replicate_id}")
 
-        print(f"Found video_id: {video_id} for replicate_id: {replicate_id}")
+            if status == "succeeded" and output:
+                # Get video URL from output
+                video_url = output[0] if isinstance(output, list) else output
 
-        if status == "succeeded" and output:
-            # Get video URL from output
-            video_url = output[0] if isinstance(output, list) else output
+                if video_url:
+                    # Download and save video in background with race condition prevention
+                    def download_video_task():
+                        from database import mark_download_attempted, mark_download_failed
 
-            if video_url:
-                # Download and save video in background with race condition prevention
-                def download_task():
-                    from database import mark_download_attempted, mark_download_failed
+                        # Prevent race condition: check if download already attempted
+                        if not mark_download_attempted(video_id):
+                            print(f"Video {video_id} download already attempted by another process (webhook), skipping")
+                            return
 
-                    # Prevent race condition: check if download already attempted
-                    if not mark_download_attempted(video_id):
-                        print(f"Video {video_id} download already attempted by another process (webhook), skipping")
-                        return
+                        try:
+                            local_path = download_and_save_video(video_url, video_id)
+                            # Update database with local path
+                            update_video_status(
+                                video_id=video_id,
+                                status="completed",
+                                video_url=f"/data/videos/{Path(local_path).name}",
+                                metadata={"replicate_id": replicate_id, "original_url": video_url}
+                            )
+                            print(f"Video {video_id} saved locally via webhook: {local_path}")
+                        except Exception as e:
+                            # Download failed after all retries - mark as permanently failed
+                            error_msg = f"Failed to download video after retries: {str(e)}"
+                            print(f"Webhook: {error_msg}")
+                            mark_download_failed(video_id, error_msg)
 
-                    try:
-                        local_path = download_and_save_video(video_url, video_id)
-                        # Update database with local path
-                        update_video_status(
-                            video_id=video_id,
-                            status="completed",
-                            video_url=f"/data/videos/{Path(local_path).name}",
-                            metadata={"replicate_id": replicate_id, "original_url": video_url}
-                        )
-                        print(f"Video {video_id} saved locally via webhook: {local_path}")
-                    except Exception as e:
-                        # Download failed after all retries - mark as permanently failed
-                        error_msg = f"Failed to download video after retries: {str(e)}"
-                        print(f"Webhook: {error_msg}")
-                        mark_download_failed(video_id, error_msg)
+                    background_tasks.add_task(download_video_task)
 
-                background_tasks.add_task(download_task)
+            elif status in ["failed", "canceled"]:
+                error = request.get("error", "Unknown error")
+                update_video_status(
+                    video_id=video_id,
+                    status=status,
+                    metadata={"error": error, "replicate_id": replicate_id}
+                )
 
-        elif status in ["failed", "canceled"]:
-            error = request.get("error", "Unknown error")
-            update_video_status(
-                video_id=video_id,
-                status=status,
-                metadata={"error": error, "replicate_id": replicate_id}
-            )
+        elif image_id:
+            print(f"Found image_id: {image_id} for replicate_id: {replicate_id}")
+
+            if status == "succeeded" and output:
+                # Get image URL from output
+                image_url = output[0] if isinstance(output, list) else output
+
+                if image_url:
+                    # Download and save image in background with race condition prevention
+                    def download_image_task():
+                        from database import mark_image_download_attempted, mark_image_download_failed
+
+                        # Prevent race condition: check if download already attempted
+                        if not mark_image_download_attempted(image_id):
+                            print(f"Image {image_id} download already attempted by another process (webhook), skipping")
+                            return
+
+                        try:
+                            local_path = download_and_save_image(image_url, image_id)
+                            # Update database with local path
+                            update_image_status(
+                                image_id=image_id,
+                                status="completed",
+                                image_url=f"/data/images/{Path(local_path).name}",
+                                metadata={"replicate_id": replicate_id, "original_url": image_url}
+                            )
+                            print(f"Image {image_id} saved locally via webhook: {local_path}")
+                        except Exception as e:
+                            # Download failed after all retries - mark as permanently failed
+                            error_msg = f"Failed to download image after retries: {str(e)}"
+                            print(f"Webhook: {error_msg}")
+                            mark_image_download_failed(image_id, error_msg)
+
+                    background_tasks.add_task(download_image_task)
+
+            elif status in ["failed", "canceled"]:
+                error = request.get("error", "Unknown error")
+                update_image_status(
+                    image_id=image_id,
+                    status=status,
+                    metadata={"error": error, "replicate_id": replicate_id}
+                )
 
         return {"status": "processed"}
 
@@ -1800,7 +1873,12 @@ async def api_run_image_model(
     background_tasks: BackgroundTasks,
     current_user: Dict = Depends(verify_auth)
 ):
-    """Initiate image generation and return immediately with an image ID. Requires authentication."""
+    """Initiate image generation and return immediately with an image ID. Requires authentication.
+
+    Note: Input validation is handled by the frontend (Elm) which validates required fields
+    against the model schema before submission. Replicate API also validates and will return
+    clear error messages if inputs are invalid.
+    """
     try:
         if not ai_client:
             # Demo response - create a pending image
@@ -1813,6 +1891,13 @@ async def api_run_image_model(
                 status="processing"
             )
             return {"image_id": image_id, "status": "processing"}
+
+        # Basic validation: ensure we have at least a prompt or image parameter
+        if not request.input.get("prompt") and not any(k for k in request.input.keys() if "image" in k.lower()):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required input: must provide either 'prompt' or an image parameter"
+            )
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
