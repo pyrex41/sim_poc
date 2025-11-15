@@ -133,10 +133,10 @@ init _ url key =
             Video.init
 
         ( galleryModel, galleryCmd ) =
-            VideoGallery.init Nothing
+            VideoGallery.init
 
         ( simulationGalleryModel, simulationGalleryCmd ) =
-            SimulationGallery.init Nothing
+            SimulationGallery.init
 
         route =
             Route.fromUrl url
@@ -161,7 +161,6 @@ init _ url key =
         [ Cmd.map VideoMsg videoCmd
         , Cmd.map GalleryMsg galleryCmd
         , Cmd.map SimulationGalleryMsg simulationGalleryCmd
-        , loadToken ()
         ]
     )
 
@@ -202,7 +201,6 @@ type Msg
     | GalleryMsg VideoGallery.Msg
     | SimulationGalleryMsg SimulationGallery.Msg
     | AuthMsg Auth.Msg
-    | TokenLoadedFromStorage (Maybe String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -268,7 +266,7 @@ update msg model =
                         , errorMessage = Nothing
                     }
               }
-            , generateSceneRequest (Auth.getToken model.authModel) model.uiState.textInput
+            , generateSceneRequest model.uiState.textInput
             )
 
         SceneGenerated sceneJson ->
@@ -521,7 +519,7 @@ update msg model =
                     model.uiState
             in
             ( { model | uiState = { uiState | isRefining = True, errorMessage = Nothing } }
-            , refineSceneRequest (Auth.getToken model.authModel) model.scene model.uiState.refineInput
+            , refineSceneRequest model.scene model.uiState.refineInput
             )
 
         SceneRefined result ->
@@ -751,126 +749,22 @@ update msg model =
                 ( updatedAuthModel, authCmd ) =
                     Auth.update authMsg model.authModel
 
-                -- Get the new token if login succeeded
-                newToken =
-                    case authMsg of
-                        Auth.LoginResult (Ok response) ->
-                            Just response.access_token
-
-                        Auth.Logout ->
-                            Nothing
-
-                        _ ->
-                            model.authModel.token
-
-                -- Save token to localStorage when user logs in or logs out
-                saveTokenCmd =
-                    case authMsg of
-                        Auth.LoginResult (Ok response) ->
-                            saveToken (Just response.access_token)
-
-                        Auth.Logout ->
-                            saveToken Nothing
-
-                        _ ->
-                            Cmd.none
-
-                -- Update gallery models with the new token
-                ( updatedGalleryModel, updatedSimulationGalleryModel, fetchCmd ) =
-                    case authMsg of
-                        Auth.LoginResult (Ok response) ->
-                            let
-                                token =
-                                    Just response.access_token
-
-                                galleryModel =
-                                    model.galleryModel
-
-                                newGalleryModel =
-                                    { galleryModel | token = token }
-
-                                simulationGalleryModel =
-                                    model.simulationGalleryModel
-
-                                newSimulationGalleryModel =
-                                    { simulationGalleryModel | token = token }
-                            in
-                            ( newGalleryModel
-                            , newSimulationGalleryModel
-                            , Cmd.batch
-                                [ Cmd.map GalleryMsg (VideoGallery.fetchVideos token)
-                                , Cmd.map SimulationGalleryMsg (SimulationGallery.fetchVideos token)
-                                ]
-                            )
-
-                        Auth.Logout ->
-                            let
-                                galleryModel =
-                                    model.galleryModel
-
-                                newGalleryModel =
-                                    { galleryModel | token = Nothing }
-
-                                simulationGalleryModel =
-                                    model.simulationGalleryModel
-
-                                newSimulationGalleryModel =
-                                    { simulationGalleryModel | token = Nothing }
-                            in
-                            ( newGalleryModel, newSimulationGalleryModel, Cmd.none )
-
-                        _ ->
-                            ( model.galleryModel, model.simulationGalleryModel, Cmd.none )
-            in
-            ( { model
-                | authModel = updatedAuthModel
-                , galleryModel = updatedGalleryModel
-                , simulationGalleryModel = updatedSimulationGalleryModel
-              }
-            , Cmd.batch
-                [ Cmd.map AuthMsg authCmd
-                , saveTokenCmd
-                , fetchCmd
-                ]
-            )
-
-        TokenLoadedFromStorage maybeToken ->
-            let
-                ( updatedAuthModel, authCmd ) =
-                    Auth.update (Auth.TokenLoaded maybeToken) model.authModel
-
-                -- Update gallery models with the token
-                galleryModel =
-                    model.galleryModel
-
-                updatedGalleryModel =
-                    { galleryModel | token = maybeToken }
-
-                simulationGalleryModel =
-                    model.simulationGalleryModel
-
-                updatedSimulationGalleryModel =
-                    { simulationGalleryModel | token = maybeToken }
-
-                -- Trigger fetches if we have a token
+                -- Trigger gallery fetches when login succeeds (cookies are already set by server)
                 fetchCmd =
-                    case maybeToken of
-                        Just _ ->
+                    case authMsg of
+                        Auth.LoginResult (Ok _) ->
                             Cmd.batch
-                                [ Cmd.map GalleryMsg (VideoGallery.fetchVideos maybeToken)
-                                , Cmd.map SimulationGalleryMsg (SimulationGallery.fetchVideos maybeToken)
+                                [ Cmd.map GalleryMsg (Task.perform (always VideoGallery.FetchVideos) (Task.succeed ()))
+                                , Cmd.map SimulationGalleryMsg (Task.perform (always SimulationGallery.FetchVideos) (Task.succeed ()))
                                 ]
 
-                        Nothing ->
+                        _ ->
                             Cmd.none
             in
-            ( { model
-                | authModel = updatedAuthModel
-                , galleryModel = updatedGalleryModel
-                , simulationGalleryModel = updatedSimulationGalleryModel
-              }
+            ( { model | authModel = updatedAuthModel }
             , Cmd.batch [ Cmd.map AuthMsg authCmd, fetchCmd ]
             )
+
 
 
 -- HISTORY MANAGEMENT
@@ -1213,7 +1107,6 @@ subscriptions model =
         [ sendSelectionToElm SelectionChanged
         , sendTransformUpdateToElm TransformUpdated
         , sceneLoadedFromStorage SceneLoadedFromStorage
-        , tokenLoadedFromStorage TokenLoadedFromStorage
         , Browser.Events.onKeyDown (Decode.map KeyDown keyDecoder)
         , Browser.Events.onKeyUp (Decode.map KeyUp keyDecoder)
         , gallerySub
@@ -1255,15 +1148,6 @@ port loadSceneFromStorage : () -> Cmd msg
 
 
 port sceneLoadedFromStorage : (Encode.Value -> msg) -> Sub msg
-
-
-port saveToken : Maybe String -> Cmd msg
-
-
-port loadToken : () -> Cmd msg
-
-
-port tokenLoadedFromStorage : (Maybe String -> msg) -> Sub msg
 
 
 -- DECODERS
@@ -1340,47 +1224,23 @@ shapeDecoder =
 -- HTTP REQUESTS
 
 
-generateSceneRequest : Maybe String -> String -> Cmd Msg
-generateSceneRequest maybeToken prompt =
-    let
-        headers =
-            case maybeToken of
-                Just token ->
-                    [ Http.header "Authorization" ("Bearer " ++ token) ]
-
-                Nothing ->
-                    []
-    in
-    Http.request
-        { method = "POST"
-        , headers = headers
-        , url = "/api/generate"
+generateSceneRequest : String -> Cmd Msg
+generateSceneRequest prompt =
+    -- Cookies are sent automatically, no need for Authorization header
+    Http.post
+        { url = "/api/generate"
         , body = Http.jsonBody (Encode.object [ ( "prompt", Encode.string prompt ) ])
         , expect = Http.expectJson SceneGeneratedResult sceneDecoder
-        , timeout = Nothing
-        , tracker = Nothing
         }
 
 
-refineSceneRequest : Maybe String -> Scene -> String -> Cmd Msg
-refineSceneRequest maybeToken scene prompt =
-    let
-        headers =
-            case maybeToken of
-                Just token ->
-                    [ Http.header "Authorization" ("Bearer " ++ token) ]
-
-                Nothing ->
-                    []
-    in
-    Http.request
-        { method = "POST"
-        , headers = headers
-        , url = "/api/refine"
+refineSceneRequest : Scene -> String -> Cmd Msg
+refineSceneRequest scene prompt =
+    -- Cookies are sent automatically, no need for Authorization header
+    Http.post
+        { url = "/api/refine"
         , body = Http.jsonBody (Encode.object [ ( "scene", sceneEncoder scene ), ( "prompt", Encode.string prompt ) ])
         , expect = Http.expectJson SceneRefined sceneDecoder
-        , timeout = Nothing
-        , tracker = Nothing
         }
 
 

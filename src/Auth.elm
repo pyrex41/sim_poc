@@ -5,10 +5,7 @@ module Auth exposing
     , init
     , update
     , view
-    , getToken
     , isAuthenticated
-    , login
-    , logout
     )
 
 import Html exposing (..)
@@ -23,8 +20,7 @@ import Json.Encode as Encode
 
 
 type alias Auth =
-    { token : Maybe String
-    , username : String
+    { username : String
     , password : String
     , loginState : LoginState
     , error : Maybe String
@@ -39,8 +35,7 @@ type LoginState
 
 init : Auth
 init =
-    { token = Nothing
-    , username = ""
+    { username = ""
     , password = ""
     , loginState = NotLoggedIn
     , error = Nothing
@@ -56,13 +51,11 @@ type Msg
     | SubmitLogin
     | LoginResult (Result Http.Error LoginResponse)
     | Logout
-    | TokenLoaded (Maybe String)
 
 
 type alias LoginResponse =
-    { access_token : String
-    , token_type : String
-    , expires_in : Int
+    { message : String
+    , username : String
     }
 
 
@@ -82,8 +75,7 @@ update msg model =
 
         LoginResult (Ok response) ->
             ( { model
-                | token = Just response.access_token
-                , loginState = LoggedIn
+                | loginState = LoggedIn
                 , error = Nothing
                 , password = ""
               }
@@ -122,27 +114,12 @@ update msg model =
 
         Logout ->
             ( { model
-                | token = Nothing
-                , loginState = NotLoggedIn
+                | loginState = NotLoggedIn
                 , username = ""
                 , password = ""
                 , error = Nothing
               }
-            , Cmd.none
-            )
-
-        TokenLoaded maybeToken ->
-            ( { model
-                | token = maybeToken
-                , loginState =
-                    case maybeToken of
-                        Just _ ->
-                            LoggedIn
-
-                        Nothing ->
-                            NotLoggedIn
-              }
-            , Cmd.none
+            , logout
             )
 
 
@@ -157,10 +134,9 @@ login username password =
                 ("username=" ++ username ++ "&password=" ++ password)
 
         decoder =
-            Decode.map3 LoginResponse
-                (Decode.field "access_token" Decode.string)
-                (Decode.field "token_type" Decode.string)
-                (Decode.field "expires_in" Decode.int)
+            Decode.map2 LoginResponse
+                (Decode.field "message" Decode.string)
+                (Decode.field "username" Decode.string)
     in
     Http.post
         { url = "/api/auth/login"
@@ -169,22 +145,21 @@ login username password =
         }
 
 
+logout : Cmd Msg
+logout =
+    Http.post
+        { url = "/api/auth/logout"
+        , body = Http.emptyBody
+        , expect = Http.expectWhatever (\_ -> Logout)
+        }
+
+
 -- HELPERS
-
-
-getToken : Auth -> Maybe String
-getToken model =
-    model.token
 
 
 isAuthenticated : Auth -> Bool
 isAuthenticated model =
     model.loginState == LoggedIn
-
-
-logout : Cmd Msg
-logout =
-    Cmd.none
 
 
 -- VIEW

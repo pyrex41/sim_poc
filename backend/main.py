@@ -179,9 +179,11 @@ class APIKeyListItem(BaseModel):
     last_used: Optional[str]
     expires_at: Optional[str]
 
-@app.post("/api/auth/login", response_model=LoginResponse)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    """Login with username and password to get a JWT token."""
+@app.post("/api/auth/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), response: Response = None):
+    """Login with username and password. Sets HTTP-only cookie."""
+    from fastapi import Response
+
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -196,11 +198,39 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         expires_delta=access_token_expires
     )
 
+    # Create response
+    if response is None:
+        from fastapi import Response
+        response = Response()
+
+    # Set HTTP-only cookie
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT") == "production",  # HTTPS only in production
+        samesite="lax",
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/"
+    )
+
     return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        "message": "Login successful",
+        "username": user["username"]
     }
+
+@app.post("/api/auth/logout")
+async def logout(response: Response = None):
+    """Logout by clearing the authentication cookie."""
+    from fastapi import Response
+
+    if response is None:
+        response = Response()
+
+    # Clear the cookie
+    response.delete_cookie(key="access_token", path="/")
+
+    return {"message": "Logout successful"}
 
 @app.post("/api/auth/api-keys", response_model=APIKeyResponse)
 async def create_new_api_key(
@@ -1034,16 +1064,38 @@ def process_video_generation_background(
                     output = [output]
 
                 video_url = output[0] if output else ""
-                metadata = {
-                    "replicate_id": pred_data.get("id"),
-                    "prediction_url": prediction_url
-                }
+
+                if video_url:
+                    # Download and save video locally
+                    try:
+                        local_path = download_and_save_video(video_url, video_id)
+                        local_url = f"/data/videos/{Path(local_path).name}"
+                        metadata = {
+                            "replicate_id": pred_data.get("id"),
+                            "prediction_url": prediction_url,
+                            "original_url": video_url
+                        }
+                    except Exception as e:
+                        print(f"Error downloading video: {e}")
+                        # Fall back to Replicate URL (will expire in 1 hour)
+                        local_url = video_url
+                        metadata = {
+                            "replicate_id": pred_data.get("id"),
+                            "prediction_url": prediction_url,
+                            "download_error": str(e)
+                        }
+                else:
+                    local_url = ""
+                    metadata = {
+                        "replicate_id": pred_data.get("id"),
+                        "prediction_url": prediction_url
+                    }
 
                 # Update database with completed video
                 update_video_status(
                     video_id=video_id,
                     status="completed",
-                    video_url=video_url,
+                    video_url=local_url,
                     metadata=metadata
                 )
                 print(f"Video {video_id} completed successfully")
@@ -1136,12 +1188,18 @@ async def api_run_video_model(
             else:
                 converted_input[key] = value
 
+        # Get the base URL for webhooks
+        # In production, this should be the actual deployed URL
+        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+
         # Create prediction using HTTP API
         # Use version-based endpoint if version provided (more reliable)
         if request.version:
             payload = {
                 "version": request.version,
-                "input": converted_input
+                "input": converted_input,
+                "webhook": f"{base_url}/api/webhooks/replicate",
+                "webhook_events_filter": ["completed"]
             }
             url = "https://api.replicate.com/v1/predictions"
             print(f"DEBUG: Sending to Replicate API (version-based):")
@@ -1149,13 +1207,16 @@ async def api_run_video_model(
             print(f"  Version: {request.version}")
         else:
             payload = {
-                "input": converted_input
+                "input": converted_input,
+                "webhook": f"{base_url}/api/webhooks/replicate",
+                "webhook_events_filter": ["completed"]
             }
             url = f"https://api.replicate.com/v1/models/{request.model_id}/predictions"
             print(f"DEBUG: Sending to Replicate API (model-based):")
             print(f"  Model: {request.model_id}")
 
         print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
+        print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
         response = requests.post(url, headers=headers, json=payload, timeout=60)
 
         # Log the detailed error if request fails
@@ -1181,7 +1242,7 @@ async def api_run_video_model(
         # Create video record with "processing" status
         video_id = save_generated_video(
             prompt=request.input.get("prompt", ""),
-            video_url="",  # Will be filled in when complete
+            video_url="",  # Will be filled in when complete and downloaded
             model_id=request.model_id,
             parameters=request.input,
             collection=request.collection,
@@ -1189,7 +1250,7 @@ async def api_run_video_model(
             metadata={"replicate_id": result.get("id"), "prediction_url": prediction_url}
         )
 
-        # Start background task to poll for completion
+        # Start background task to poll for completion (fallback if webhook fails)
         background_tasks.add_task(
             process_video_generation_background,
             video_id=video_id,
@@ -1210,6 +1271,113 @@ async def api_run_video_model(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+def download_and_save_video(video_url: str, video_id: int) -> str:
+    """Download a video from Replicate and save it locally."""
+    import uuid
+    from pathlib import Path
+
+    # Create videos directory if it doesn't exist
+    videos_dir = Path(__file__).parent / "DATA" / "videos"
+    videos_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique filename
+    file_ext = ".mp4"  # Default to mp4
+    if video_url:
+        url_ext = video_url.split(".")[-1].lower()
+        if url_ext in ["mp4", "mov", "avi", "webm"]:
+            file_ext = f".{url_ext}"
+
+    filename = f"video_{video_id}_{uuid.uuid4().hex[:8]}{file_ext}"
+    file_path = videos_dir / filename
+
+    # Download the video
+    print(f"Downloading video from {video_url} to {file_path}")
+    response = requests.get(video_url, stream=True, timeout=300)
+    response.raise_for_status()
+
+    with open(file_path, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+
+    print(f"Video downloaded successfully: {file_path}")
+    return str(file_path)
+
+@app.post("/api/webhooks/replicate")
+async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
+    """Handle webhook from Replicate when a prediction completes."""
+    try:
+        print(f"Received Replicate webhook: {json.dumps(request, indent=2)}")
+
+        replicate_id = request.get("id")
+        status = request.get("status")
+        output = request.get("output")
+
+        if not replicate_id:
+            print("No replicate_id in webhook")
+            return {"status": "ignored"}
+
+        # Find the video by replicate_id in metadata
+        from database import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM generated_videos
+                WHERE json_extract(metadata, '$.replicate_id') = ?
+                """,
+                (replicate_id,)
+            ).fetchone()
+
+            if not row:
+                print(f"No video found for replicate_id: {replicate_id}")
+                return {"status": "ignored"}
+
+            video_id = row["id"]
+
+        print(f"Found video_id: {video_id} for replicate_id: {replicate_id}")
+
+        if status == "succeeded" and output:
+            # Get video URL from output
+            video_url = output[0] if isinstance(output, list) else output
+
+            if video_url:
+                # Download and save video in background
+                def download_task():
+                    try:
+                        local_path = download_and_save_video(video_url, video_id)
+                        # Update database with local path
+                        update_video_status(
+                            video_id=video_id,
+                            status="completed",
+                            video_url=f"/data/videos/{Path(local_path).name}",
+                            metadata={"replicate_id": replicate_id, "original_url": video_url}
+                        )
+                        print(f"Video {video_id} saved locally: {local_path}")
+                    except Exception as e:
+                        print(f"Error downloading video {video_id}: {e}")
+                        update_video_status(
+                            video_id=video_id,
+                            status="failed",
+                            metadata={"error": f"Download failed: {str(e)}", "replicate_id": replicate_id}
+                        )
+
+                background_tasks.add_task(download_task)
+
+        elif status in ["failed", "canceled"]:
+            error = request.get("error", "Unknown error")
+            update_video_status(
+                video_id=video_id,
+                status=status,
+                metadata={"error": error, "replicate_id": replicate_id}
+            )
+
+        return {"status": "processed"}
+
+    except Exception as e:
+        print(f"Error processing webhook: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/videos")
 async def api_list_videos(
@@ -1417,6 +1585,11 @@ from fastapi.staticfiles import StaticFiles
 GENESIS_VIDEO_DIR = Path(__file__).parent / "DATA" / "genesis_videos"
 if GENESIS_VIDEO_DIR.exists():
     app.mount("/data/genesis_videos", StaticFiles(directory=str(GENESIS_VIDEO_DIR)), name="genesis_videos")
+
+# Serve generated videos from Replicate
+VIDEOS_DIR = Path(__file__).parent / "DATA" / "videos"
+VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/data/videos", StaticFiles(directory=str(VIDEOS_DIR)), name="videos")
 
 # Serve frontend (must be last to catch all other routes)
 @app.get("/{full_path:path}")

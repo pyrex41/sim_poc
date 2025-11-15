@@ -639,6 +639,7 @@ generateVideo modelId parameters collection maybeVersion =
                             []
                    )
     in
+    -- Cookies are sent automatically, no need for Authorization header
     Http.post
         { url = "/api/run-video-model"
         , body = Http.jsonBody (Encode.object requestFields)
