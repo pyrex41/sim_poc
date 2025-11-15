@@ -192,63 +192,41 @@ isAuthenticated model =
 
 view : Auth -> Html Msg
 view model =
-    if model.loginState == Checking then
-        div
-            [ class "login-container"
-            , style "position" "fixed"
-            , style "top" "0"
-            , style "left" "0"
+    div
+        [ class "login-container"
+        , style "position" "fixed"
+        , style "top" "0"
+        , style "left" "0"
+        , style "width" "100%"
+        , style "height" "100%"
+        , style "display" "flex"
+        , style "align-items" "center"
+        , style "justify-content" "center"
+        , style "background" "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+        , style "z-index" "9999"
+        ]
+        [ div
+            [ class "login-box"
+            , style "background" "white"
+            , style "padding" "2rem"
+            , style "border-radius" "8px"
+            , style "box-shadow" "0 10px 25px rgba(0,0,0,0.2)"
             , style "width" "100%"
-            , style "height" "100%"
-            , style "display" "flex"
-            , style "align-items" "center"
-            , style "justify-content" "center"
-            , style "background" "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-            , style "z-index" "9999"
+            , style "max-width" "400px"
             ]
-            [ div
-                [ style "color" "white"
-                , style "font-size" "18px"
+            [ h2
+                [ style "margin-top" "0"
+                , style "color" "#333"
                 , style "text-align" "center"
                 ]
-                [ text "Checking authentication..." ]
-            ]
-    else
-        div
-            [ class "login-container"
-            , style "position" "fixed"
-            , style "top" "0"
-            , style "left" "0"
-            , style "width" "100%"
-            , style "height" "100%"
-            , style "display" "flex"
-            , style "align-items" "center"
-            , style "justify-content" "center"
-            , style "background" "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-            , style "z-index" "9999"
-            ]
-            [ div
-                [ class "login-box"
-                , style "background" "white"
-                , style "padding" "2rem"
-                , style "border-radius" "8px"
-                , style "box-shadow" "0 10px 25px rgba(0,0,0,0.2)"
-                , style "width" "100%"
-                , style "max-width" "400px"
+                [ text "Best Video Project" ]
+            , h3
+                [ style "margin-top" "0"
+                , style "color" "#666"
+                , style "font-weight" "normal"
+                , style "text-align" "center"
                 ]
-                [ h2
-                    [ style "margin-top" "0"
-                    , style "color" "#333"
-                    , style "text-align" "center"
-                    ]
-                    [ text "Best Video Project" ]
-                , h3
-                    [ style "margin-top" "0"
-                    , style "color" "#666"
-                    , style "font-weight" "normal"
-                    , style "text-align" "center"
-                    ]
-                    [ text "Sign In" ]
+                [ text "Sign In" ]
             , case model.error of
                 Just errorMsg ->
                     div
