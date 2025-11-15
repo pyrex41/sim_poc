@@ -171,10 +171,10 @@ logout =
 
 checkAuth : Cmd Msg
 checkAuth =
-    -- Try to fetch video models as a way to check if authenticated
+    -- Try to fetch videos (which requires auth) to check if authenticated
     -- If the cookie is valid, this will succeed; if not, it will fail with 401
     Http.get
-        { url = "/api/video-models?collection=text-to-video"
+        { url = "/api/videos?limit=1"
         , expect = Http.expectWhatever CheckAuthResult
         }
 
