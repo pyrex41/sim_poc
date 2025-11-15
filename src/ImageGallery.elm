@@ -423,7 +423,7 @@ fetchImages =
     -- Cookies are sent automatically, no need for Authorization header
     Http.get
         { url = "/api/images?limit=50"
-        , expect = Http.expectJson ImagesFetched (Decode.field "images" (Decode.list videoDecoder))
+        , expect = Http.expectJson ImagesFetched (Decode.field "images" (Decode.list imageDecoder))
         }
 
 
@@ -444,8 +444,8 @@ videoModelDecoder =
         (Decode.field "description" Decode.string)
 
 
-videoDecoder : Decode.Decoder ImageRecord
-videoDecoder =
+imageDecoder : Decode.Decoder ImageRecord
+imageDecoder =
     Decode.map8
         (\id prompt imageUrl modelId createdAt collection parameters metadata ->
             { id = id
@@ -461,7 +461,7 @@ videoDecoder =
         )
         (Decode.field "id" Decode.int)
         (Decode.field "prompt" Decode.string)
-        (Decode.field "video_url" Decode.string)
+        (Decode.field "image_url" Decode.string)
         (Decode.field "model_id" Decode.string)
         (Decode.field "created_at" Decode.string)
         (Decode.maybe (Decode.field "collection" Decode.string))
