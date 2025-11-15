@@ -646,14 +646,24 @@ def update_image_status(
                 (status, image_url, json.dumps(metadata) if metadata else None, image_id)
             )
         else:
-            conn.execute(
-                """
-                UPDATE generated_images
-                SET status = ?
-                WHERE id = ?
-                """,
-                (status, image_id)
-            )
+            if metadata is not None:
+                conn.execute(
+                    """
+                    UPDATE generated_images
+                    SET status = ?, metadata = ?
+                    WHERE id = ?
+                    """,
+                    (status, json.dumps(metadata), image_id)
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE generated_images
+                    SET status = ?
+                    WHERE id = ?
+                    """,
+                    (status, image_id)
+                )
         conn.commit()
 
 def mark_image_download_attempted(image_id: int) -> bool:
