@@ -12,6 +12,7 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 import Route exposing (Route)
 import Task
+import Process
 import Url exposing (Url)
 import Video
 import VideoDetail
@@ -291,11 +292,13 @@ update msg model =
                 ( videoPrefillCmd, clearedPending ) =
                     case ( newRoute, model.pendingVideoFromImage ) of
                         ( Just Route.Videos, Just { modelId, imageUrl } ) ->
+                            -- Image URL is already a full URL from backend (using ngrok if configured)
                             -- Send messages to configure Video.elm with the model and image
+                            -- Use delays to ensure correct order: collection -> model -> parameter
                             ( Cmd.batch
                                 [ Task.perform (always (VideoMsg (Video.SelectCollection "image-to-video"))) (Task.succeed ())
-                                , Task.perform (always (VideoMsg (Video.SelectModel modelId))) (Task.succeed ())
-                                , Task.perform (always (VideoMsg (Video.UpdateParameter "image" imageUrl))) (Task.succeed ())
+                                , Process.sleep 50 |> Task.andThen (\_ -> Task.succeed (VideoMsg (Video.SelectModel modelId))) |> Task.perform identity
+                                , Process.sleep 100 |> Task.andThen (\_ -> Task.succeed (VideoMsg (Video.UpdateParameter "image" imageUrl))) |> Task.perform identity
                                 ]
                             , Nothing
                             )

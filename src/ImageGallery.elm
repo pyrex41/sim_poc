@@ -143,8 +143,8 @@ update msg model =
             ( { model | selectedVideoModel = Just modelId }, Cmd.none )
 
         CreateVideoFromImage modelId imageUrl ->
-            -- This will be handled by Main.elm to navigate to video page with image and model
-            ( model, Cmd.none )
+            -- Close modal first, then Main.elm will handle navigation
+            ( { model | selectedImage = Nothing }, Cmd.none )
 
 
 -- VIEW
