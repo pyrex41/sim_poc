@@ -30,6 +30,11 @@ from database import (
     save_generated_video,
     update_video_status,
     get_video_by_id,
+    save_generated_image,
+    update_image_status,
+    get_image_by_id,
+    list_images,
+    delete_image,
     create_api_key,
     list_api_keys,
     revoke_api_key
@@ -643,6 +648,12 @@ class VideoModel(BaseModel):
     input_schema: Optional[Dict] = None
 
 class RunVideoRequest(BaseModel):
+    model_id: str
+    input: Dict[str, Any]  # Accepts strings, numbers, bools, etc.
+    collection: Optional[str] = None
+    version: Optional[str] = None  # Model version ID for reliable predictions
+
+class RunImageRequest(BaseModel):
     model_id: str
     input: Dict[str, Any]  # Accepts strings, numbers, bools, etc.
     collection: Optional[str] = None
@@ -1574,6 +1585,447 @@ async def api_get_video(
         raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
     return video
 
+# ============================================================================
+# Image Generation Endpoints
+# ============================================================================
+
+@app.get("/api/image-models")
+async def api_get_image_models(
+    collection: Optional[str] = Query("text-to-image", description="Collection slug: text-to-image, etc.")
+):
+    """Get image generation models from Replicate collections API."""
+    try:
+        if not ai_client:
+            # Fallback to demo models if no API key
+            return {"models": []}
+
+        headers = {
+            "Authorization": f"Bearer {ai_client['api_key']}",
+            "Content-Type": "application/json"
+        }
+
+        # Use collections API with the specified collection slug
+        url = f"https://api.replicate.com/v1/collections/{collection}"
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        # Format the models from the collection
+        models = []
+        for model_data in data.get("models", []):
+            model_id = f"{model_data.get('owner')}/{model_data.get('name')}"
+            models.append({
+                "id": model_id,
+                "name": model_data.get("name", ""),
+                "owner": model_data.get("owner", ""),
+                "description": model_data.get("description"),
+                "cover_image_url": model_data.get("cover_image_url"),
+                "latest_version": model_data.get("latest_version", {}).get("id") if model_data.get("latest_version") else None,
+                "run_count": model_data.get("run_count", 0),
+                "input_schema": None  # Will be fetched when model is selected
+            })
+
+        return {"models": models}
+    except Exception as e:
+        print(f"Error fetching image models from collection '{collection}': {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Fallback to empty list
+        return {"models": []}
+
+@app.get("/api/image-models/{model_owner}/{model_name}/schema")
+async def api_get_image_model_schema(model_owner: str, model_name: str):
+    """Get the input schema for a specific image model."""
+    try:
+        if not ai_client:
+            return {"input_schema": {"prompt": {"type": "string"}}}
+
+        headers = {
+            "Authorization": f"Bearer {ai_client['api_key']}",
+            "Content-Type": "application/json"
+        }
+
+        # Fetch model details including schema
+        url = f"https://api.replicate.com/v1/models/{model_owner}/{model_name}"
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        # Extract input schema from latest version
+        latest_version = data.get("latest_version") or {}
+        version_id = latest_version.get("id")
+        openapi_schema = latest_version.get("openapi_schema") or {}
+        input_schema = openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
+
+        # Extract properties and required fields
+        properties = input_schema.get("properties", {})
+        required_fields = input_schema.get("required", [])
+
+        # Return schema with version ID for reliable predictions
+        return {
+            "input_schema": properties,
+            "required": required_fields,
+            "version": version_id  # Include version ID for predictions
+        }
+    except Exception as e:
+        print(f"Error fetching image model schema: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"input_schema": {"prompt": {"type": "string"}}}
+
+def process_image_generation_background(
+    image_id: int,
+    prediction_url: str,
+    api_key: str,
+    model_id: str,
+    input_params: dict,
+    collection: str
+):
+    """Background task to poll Replicate for image generation completion."""
+    import time
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    prompt = input_params.get("prompt", "")
+    max_attempts = 120  # 4 minutes (2 seconds * 120)
+
+    try:
+        for attempt in range(max_attempts):
+            pred_response = requests.get(prediction_url, headers=headers)
+            pred_response.raise_for_status()
+            pred_data = pred_response.json()
+
+            status = pred_data.get("status")
+
+            if status == "succeeded":
+                output = pred_data.get("output", [])
+                if isinstance(output, str):
+                    output = [output]
+
+                image_url = output[0] if output else ""
+
+                if image_url:
+                    # Prevent race condition: check if download already attempted
+                    from database import mark_image_download_attempted, mark_image_download_failed
+
+                    if not mark_image_download_attempted(image_id):
+                        print(f"Image {image_id} download already attempted by another process, skipping")
+                        return
+
+                    # Download and save image locally with retries
+                    try:
+                        local_path = download_and_save_image(image_url, image_id)
+                        local_url = f"/data/images/{Path(local_path).name}"
+                        metadata = {
+                            "replicate_id": pred_data.get("id"),
+                            "prediction_url": prediction_url,
+                            "original_url": image_url
+                        }
+
+                        # Update database with completed image
+                        update_image_status(
+                            image_id=image_id,
+                            status="completed",
+                            image_url=local_url,
+                            metadata=metadata
+                        )
+                        print(f"Image {image_id} completed successfully")
+                        return
+
+                    except Exception as e:
+                        # Download failed after all retries - mark as permanently failed
+                        error_msg = f"Failed to download image after retries: {str(e)}"
+                        print(error_msg)
+                        mark_image_download_failed(image_id, error_msg)
+                        return
+                else:
+                    # No image URL in response
+                    metadata = {
+                        "replicate_id": pred_data.get("id"),
+                        "prediction_url": prediction_url,
+                        "error": "No image URL in Replicate response"
+                    }
+                    update_image_status(
+                        image_id=image_id,
+                        status="failed",
+                        metadata=metadata
+                    )
+                    print(f"Image {image_id} failed: no output URL")
+                    return
+
+            elif status in ["failed", "canceled"]:
+                error = pred_data.get("error", "Unknown error")
+                metadata = {
+                    "error": error,
+                    "replicate_id": pred_data.get("id")
+                }
+
+                # Update database with failure
+                update_image_status(
+                    image_id=image_id,
+                    status=status,
+                    metadata=metadata
+                )
+                print(f"Image {image_id} {status}: {error}")
+                return
+
+            time.sleep(2)
+
+        # Timeout
+        update_image_status(
+            image_id=image_id,
+            status="timeout",
+            metadata={"error": "Image generation timed out"}
+        )
+        print(f"Image {image_id} timed out")
+
+    except Exception as e:
+        print(f"Error processing image {image_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+        # Update database with error
+        update_image_status(
+            image_id=image_id,
+            status="failed",
+            metadata={"error": str(e)}
+        )
+
+@app.post("/api/run-image-model")
+async def api_run_image_model(
+    request: RunImageRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Initiate image generation and return immediately with an image ID. Requires authentication."""
+    try:
+        if not ai_client:
+            # Demo response - create a pending image
+            image_id = save_generated_image(
+                prompt=request.input.get("prompt", ""),
+                image_url="",
+                model_id=request.model_id,
+                parameters=request.input,
+                collection=request.collection,
+                status="processing"
+            )
+            return {"image_id": image_id, "status": "processing"}
+
+        headers = {
+            "Authorization": f"Bearer {ai_client['api_key']}",
+            "Content-Type": "application/json"
+        }
+
+        # Convert parameter types
+        converted_input = {}
+        for key, value in request.input.items():
+            if isinstance(value, str):
+                # Try to convert to int
+                try:
+                    converted_input[key] = int(value)
+                    continue
+                except ValueError:
+                    pass
+
+                # Try to convert to float
+                try:
+                    converted_input[key] = float(value)
+                    continue
+                except ValueError:
+                    pass
+
+                # Keep as string
+                converted_input[key] = value
+            else:
+                converted_input[key] = value
+
+        # Get the base URL for webhooks
+        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+
+        # Create prediction using HTTP API
+        if request.version:
+            payload = {
+                "version": request.version,
+                "input": converted_input,
+                "webhook": f"{base_url}/api/webhooks/replicate",
+                "webhook_events_filter": ["completed"]
+            }
+            url = "https://api.replicate.com/v1/predictions"
+            print(f"DEBUG: Sending to Replicate API (version-based) for image:")
+            print(f"  Model: {request.model_id}")
+            print(f"  Version: {request.version}")
+        else:
+            payload = {
+                "input": converted_input,
+                "webhook": f"{base_url}/api/webhooks/replicate",
+                "webhook_events_filter": ["completed"]
+            }
+            url = f"https://api.replicate.com/v1/models/{request.model_id}/predictions"
+            print(f"DEBUG: Sending to Replicate API (model-based) for image:")
+            print(f"  Model: {request.model_id}")
+
+        print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
+        print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+
+        # Log the detailed error if request fails
+        if response.status_code != 201:
+            error_detail = response.text
+            print(f"Replicate API Error ({response.status_code}): {error_detail}")
+
+            try:
+                error_json = response.json()
+                error_msg = error_json.get("detail", error_detail)
+            except:
+                error_msg = error_detail
+
+            raise HTTPException(status_code=400, detail=f"Replicate API error: {error_msg}")
+
+        result = response.json()
+
+        # Get the prediction URL
+        prediction_url = result.get("urls", {}).get("get")
+        if not prediction_url:
+            raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
+
+        # Create image record with "processing" status
+        image_id = save_generated_image(
+            prompt=request.input.get("prompt", ""),
+            image_url="",  # Will be filled in when complete and downloaded
+            model_id=request.model_id,
+            parameters=request.input,
+            collection=request.collection,
+            status="processing",
+            metadata={"replicate_id": result.get("id"), "prediction_url": prediction_url}
+        )
+
+        # Start background task to poll for completion (fallback if webhook fails)
+        background_tasks.add_task(
+            process_image_generation_background,
+            image_id=image_id,
+            prediction_url=prediction_url,
+            api_key=ai_client['api_key'],
+            model_id=request.model_id,
+            input_params=request.input,
+            collection=request.collection
+        )
+
+        # Return immediately with image ID
+        return {"image_id": image_id, "status": "processing"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error initiating image generation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3) -> str:
+    """
+    Download an image from Replicate and save it locally with retry logic.
+
+    Args:
+        image_url: URL of the image to download
+        image_id: ID of the image in the database
+        max_retries: Maximum number of download attempts (default: 3)
+
+    Returns:
+        str: Local file path of the downloaded image
+    """
+    import time
+    from database import increment_image_download_retries
+
+    images_dir = Path(__file__).parent / "DATA" / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine file extension from URL
+    ext = ".png"  # Default extension
+    if "." in image_url:
+        url_ext = image_url.split(".")[-1].split("?")[0].lower()
+        if url_ext in ["jpg", "jpeg", "png", "gif", "webp"]:
+            ext = f".{url_ext}"
+
+    filename = f"image_{image_id}{ext}"
+    file_path = images_dir / filename
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            print(f"Downloading image {image_id} (attempt {attempt + 1}/{max_retries}): {image_url}")
+
+            # Download with timeout
+            response = requests.get(image_url, timeout=60, stream=True)
+            response.raise_for_status()
+
+            # Verify it's an image
+            content_type = response.headers.get("content-type", "")
+            if not content_type.startswith("image/"):
+                raise ValueError(f"Invalid content type: {content_type}, expected image/*")
+
+            # Save to file
+            with open(file_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+            # Verify file was created and has content
+            if not file_path.exists():
+                raise FileNotFoundError(f"File was not created: {file_path}")
+
+            file_size = file_path.stat().st_size
+            if file_size == 0:
+                raise ValueError("Downloaded image file is empty")
+
+            print(f"Image {image_id} downloaded successfully: {file_size} bytes")
+            return str(file_path)
+
+        except Exception as e:
+            last_error = e
+            print(f"Image {image_id} download attempt {attempt + 1} failed: {str(e)}")
+
+            # Clean up partial file if it exists
+            if file_path.exists():
+                file_path.unlink()
+
+            # Increment retry counter in database
+            retry_count = increment_image_download_retries(image_id)
+            print(f"Image {image_id} retry count: {retry_count}")
+
+            # Wait before retrying (exponential backoff)
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # 1s, 2s, 4s, etc.
+                print(f"Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
+
+    # All retries failed
+    raise Exception(f"Failed to download image after {max_retries} attempts. Last error: {str(last_error)}")
+
+@app.get("/api/images")
+async def api_get_images(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    model_id: Optional[str] = None,
+    collection: Optional[str] = None,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get generated images. Requires authentication."""
+    images = list_images(limit=limit, offset=offset, model_id=model_id, collection=collection)
+    return {"images": images}
+
+@app.get("/api/images/{image_id}")
+async def api_get_image(
+    image_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get a specific image by ID (used for polling image status). Requires authentication."""
+    image = get_image_by_id(image_id)
+    if not image:
+        raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
+    return image
+
 @app.get("/api/admin/storage/stats")
 async def api_get_storage_stats(
     current_user: Dict = Depends(get_current_admin_user)
@@ -1902,6 +2354,11 @@ app.mount("/data/videos", StaticFiles(directory=str(VIDEOS_DIR)), name="videos")
 UPLOADS_DIR = Path(__file__).parent / "DATA" / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/data/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="uploads")
+
+# Serve generated images from Replicate
+IMAGES_DIR = Path(__file__).parent / "DATA" / "images"
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/data/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
 # Serve frontend (must be last to catch all other routes)
 @app.get("/{full_path:path}")
