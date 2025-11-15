@@ -18,6 +18,9 @@ type alias Model =
     , error : Maybe String
     , selectedImage : Maybe ImageRecord
     , showRawData : Bool
+    , videoModels : List VideoModel
+    , selectedVideoModel : Maybe String
+    , loadingModels : Bool
     }
 
 
@@ -34,6 +37,13 @@ type alias ImageRecord =
     }
 
 
+type alias VideoModel =
+    { id : String
+    , name : String
+    , description : String
+    }
+
+
 init : ( Model, Cmd Msg )
 init =
     ( { images = []
@@ -41,8 +51,11 @@ init =
       , error = Nothing
       , selectedImage = Nothing
       , showRawData = False
+      , videoModels = []
+      , selectedVideoModel = Nothing
+      , loadingModels = True
       }
-    , fetchImages
+    , Cmd.batch [ fetchImages, fetchVideoModels ]
     )
 
 
@@ -57,7 +70,10 @@ type Msg
     | CloseImage
     | ToggleRawData
     | Tick Time.Posix
-    | CreateVideoFromImage String  -- Pass the image URL
+    | FetchVideoModels
+    | VideoModelsFetched (Result Http.Error (List VideoModel))
+    | SelectVideoModel String
+    | CreateVideoFromImage String String  -- Pass model ID and image URL
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -99,8 +115,29 @@ update msg model =
         Tick _ ->
             ( { model | loading = True }, fetchImages )
 
-        CreateVideoFromImage imageUrl ->
-            -- This will be handled by Main.elm to navigate to video page with image
+        FetchVideoModels ->
+            ( { model | loadingModels = True }, fetchVideoModels )
+
+        VideoModelsFetched result ->
+            case result of
+                Ok models ->
+                    let
+                        -- Auto-select first model if available
+                        firstModel =
+                            models
+                                |> List.head
+                                |> Maybe.map .id
+                    in
+                    ( { model | videoModels = models, loadingModels = False, selectedVideoModel = firstModel }, Cmd.none )
+
+                Err _ ->
+                    ( { model | loadingModels = False }, Cmd.none )
+
+        SelectVideoModel modelId ->
+            ( { model | selectedVideoModel = Just modelId }, Cmd.none )
+
+        CreateVideoFromImage modelId imageUrl ->
+            -- This will be handled by Main.elm to navigate to video page with image and model
             ( model, Cmd.none )
 
 
@@ -249,18 +286,64 @@ viewImageModal model imageRecord =
                 ]
             , if not (String.isEmpty imageRecord.imageUrl) && imageRecord.status == "completed" then
                 div [ class "modal-actions", style "margin" "20px 0" ]
-                    [ button
-                        [ onClick (CreateVideoFromImage imageRecord.imageUrl)
-                        , class "create-video-button"
-                        , style "background" "#4CAF50"
-                        , style "color" "white"
-                        , style "padding" "10px 20px"
-                        , style "border" "none"
-                        , style "border-radius" "4px"
-                        , style "cursor" "pointer"
-                        , style "font-size" "16px"
+                    [ div [ style "margin-bottom" "10px" ]
+                        [ strong [] [ text "Select Image-to-Video Model:" ]
                         ]
-                        [ text "Create Video from This Image" ]
+                    , if model.loadingModels then
+                        div [ style "padding" "10px" ] [ text "Loading models..." ]
+                      else if List.isEmpty model.videoModels then
+                        div [ style "padding" "10px", style "color" "#999" ] [ text "No image-to-video models available" ]
+                      else
+                        div [ style "margin-bottom" "10px" ]
+                            [ select
+                                [ onInput SelectVideoModel
+                                , style "width" "100%"
+                                , style "padding" "8px"
+                                , style "border" "1px solid #ccc"
+                                , style "border-radius" "4px"
+                                , style "font-size" "14px"
+                                ]
+                                (List.map
+                                    (\videoModel ->
+                                        option
+                                            [ value videoModel.id
+                                            , selected (model.selectedVideoModel == Just videoModel.id)
+                                            ]
+                                            [ text (videoModel.name ++ " - " ++ videoModel.description) ]
+                                    )
+                                    model.videoModels
+                                )
+                            ]
+                    , case model.selectedVideoModel of
+                        Just modelId ->
+                            button
+                                [ onClick (CreateVideoFromImage modelId imageRecord.imageUrl)
+                                , class "create-video-button"
+                                , style "background" "#4CAF50"
+                                , style "color" "white"
+                                , style "padding" "10px 20px"
+                                , style "border" "none"
+                                , style "border-radius" "4px"
+                                , style "cursor" "pointer"
+                                , style "font-size" "16px"
+                                , style "width" "100%"
+                                ]
+                                [ text "Create Video from This Image" ]
+
+                        Nothing ->
+                            button
+                                [ disabled True
+                                , class "create-video-button"
+                                , style "background" "#ccc"
+                                , style "color" "#666"
+                                , style "padding" "10px 20px"
+                                , style "border" "none"
+                                , style "border-radius" "4px"
+                                , style "cursor" "not-allowed"
+                                , style "font-size" "16px"
+                                , style "width" "100%"
+                                ]
+                                [ text "Select a model first" ]
                     ]
               else
                 text ""
@@ -337,6 +420,23 @@ fetchImages =
         { url = "/api/images?limit=50"
         , expect = Http.expectJson ImagesFetched (Decode.field "images" (Decode.list videoDecoder))
         }
+
+
+fetchVideoModels : Cmd Msg
+fetchVideoModels =
+    -- Fetch image-to-video models from Replicate
+    Http.get
+        { url = "/api/video-models?collection=image-to-video"
+        , expect = Http.expectJson VideoModelsFetched (Decode.field "models" (Decode.list videoModelDecoder))
+        }
+
+
+videoModelDecoder : Decode.Decoder VideoModel
+videoModelDecoder =
+    Decode.map3 VideoModel
+        (Decode.field "id" Decode.string)
+        (Decode.field "name" Decode.string)
+        (Decode.field "description" Decode.string)
 
 
 videoDecoder : Decode.Decoder ImageRecord
