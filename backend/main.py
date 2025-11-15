@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Dict, Optional, List, Any
+from datetime import timedelta
 import uvicorn
 import os
 import hashlib
@@ -27,7 +29,20 @@ from database import (
     delete_scene,
     save_generated_video,
     update_video_status,
-    get_video_by_id
+    get_video_by_id,
+    create_api_key,
+    list_api_keys,
+    revoke_api_key
+)
+
+from auth import (
+    verify_auth,
+    get_current_admin_user,
+    authenticate_user,
+    create_access_token,
+    generate_api_key,
+    hash_api_key,
+    ACCESS_TOKEN_EXPIRE_MINUTES
 )
 
 # Load environment variables from .env file in parent directory
@@ -137,6 +152,107 @@ async def health_check():
 @app.get("/api")
 async def api_root():
     return {"message": "Physics Simulator API", "status": "running"}
+
+# ============================================================================
+# Authentication Endpoints
+# ============================================================================
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str
+    expires_in: int
+
+class CreateAPIKeyRequest(BaseModel):
+    name: str
+    expires_days: Optional[int] = None
+
+class APIKeyResponse(BaseModel):
+    api_key: str  # Only returned on creation
+    name: str
+    created_at: str
+
+class APIKeyListItem(BaseModel):
+    id: int
+    name: str
+    is_active: bool
+    created_at: str
+    last_used: Optional[str]
+    expires_at: Optional[str]
+
+@app.post("/api/auth/login", response_model=LoginResponse)
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Login with username and password to get a JWT token."""
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user["username"]},
+        expires_delta=access_token_expires
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    }
+
+@app.post("/api/auth/api-keys", response_model=APIKeyResponse)
+async def create_new_api_key(
+    request: CreateAPIKeyRequest,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Create a new API key for the authenticated user."""
+    from datetime import datetime
+
+    # Generate API key
+    api_key = generate_api_key()
+    key_hash = hash_api_key(api_key)
+
+    # Calculate expiration
+    expires_at = None
+    if request.expires_days:
+        expires_at = (datetime.utcnow() + timedelta(days=request.expires_days)).isoformat()
+
+    # Save to database
+    key_id = create_api_key(
+        key_hash=key_hash,
+        name=request.name,
+        user_id=current_user["id"],
+        expires_at=expires_at
+    )
+
+    return {
+        "api_key": api_key,  # Only shown once!
+        "name": request.name,
+        "created_at": datetime.utcnow().isoformat()
+    }
+
+@app.get("/api/auth/api-keys", response_model=List[APIKeyListItem])
+async def get_api_keys(current_user: Dict = Depends(verify_auth)):
+    """List all API keys for the authenticated user."""
+    keys = list_api_keys(current_user["id"])
+    return keys
+
+@app.delete("/api/auth/api-keys/{key_id}")
+async def revoke_api_key_endpoint(
+    key_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Revoke an API key."""
+    success = revoke_api_key(key_id, current_user["id"])
+    if not success:
+        raise HTTPException(status_code=404, detail="API key not found")
+    return {"message": "API key revoked successfully"}
+
+# ============================================================================
+# Scene Generation Endpoints
+# ============================================================================
 
 def generate_scene(prompt: str) -> Scene:
     """Generate a physics scene from a text prompt using AI."""
@@ -448,8 +564,11 @@ def validate_with_genesis(scene: Scene) -> ValidationResult:
         )
 
 @app.post("/api/generate")
-async def api_generate_scene(request: GenerateRequest):
-    """Generate a physics scene from a text prompt."""
+async def api_generate_scene(
+    request: GenerateRequest,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Generate a physics scene from a text prompt. Requires authentication."""
     try:
         scene = generate_scene(request.prompt)
         scene_dict = scene.dict()
@@ -459,7 +578,7 @@ async def api_generate_scene(request: GenerateRequest):
             prompt=request.prompt,
             scene_data=scene_dict,
             model="claude-3.5-sonnet",
-            metadata={"source": "generate"}
+            metadata={"source": "generate", "user_id": current_user["id"]}
         )
 
         # Add scene_id to response
@@ -472,8 +591,11 @@ async def api_generate_scene(request: GenerateRequest):
         raise HTTPException(status_code=500, detail=f"Scene generation failed: {str(e)}")
 
 @app.post("/api/validate")
-async def api_validate_scene(scene: Scene):
-    """Validate a physics scene for stability using Genesis simulation."""
+async def api_validate_scene(
+    scene: Scene,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Validate a physics scene for stability using Genesis simulation. Requires authentication."""
     try:
         result = validate_with_genesis(scene)
         return result.dict()
@@ -662,8 +784,11 @@ Make minimal, targeted changes based on the prompt."""
         raise HTTPException(status_code=500, detail=f"Scene refinement failed: {str(e)}")
 
 @app.post("/api/refine")
-async def api_refine_scene(request: RefineRequest):
-    """Refine an existing physics scene based on a text prompt."""
+async def api_refine_scene(
+    request: RefineRequest,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Refine an existing physics scene based on a text prompt. Requires authentication."""
     try:
         refined_scene = refine_scene(request.scene, request.prompt)
         return refined_scene.dict()
@@ -677,9 +802,10 @@ async def api_refine_scene(request: RefineRequest):
 async def api_list_scenes(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    model: Optional[str] = Query(None)
+    model: Optional[str] = Query(None),
+    current_user: Dict = Depends(verify_auth)
 ):
-    """List generated scenes with pagination and optional model filter."""
+    """List generated scenes with pagination and optional model filter. Requires authentication."""
     try:
         scenes = list_scenes(limit=limit, offset=offset, model=model)
         total = get_scene_count(model=model)
@@ -693,8 +819,11 @@ async def api_list_scenes(
         raise HTTPException(status_code=500, detail=f"Failed to list scenes: {str(e)}")
 
 @app.get("/api/scenes/{scene_id}")
-async def api_get_scene(scene_id: int):
-    """Get a specific scene by ID."""
+async def api_get_scene(
+    scene_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get a specific scene by ID. Requires authentication."""
     try:
         scene = get_scene_by_id(scene_id)
         if not scene:
@@ -706,8 +835,11 @@ async def api_get_scene(scene_id: int):
         raise HTTPException(status_code=500, detail=f"Failed to get scene: {str(e)}")
 
 @app.delete("/api/scenes/{scene_id}")
-async def api_delete_scene(scene_id: int):
-    """Delete a scene by ID."""
+async def api_delete_scene(
+    scene_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Delete a scene by ID. Requires authentication."""
     try:
         deleted = delete_scene(scene_id)
         if not deleted:
@@ -957,8 +1089,12 @@ def process_video_generation_background(
 
 
 @app.post("/api/run-video-model")
-async def api_run_video_model(request: RunVideoRequest, background_tasks: BackgroundTasks):
-    """Initiate video generation and return immediately with a video ID."""
+async def api_run_video_model(
+    request: RunVideoRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Initiate video generation and return immediately with a video ID. Requires authentication."""
     try:
         if not ai_client:
             # Demo response - create a pending video
@@ -1080,25 +1216,33 @@ async def api_list_videos(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     model_id: Optional[str] = Query(None),
-    collection: Optional[str] = Query(None)
+    collection: Optional[str] = Query(None),
+    current_user: Dict = Depends(verify_auth)
 ):
-    """List generated videos from the database."""
+    """List generated videos from the database. Requires authentication."""
     from database import list_videos
     videos = list_videos(limit=limit, offset=offset, model_id=model_id, collection=collection)
     return {"videos": videos}
 
 @app.get("/api/videos/{video_id}")
-async def api_get_video(video_id: int):
-    """Get a specific video by ID (used for polling video status)."""
+async def api_get_video(
+    video_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get a specific video by ID (used for polling video status). Requires authentication."""
     video = get_video_by_id(video_id)
     if not video:
         raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
     return video
 
 @app.post("/api/genesis/render")
-async def api_genesis_render(request: GenesisRenderRequest):
+async def api_genesis_render(
+    request: GenesisRenderRequest,
+    current_user: Dict = Depends(verify_auth)
+):
     """
     Render a scene using Genesis photorealistic ray-tracer with LLM semantic augmentation.
+    Requires authentication.
 
     This endpoint:
     1. Takes scene data with simple shapes and text descriptions
@@ -1190,9 +1334,10 @@ async def api_genesis_render(request: GenesisRenderRequest):
 async def list_genesis_videos_endpoint(
     limit: int = 50,
     offset: int = 0,
-    quality: Optional[str] = None
+    quality: Optional[str] = None,
+    current_user: Dict = Depends(verify_auth)
 ):
-    """List Genesis-rendered videos from the database."""
+    """List Genesis-rendered videos from the database. Requires authentication."""
     try:
         from database import list_genesis_videos, get_genesis_video_count
 
@@ -1210,8 +1355,11 @@ async def list_genesis_videos_endpoint(
         raise HTTPException(status_code=500, detail=f"Failed to list videos: {e}")
 
 @app.get("/api/genesis/videos/{video_id}")
-async def get_genesis_video_endpoint(video_id: int):
-    """Get a specific Genesis video by ID."""
+async def get_genesis_video_endpoint(
+    video_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get a specific Genesis video by ID. Requires authentication."""
     try:
         from database import get_genesis_video_by_id
 
@@ -1229,8 +1377,11 @@ async def get_genesis_video_endpoint(video_id: int):
         raise HTTPException(status_code=500, detail=f"Failed to get video: {e}")
 
 @app.delete("/api/genesis/videos/{video_id}")
-async def delete_genesis_video_endpoint(video_id: int):
-    """Delete a Genesis video by ID."""
+async def delete_genesis_video_endpoint(
+    video_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Delete a Genesis video by ID. Requires authentication."""
     try:
         from database import delete_genesis_video
         import os
@@ -1282,9 +1433,11 @@ async def serve_frontend(full_path: str):
 
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
+    port = int(os.getenv("PORT", "8000"))
+    host = os.getenv("HOST", "0.0.0.0")
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
-        port=8000,
-        reload=True
+        host=host,
+        port=port,
+        reload=False  # Disable reload in production
     )

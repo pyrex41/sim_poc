@@ -35,8 +35,9 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY backend/ ./backend/
 
-# Copy database.py to root for imports
+# Copy database.py and auth.py to root for imports
 COPY backend/database.py ./database.py
+COPY backend/auth.py ./auth.py
 
 # Copy built frontend from builder stage
 COPY --from=frontend-builder /app/dist ./static

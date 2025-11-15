@@ -1,4 +1,4 @@
-module VideoGallery exposing (Model, Msg(..), init, update, view, subscriptions)
+module VideoGallery exposing (Model, Msg(..), init, update, view, subscriptions, fetchVideos)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -18,6 +18,7 @@ type alias Model =
     , error : Maybe String
     , selectedVideo : Maybe VideoRecord
     , showRawData : Bool
+    , token : Maybe String
     }
 
 
@@ -34,15 +35,16 @@ type alias VideoRecord =
     }
 
 
-init : ( Model, Cmd Msg )
-init =
+init : Maybe String -> ( Model, Cmd Msg )
+init token =
     ( { videos = []
       , loading = True
       , error = Nothing
       , selectedVideo = Nothing
       , showRawData = False
+      , token = token
       }
-    , fetchVideos
+    , fetchVideos token
     )
 
 
@@ -66,7 +68,7 @@ update msg model =
             ( model, Cmd.none )
 
         FetchVideos ->
-            ( { model | loading = True }, fetchVideos )
+            ( { model | loading = True }, fetchVideos model.token )
 
         VideosFetched result ->
             case result of
@@ -74,7 +76,17 @@ update msg model =
                     ( { model | videos = videos, loading = False, error = Nothing }, Cmd.none )
 
                 Err error ->
-                    ( { model | loading = False, error = Just (httpErrorToString error) }, Cmd.none )
+                    -- Don't show 401 errors (authentication issues are handled by login screen)
+                    let
+                        errorMsg =
+                            case error of
+                                Http.BadStatus 401 ->
+                                    Nothing
+
+                                _ ->
+                                    Just (httpErrorToString error)
+                    in
+                    ( { model | loading = False, error = errorMsg }, Cmd.none )
 
         SelectVideo video ->
             ( { model | selectedVideo = Just video, showRawData = False }, Cmd.none )
@@ -86,7 +98,7 @@ update msg model =
             ( { model | showRawData = not model.showRawData }, Cmd.none )
 
         Tick _ ->
-            ( { model | loading = True }, fetchVideos )
+            ( { model | loading = True }, fetchVideos model.token )
 
 
 -- VIEW
@@ -217,11 +229,25 @@ formatDate dateStr =
 -- HTTP
 
 
-fetchVideos : Cmd Msg
-fetchVideos =
-    Http.get
-        { url = "/api/videos?limit=50"
+fetchVideos : Maybe String -> Cmd Msg
+fetchVideos maybeToken =
+    let
+        headers =
+            case maybeToken of
+                Just token ->
+                    [ Http.header "Authorization" ("Bearer " ++ token) ]
+
+                Nothing ->
+                    []
+    in
+    Http.request
+        { method = "GET"
+        , headers = headers
+        , url = "/api/videos?limit=50"
+        , body = Http.emptyBody
         , expect = Http.expectJson VideosFetched (Decode.field "videos" (Decode.list videoDecoder))
+        , timeout = Nothing
+        , tracker = Nothing
         }
 
 

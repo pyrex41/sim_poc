@@ -7,3 +7,5 @@ python-dotenv>=1.0.0
 replicate>=0.25.0
 genesis-world==0.3.7
 openai>=1.0.0
+python-jose[cryptography]>=3.3.0
+bcrypt>=5.0.0

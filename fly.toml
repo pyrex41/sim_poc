@@ -11,6 +11,7 @@ primary_region = 'dfw'
 [env]
   DATA = '/data'
   PORT = '8080'
+  ACCESS_TOKEN_EXPIRE_MINUTES = '7200'  # 5 days
 
 [[mounts]]
   source = 'physics_data'
