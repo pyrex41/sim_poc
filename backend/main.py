@@ -2317,14 +2317,28 @@ async def upload_image(
 
         # Return full URL (required for Replicate API)
         base_url = os.getenv("BASE_URL", "http://localhost:8000")
-        image_url = f"{base_url}/data/uploads/{unique_filename}"
-        print(f"Uploaded image: {file_path} -> {image_url}")
 
-        return {
-            "success": True,
-            "url": image_url,
-            "filename": unique_filename
-        }
+        # For local development, return data URL since Replicate can't access localhost
+        # For production (HTTPS), return HTTP URL
+        if base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
+            import base64
+            # Create data URL for Replicate API (works in local dev)
+            data_url = f"data:{file.content_type};base64,{base64.b64encode(contents).decode()}"
+            print(f"Uploaded image (local dev): {file_path} -> data URL ({len(contents)} bytes)")
+            return {
+                "success": True,
+                "url": data_url,
+                "filename": unique_filename
+            }
+        else:
+            # Production: return HTTP URL
+            image_url = f"{base_url}/data/uploads/{unique_filename}"
+            print(f"Uploaded image: {file_path} -> {image_url}")
+            return {
+                "success": True,
+                "url": image_url,
+                "filename": unique_filename
+            }
 
     except Exception as e:
         # Clean up file if it was created
