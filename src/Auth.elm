@@ -6,6 +6,7 @@ module Auth exposing
     , update
     , view
     , isAuthenticated
+    , checkAuth
     )
 
 import Html exposing (..)
@@ -28,7 +29,8 @@ type alias Auth =
 
 
 type LoginState
-    = NotLoggedIn
+    = Checking
+    | NotLoggedIn
     | LoggingIn
     | LoggedIn
 
@@ -37,7 +39,7 @@ init : Auth
 init =
     { username = ""
     , password = ""
-    , loginState = NotLoggedIn
+    , loginState = Checking
     , error = Nothing
     }
 
@@ -50,6 +52,7 @@ type Msg
     | UpdatePassword String
     | SubmitLogin
     | LoginResult (Result Http.Error LoginResponse)
+    | CheckAuthResult (Result Http.Error ())
     | Logout
 
 
@@ -112,6 +115,18 @@ update msg model =
             , Cmd.none
             )
 
+        CheckAuthResult (Ok _) ->
+            -- Already authenticated via cookie
+            ( { model | loginState = LoggedIn }
+            , Cmd.none
+            )
+
+        CheckAuthResult (Err _) ->
+            -- Not authenticated, show login screen
+            ( { model | loginState = NotLoggedIn }
+            , Cmd.none
+            )
+
         Logout ->
             ( { model
                 | loginState = NotLoggedIn
@@ -154,6 +169,16 @@ logout =
         }
 
 
+checkAuth : Cmd Msg
+checkAuth =
+    -- Try to fetch video models as a way to check if authenticated
+    -- If the cookie is valid, this will succeed; if not, it will fail with 401
+    Http.get
+        { url = "/api/video-models?collection=text-to-video"
+        , expect = Http.expectWhatever CheckAuthResult
+        }
+
+
 -- HELPERS
 
 
@@ -167,41 +192,63 @@ isAuthenticated model =
 
 view : Auth -> Html Msg
 view model =
-    div
-        [ class "login-container"
-        , style "position" "fixed"
-        , style "top" "0"
-        , style "left" "0"
-        , style "width" "100%"
-        , style "height" "100%"
-        , style "display" "flex"
-        , style "align-items" "center"
-        , style "justify-content" "center"
-        , style "background" "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-        , style "z-index" "9999"
-        ]
-        [ div
-            [ class "login-box"
-            , style "background" "white"
-            , style "padding" "2rem"
-            , style "border-radius" "8px"
-            , style "box-shadow" "0 10px 25px rgba(0,0,0,0.2)"
+    if model.loginState == Checking then
+        div
+            [ class "login-container"
+            , style "position" "fixed"
+            , style "top" "0"
+            , style "left" "0"
             , style "width" "100%"
-            , style "max-width" "400px"
+            , style "height" "100%"
+            , style "display" "flex"
+            , style "align-items" "center"
+            , style "justify-content" "center"
+            , style "background" "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+            , style "z-index" "9999"
             ]
-            [ h2
-                [ style "margin-top" "0"
-                , style "color" "#333"
+            [ div
+                [ style "color" "white"
+                , style "font-size" "18px"
                 , style "text-align" "center"
                 ]
-                [ text "Best Video Project" ]
-            , h3
-                [ style "margin-top" "0"
-                , style "color" "#666"
-                , style "font-weight" "normal"
-                , style "text-align" "center"
+                [ text "Checking authentication..." ]
+            ]
+    else
+        div
+            [ class "login-container"
+            , style "position" "fixed"
+            , style "top" "0"
+            , style "left" "0"
+            , style "width" "100%"
+            , style "height" "100%"
+            , style "display" "flex"
+            , style "align-items" "center"
+            , style "justify-content" "center"
+            , style "background" "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+            , style "z-index" "9999"
+            ]
+            [ div
+                [ class "login-box"
+                , style "background" "white"
+                , style "padding" "2rem"
+                , style "border-radius" "8px"
+                , style "box-shadow" "0 10px 25px rgba(0,0,0,0.2)"
+                , style "width" "100%"
+                , style "max-width" "400px"
                 ]
-                [ text "Sign In" ]
+                [ h2
+                    [ style "margin-top" "0"
+                    , style "color" "#333"
+                    , style "text-align" "center"
+                    ]
+                    [ text "Best Video Project" ]
+                , h3
+                    [ style "margin-top" "0"
+                    , style "color" "#666"
+                    , style "font-weight" "normal"
+                    , style "text-align" "center"
+                    ]
+                    [ text "Sign In" ]
             , case model.error of
                 Just errorMsg ->
                     div
