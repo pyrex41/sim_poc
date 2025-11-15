@@ -10,6 +10,9 @@ type Route
     | VideoDetail Int
     | Gallery
     | SimulationGallery
+    | Images
+    | ImageDetail Int
+    | ImageGallery
 
 
 parser : Parser (Route -> a) a
@@ -21,6 +24,9 @@ parser =
         , Parser.map VideoDetail (s "video" </> int)
         , Parser.map Gallery (s "gallery")
         , Parser.map SimulationGallery (s "simulations")
+        , Parser.map Images (s "images")
+        , Parser.map ImageDetail (s "image" </> int)
+        , Parser.map ImageGallery (s "image-gallery")
         ]
 
 
@@ -46,3 +52,12 @@ toHref route =
 
         SimulationGallery ->
             "/simulations"
+
+        Images ->
+            "/images"
+
+        ImageDetail id ->
+            "/image/" ++ String.fromInt id
+
+        ImageGallery ->
+            "/image-gallery"

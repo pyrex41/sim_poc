@@ -17,6 +17,9 @@ import Video
 import VideoDetail
 import VideoGallery
 import SimulationGallery
+import Image
+import ImageDetail
+import ImageGallery
 import Auth
 
 
@@ -53,7 +56,11 @@ type alias Model =
     , videoDetailModel : Maybe VideoDetail.Model
     , galleryModel : VideoGallery.Model
     , simulationGalleryModel : SimulationGallery.Model
+    , imageModel : Image.Model
+    , imageDetailModel : Maybe ImageDetail.Model
+    , imageGalleryModel : ImageGallery.Model
     , authModel : Auth.Auth
+    , pendingVideoFromImage : Maybe { modelId : String, imageUrl : String }
     }
 
 
@@ -138,6 +145,12 @@ init _ url key =
         ( simulationGalleryModel, simulationGalleryCmd ) =
             SimulationGallery.init
 
+        ( imageModel, imageCmd ) =
+            Image.init
+
+        ( imageGalleryModel, imageGalleryCmd ) =
+            ImageGallery.init
+
         route =
             Route.fromUrl url
     in
@@ -155,12 +168,18 @@ init _ url key =
       , videoDetailModel = Nothing
       , galleryModel = galleryModel
       , simulationGalleryModel = simulationGalleryModel
+      , imageModel = imageModel
+      , imageDetailModel = Nothing
+      , imageGalleryModel = imageGalleryModel
       , authModel = Auth.init
+      , pendingVideoFromImage = Nothing
       }
     , Cmd.batch
         [ Cmd.map VideoMsg videoCmd
         , Cmd.map GalleryMsg galleryCmd
         , Cmd.map SimulationGalleryMsg simulationGalleryCmd
+        , Cmd.map ImageMsg imageCmd
+        , Cmd.map ImageGalleryMsg imageGalleryCmd
         , Cmd.map AuthMsg Auth.checkAuth
         ]
     )
@@ -201,6 +220,9 @@ type Msg
     | VideoDetailMsg VideoDetail.Msg
     | GalleryMsg VideoGallery.Msg
     | SimulationGalleryMsg SimulationGallery.Msg
+    | ImageMsg Image.Msg
+    | ImageDetailMsg ImageDetail.Msg
+    | ImageGalleryMsg ImageGallery.Msg
     | AuthMsg Auth.Msg
 
 
@@ -235,6 +257,18 @@ update msg model =
                         _ ->
                             ( Nothing, Cmd.none )
 
+                ( imageDetailModel, imageDetailCmd ) =
+                    case newRoute of
+                        Just (Route.ImageDetail imageId) ->
+                            let
+                                ( detailModel, detailCmd ) =
+                                    ImageDetail.init imageId
+                            in
+                            ( Just detailModel, Cmd.map ImageDetailMsg detailCmd )
+
+                        _ ->
+                            ( Nothing, Cmd.none )
+
                 -- Refresh gallery when navigating to it
                 galleryCmd =
                     case newRoute of
@@ -243,9 +277,34 @@ update msg model =
 
                         _ ->
                             Cmd.none
+
+                -- Refresh image gallery when navigating to it
+                imageGalleryCmd =
+                    case newRoute of
+                        Just Route.ImageGallery ->
+                            Task.perform (always (ImageGalleryMsg ImageGallery.FetchImages)) (Task.succeed ())
+
+                        _ ->
+                            Cmd.none
+
+                -- Pre-fill video model when navigating from image gallery
+                ( videoPrefillCmd, clearedPending ) =
+                    case ( newRoute, model.pendingVideoFromImage ) of
+                        ( Just Route.Videos, Just { modelId, imageUrl } ) ->
+                            -- Send messages to configure Video.elm with the model and image
+                            ( Cmd.batch
+                                [ Task.perform (always (VideoMsg (Video.SelectCollection "image-to-video"))) (Task.succeed ())
+                                , Task.perform (always (VideoMsg (Video.SelectModel modelId))) (Task.succeed ())
+                                , Task.perform (always (VideoMsg (Video.UpdateParameter "image" imageUrl))) (Task.succeed ())
+                                ]
+                            , Nothing
+                            )
+
+                        _ ->
+                            ( Cmd.none, model.pendingVideoFromImage )
             in
-            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel }
-            , Cmd.batch [ videoDetailCmd, galleryCmd ]
+            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel, pendingVideoFromImage = clearedPending }
+            , Cmd.batch [ videoDetailCmd, imageDetailCmd, galleryCmd, imageGalleryCmd, videoPrefillCmd ]
             )
 
         UpdateTextInput text ->
@@ -745,6 +804,62 @@ update msg model =
             in
             ( { model | simulationGalleryModel = updatedSimulationGalleryModel }, Cmd.map SimulationGalleryMsg simulationGalleryCmd )
 
+        ImageMsg imageMsg ->
+            let
+                ( updatedImageModel, imageCmd ) =
+                    Image.update imageMsg model.imageModel
+
+                -- Handle navigation to image detail page
+                navCmd =
+                    case imageMsg of
+                        Image.NavigateToImage imageId ->
+                            Nav.pushUrl model.key (Route.toHref (Route.ImageDetail imageId))
+
+                        _ ->
+                            Cmd.none
+            in
+            ( { model | imageModel = updatedImageModel }
+            , Cmd.batch [ Cmd.map ImageMsg imageCmd, navCmd ]
+            )
+
+        ImageDetailMsg imageDetailMsg ->
+            case model.imageDetailModel of
+                Just imageDetailModel ->
+                    let
+                        ( updatedImageDetailModel, imageDetailCmd ) =
+                            ImageDetail.update imageDetailMsg imageDetailModel
+                    in
+                    ( { model | imageDetailModel = Just updatedImageDetailModel }
+                    , Cmd.map ImageDetailMsg imageDetailCmd
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        ImageGalleryMsg imageGalleryMsg ->
+            let
+                ( updatedImageGalleryModel, imageGalleryCmd ) =
+                    ImageGallery.update imageGalleryMsg model.imageGalleryModel
+
+                -- Handle navigation to video page with image
+                ( navCmd, updatedModel ) =
+                    case imageGalleryMsg of
+                        ImageGallery.CreateVideoFromImage modelId imageUrl ->
+                            -- Store the model ID and image URL, then navigate to videos page
+                            ( Nav.pushUrl model.key "/videos"
+                            , { model
+                                | imageGalleryModel = updatedImageGalleryModel
+                                , pendingVideoFromImage = Just { modelId = modelId, imageUrl = imageUrl }
+                              }
+                            )
+
+                        _ ->
+                            ( Cmd.none
+                            , { model | imageGalleryModel = updatedImageGalleryModel }
+                            )
+            in
+            ( updatedModel, Cmd.batch [ Cmd.map ImageGalleryMsg imageGalleryCmd, navCmd ] )
+
         AuthMsg authMsg ->
             let
                 ( updatedAuthModel, authCmd ) =
@@ -757,6 +872,7 @@ update msg model =
                             Cmd.batch
                                 [ Cmd.map GalleryMsg (Task.perform (always VideoGallery.FetchVideos) (Task.succeed ()))
                                 , Cmd.map SimulationGalleryMsg (Task.perform (always SimulationGallery.FetchVideos) (Task.succeed ()))
+                                , Cmd.map ImageGalleryMsg (Task.perform (always ImageGallery.FetchImages) (Task.succeed ()))
                                 ]
 
                         _ ->
@@ -865,6 +981,23 @@ viewMainContent model =
                 SimulationGallery.view model.simulationGalleryModel
                     |> Html.map SimulationGalleryMsg
 
+            Just Route.Images ->
+                Image.view model.imageModel
+                    |> Html.map ImageMsg
+
+            Just (Route.ImageDetail _) ->
+                case model.imageDetailModel of
+                    Just imageDetailModel ->
+                        ImageDetail.view imageDetailModel
+                            |> Html.map ImageDetailMsg
+
+                    Nothing ->
+                        div [ class "loading" ] [ text "Loading..." ]
+
+            Just Route.ImageGallery ->
+                ImageGallery.view model.imageGalleryModel
+                    |> Html.map ImageGalleryMsg
+
             Nothing ->
                 div [ class "app-container" ]
                     [ viewLeftPanel model
@@ -888,6 +1021,16 @@ viewTabs model =
             , class (if model.route == Just Route.Gallery then "active" else "")
             ]
             [ text "Video Gallery" ]
+        , a
+            [ href "/images"
+            , class (if model.route == Just Route.Images then "active" else "")
+            ]
+            [ text "Image Models" ]
+        , a
+            [ href "/image-gallery"
+            , class (if model.route == Just Route.ImageGallery then "active" else "")
+            ]
+            [ text "Image Gallery" ]
         , a
             [ href "/simulations"
             , class (if model.route == Just Route.SimulationGallery then "active" else "")
@@ -1144,6 +1287,22 @@ subscriptions model =
 
                 _ ->
                     Sub.none
+
+        imageGallerySub =
+            case model.route of
+                Just Route.ImageGallery ->
+                    Sub.map ImageGalleryMsg (ImageGallery.subscriptions model.imageGalleryModel)
+
+                _ ->
+                    Sub.none
+
+        imageDetailSub =
+            case ( model.route, model.imageDetailModel ) of
+                ( Just (Route.ImageDetail _), Just imageDetailModel ) ->
+                    Sub.map ImageDetailMsg (ImageDetail.subscriptions imageDetailModel)
+
+                _ ->
+                    Sub.none
     in
     Sub.batch
         [ sendSelectionToElm SelectionChanged
@@ -1154,6 +1313,8 @@ subscriptions model =
         , gallerySub
         , simulationGallerySub
         , videoDetailSub
+        , imageGallerySub
+        , imageDetailSub
         ]
 
 
