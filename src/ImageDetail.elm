@@ -60,7 +60,7 @@ update msg model =
                             image.status == "completed" || image.status == "failed" || image.status == "canceled"
                     in
                     ( { model
-                        | image = Just video
+                        | image = Just image
                         , error = Nothing
                         , isPolling = not shouldStopPolling
                       }
@@ -109,7 +109,7 @@ view model =
                 text ""
         , case model.image of
             Just image ->
-                viewImageDetail video
+                viewImageDetail image
 
             Nothing ->
                 div [ class "loading" ] [ text "Loading image information..." ]
@@ -171,11 +171,11 @@ viewImageDetail image =
 
             "failed" ->
                 div [ class "error" ]
-                    [ text "Video generation failed. Please try again with different parameters." ]
+                    [ text "Image generation failed. Please try again with different parameters." ]
 
             "canceled" ->
                 div [ class "info" ]
-                    [ text "Video generation was canceled." ]
+                    [ text "Image generation was canceled." ]
 
             _ ->
                 div [ class "info" ]
@@ -210,16 +210,16 @@ fetchImage : Int -> Cmd Msg
 fetchImage imageId =
     Http.get
         { url = "/api/images/" ++ String.fromInt imageId
-        , expect = Http.expectJson ImageFetched videoDecoder
+        , expect = Http.expectJson ImageFetched imageDecoder
         }
 
 
-videoDecoder : Decode.Decoder ImageRecord
-videoDecoder =
+imageDecoder : Decode.Decoder ImageRecord
+imageDecoder =
     Decode.map6 ImageRecord
         (Decode.field "id" Decode.int)
         (Decode.field "prompt" Decode.string)
-        (Decode.field "video_url" Decode.string)
+        (Decode.field "image_url" Decode.string)
         (Decode.field "model_id" Decode.string)
         (Decode.field "created_at" Decode.string)
         (Decode.field "status" Decode.string)
