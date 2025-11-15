@@ -76,9 +76,28 @@ def init_db():
                 status TEXT DEFAULT 'completed',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 collection TEXT,
-                metadata TEXT
+                metadata TEXT,
+                download_attempted BOOLEAN DEFAULT 0,
+                download_retries INTEGER DEFAULT 0,
+                download_error TEXT
             )
         """)
+
+        # Add download tracking columns if they don't exist (for existing databases)
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN download_attempted BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN download_retries INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN download_error TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_created_at
@@ -299,6 +318,55 @@ def update_video_status(
                 """,
                 (status, video_id)
             )
+        conn.commit()
+
+def mark_download_attempted(video_id: int) -> bool:
+    """Mark that a download has been attempted for a video. Returns False if already attempted."""
+    with get_db() as conn:
+        # Check if already attempted
+        row = conn.execute(
+            "SELECT download_attempted FROM generated_videos WHERE id = ?",
+            (video_id,)
+        ).fetchone()
+
+        if row and row["download_attempted"]:
+            return False  # Already attempted
+
+        # Mark as attempted
+        conn.execute(
+            "UPDATE generated_videos SET download_attempted = 1 WHERE id = ?",
+            (video_id,)
+        )
+        conn.commit()
+        return True
+
+def increment_download_retries(video_id: int) -> int:
+    """Increment the download retry counter and return the new count."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE generated_videos SET download_retries = download_retries + 1 WHERE id = ?",
+            (video_id,)
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT download_retries FROM generated_videos WHERE id = ?",
+            (video_id,)
+        ).fetchone()
+
+        return row["download_retries"] if row else 0
+
+def mark_download_failed(video_id: int, error: str) -> None:
+    """Mark a video download as permanently failed."""
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE generated_videos
+            SET status = 'failed', download_error = ?
+            WHERE id = ?
+            """,
+            (error, video_id)
+        )
         conn.commit()
 
 def get_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:

@@ -1066,7 +1066,14 @@ def process_video_generation_background(
                 video_url = output[0] if output else ""
 
                 if video_url:
-                    # Download and save video locally
+                    # Prevent race condition: check if download already attempted
+                    from database import mark_download_attempted, mark_download_failed
+
+                    if not mark_download_attempted(video_id):
+                        print(f"Video {video_id} download already attempted by another process, skipping")
+                        return
+
+                    # Download and save video locally with retries
                     try:
                         local_path = download_and_save_video(video_url, video_id)
                         local_url = f"/data/videos/{Path(local_path).name}"
@@ -1075,31 +1082,37 @@ def process_video_generation_background(
                             "prediction_url": prediction_url,
                             "original_url": video_url
                         }
+
+                        # Update database with completed video
+                        update_video_status(
+                            video_id=video_id,
+                            status="completed",
+                            video_url=local_url,
+                            metadata=metadata
+                        )
+                        print(f"Video {video_id} completed successfully")
+                        return
+
                     except Exception as e:
-                        print(f"Error downloading video: {e}")
-                        # Fall back to Replicate URL (will expire in 1 hour)
-                        local_url = video_url
-                        metadata = {
-                            "replicate_id": pred_data.get("id"),
-                            "prediction_url": prediction_url,
-                            "download_error": str(e)
-                        }
+                        # Download failed after all retries - mark as permanently failed
+                        error_msg = f"Failed to download video after retries: {str(e)}"
+                        print(error_msg)
+                        mark_download_failed(video_id, error_msg)
+                        return
                 else:
-                    local_url = ""
+                    # No video URL in response
                     metadata = {
                         "replicate_id": pred_data.get("id"),
-                        "prediction_url": prediction_url
+                        "prediction_url": prediction_url,
+                        "error": "No video URL in Replicate response"
                     }
-
-                # Update database with completed video
-                update_video_status(
-                    video_id=video_id,
-                    status="completed",
-                    video_url=local_url,
-                    metadata=metadata
-                )
-                print(f"Video {video_id} completed successfully")
-                return
+                    update_video_status(
+                        video_id=video_id,
+                        status="failed",
+                        metadata=metadata
+                    )
+                    print(f"Video {video_id} failed: no output URL")
+                    return
 
             elif status in ["failed", "canceled"]:
                 error = pred_data.get("error", "Unknown error")
@@ -1272,9 +1285,23 @@ async def api_run_video_model(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
-def download_and_save_video(video_url: str, video_id: int) -> str:
-    """Download a video from Replicate and save it locally."""
+def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3) -> str:
+    """
+    Download a video from Replicate and save it locally with retry logic and validation.
+
+    Args:
+        video_url: URL of the video to download
+        video_id: ID of the video in the database
+        max_retries: Maximum number of download attempts (default: 3)
+
+    Returns:
+        str: Local file path of the downloaded video
+
+    Raises:
+        Exception: If download fails after all retries
+    """
     import uuid
+    import time
     from pathlib import Path
 
     # Create videos directory if it doesn't exist
@@ -1284,24 +1311,84 @@ def download_and_save_video(video_url: str, video_id: int) -> str:
     # Generate unique filename
     file_ext = ".mp4"  # Default to mp4
     if video_url:
-        url_ext = video_url.split(".")[-1].lower()
+        url_ext = video_url.split(".")[-1].split("?")[0].lower()  # Remove query params
         if url_ext in ["mp4", "mov", "avi", "webm"]:
             file_ext = f".{url_ext}"
 
     filename = f"video_{video_id}_{uuid.uuid4().hex[:8]}{file_ext}"
     file_path = videos_dir / filename
 
-    # Download the video
-    print(f"Downloading video from {video_url} to {file_path}")
-    response = requests.get(video_url, stream=True, timeout=300)
-    response.raise_for_status()
+    last_error = None
 
-    with open(file_path, 'wb') as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"Downloading video (attempt {attempt}/{max_retries}) from {video_url} to {file_path}")
 
-    print(f"Video downloaded successfully: {file_path}")
-    return str(file_path)
+            # Download with timeout
+            response = requests.get(video_url, stream=True, timeout=300)
+            response.raise_for_status()
+
+            # Write to temporary file first
+            temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+            bytes_downloaded = 0
+
+            with open(temp_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        bytes_downloaded += len(chunk)
+
+            # Validate download
+            if bytes_downloaded == 0:
+                raise ValueError("Downloaded file is empty (0 bytes)")
+
+            if bytes_downloaded < 1024:  # Less than 1KB is suspicious
+                raise ValueError(f"Downloaded file is too small ({bytes_downloaded} bytes)")
+
+            # Validate file is a video by checking magic bytes
+            with open(temp_path, 'rb') as f:
+                header = f.read(12)
+                is_video = False
+
+                # Check common video file signatures
+                if header.startswith(b'\x00\x00\x00\x18ftypmp4') or \
+                   header.startswith(b'\x00\x00\x00\x1cftypisom') or \
+                   header.startswith(b'\x00\x00\x00\x14ftyp') or \
+                   header[4:8] == b'ftyp':  # Generic MP4/MOV
+                    is_video = True
+                elif header.startswith(b'RIFF') and header[8:12] == b'AVI ':  # AVI
+                    is_video = True
+                elif header.startswith(b'\x1a\x45\xdf\xa3'):  # WebM/MKV
+                    is_video = True
+
+                if not is_video:
+                    raise ValueError(f"Downloaded file does not appear to be a valid video (header: {header.hex()})")
+
+            # Rename temp file to final path
+            temp_path.rename(file_path)
+
+            print(f"Video downloaded successfully: {file_path} ({bytes_downloaded} bytes)")
+            return str(file_path)
+
+        except Exception as e:
+            last_error = e
+            print(f"Download attempt {attempt} failed: {e}")
+
+            # Clean up temp file if it exists
+            temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+            if temp_path.exists():
+                temp_path.unlink()
+
+            if attempt < max_retries:
+                # Exponential backoff: 2, 4, 8 seconds
+                wait_time = 2 ** attempt
+                print(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                print(f"All {max_retries} download attempts failed for video {video_id}")
+
+    # All retries failed
+    raise Exception(f"Failed to download video after {max_retries} attempts: {last_error}")
 
 @app.post("/api/webhooks/replicate")
 async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
@@ -1341,8 +1428,15 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
             video_url = output[0] if isinstance(output, list) else output
 
             if video_url:
-                # Download and save video in background
+                # Download and save video in background with race condition prevention
                 def download_task():
+                    from database import mark_download_attempted, mark_download_failed
+
+                    # Prevent race condition: check if download already attempted
+                    if not mark_download_attempted(video_id):
+                        print(f"Video {video_id} download already attempted by another process (webhook), skipping")
+                        return
+
                     try:
                         local_path = download_and_save_video(video_url, video_id)
                         # Update database with local path
@@ -1352,14 +1446,12 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                             video_url=f"/data/videos/{Path(local_path).name}",
                             metadata={"replicate_id": replicate_id, "original_url": video_url}
                         )
-                        print(f"Video {video_id} saved locally: {local_path}")
+                        print(f"Video {video_id} saved locally via webhook: {local_path}")
                     except Exception as e:
-                        print(f"Error downloading video {video_id}: {e}")
-                        update_video_status(
-                            video_id=video_id,
-                            status="failed",
-                            metadata={"error": f"Download failed: {str(e)}", "replicate_id": replicate_id}
-                        )
+                        # Download failed after all retries - mark as permanently failed
+                        error_msg = f"Failed to download video after retries: {str(e)}"
+                        print(f"Webhook: {error_msg}")
+                        mark_download_failed(video_id, error_msg)
 
                 background_tasks.add_task(download_task)
 
@@ -1381,15 +1473,94 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
 
 @app.get("/api/videos")
 async def api_list_videos(
+    background_tasks: BackgroundTasks,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     model_id: Optional[str] = Query(None),
     collection: Optional[str] = Query(None),
     current_user: Dict = Depends(verify_auth)
 ):
-    """List generated videos from the database. Requires authentication."""
-    from database import list_videos
+    """
+    List generated videos from the database. Requires authentication.
+
+    Also retries downloading videos < 1 hour old that don't have local files yet.
+    """
+    from database import list_videos, mark_download_attempted, mark_download_failed
+    from datetime import datetime, timedelta
+
     videos = list_videos(limit=limit, offset=offset, model_id=model_id, collection=collection)
+
+    # Check for videos that need retry downloading
+    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+
+    for video in videos:
+        # Skip if video already has a local file
+        video_url = video.get("video_url", "")
+        if video_url and video_url.startswith("/data/videos/"):
+            continue
+
+        # Check if video is less than 1 hour old
+        created_at_str = video.get("created_at")
+        if not created_at_str:
+            continue
+
+        try:
+            created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
+        except:
+            # Try without timezone
+            try:
+                created_at = datetime.strptime(created_at_str, "%Y-%m-%d %H:%M:%S")
+            except:
+                continue
+
+        if created_at < one_hour_ago:
+            continue  # Too old, Replicate URL would be expired
+
+        # Check if there's a Replicate URL in metadata we can retry
+        metadata = video.get("metadata", {})
+        if isinstance(metadata, str):
+            try:
+                import json
+                metadata = json.loads(metadata)
+            except:
+                metadata = {}
+
+        original_url = metadata.get("original_url")
+        if not original_url:
+            continue
+
+        # Retry download in background
+        video_id = video["id"]
+
+        def retry_download():
+            # Check if already attempted to prevent race condition
+            if not mark_download_attempted(video_id):
+                print(f"Video {video_id} download already attempted, skipping retry")
+                return
+
+            print(f"Retrying download for video {video_id} (less than 1 hour old)")
+            try:
+                local_path = download_and_save_video(original_url, video_id)
+                local_url = f"/data/videos/{Path(local_path).name}"
+
+                # Update metadata to preserve replicate_id
+                new_metadata = metadata.copy()
+                new_metadata["retry_download"] = True
+
+                update_video_status(
+                    video_id=video_id,
+                    status="completed",
+                    video_url=local_url,
+                    metadata=new_metadata
+                )
+                print(f"Video {video_id} successfully downloaded on retry")
+            except Exception as e:
+                error_msg = f"Retry download failed: {str(e)}"
+                print(f"Video {video_id}: {error_msg}")
+                mark_download_failed(video_id, error_msg)
+
+        background_tasks.add_task(retry_download)
+
     return {"videos": videos}
 
 @app.get("/api/videos/{video_id}")
@@ -1402,6 +1573,82 @@ async def api_get_video(
     if not video:
         raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
     return video
+
+@app.get("/api/admin/storage/stats")
+async def api_get_storage_stats(
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Get video storage statistics. Admin only."""
+    from pathlib import Path
+    import os
+
+    videos_dir = Path(__file__).parent / "DATA" / "videos"
+
+    if not videos_dir.exists():
+        return {
+            "total_videos": 0,
+            "total_size_bytes": 0,
+            "total_size_mb": 0,
+            "total_size_gb": 0,
+            "videos_directory": str(videos_dir),
+            "directory_exists": False
+        }
+
+    # Count files and calculate total size
+    video_files = list(videos_dir.glob("*.mp4")) + list(videos_dir.glob("*.mov")) + \
+                  list(videos_dir.glob("*.avi")) + list(videos_dir.glob("*.webm"))
+
+    total_size = sum(f.stat().st_size for f in video_files if f.is_file())
+
+    return {
+        "total_videos": len(video_files),
+        "total_size_bytes": total_size,
+        "total_size_mb": round(total_size / (1024 * 1024), 2),
+        "total_size_gb": round(total_size / (1024 * 1024 * 1024), 2),
+        "videos_directory": str(videos_dir),
+        "directory_exists": True,
+        "files": [
+            {
+                "filename": f.name,
+                "size_bytes": f.stat().st_size,
+                "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
+                "created": f.stat().st_ctime
+            }
+            for f in sorted(video_files, key=lambda x: x.stat().st_ctime, reverse=True)[:20]
+        ]
+    }
+
+@app.delete("/api/admin/storage/videos/{video_id}")
+async def api_delete_video_file(
+    video_id: int,
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """Delete a video file and database record. Admin only."""
+    from pathlib import Path
+    import os
+
+    # Get video from database
+    video = get_video_by_id(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
+
+    # Delete file if it exists
+    video_url = video.get("video_url", "")
+    if video_url and video_url.startswith("/data/videos/"):
+        filename = video_url.split("/")[-1]
+        videos_dir = Path(__file__).parent / "DATA" / "videos"
+        file_path = videos_dir / filename
+
+        if file_path.exists():
+            file_path.unlink()
+            print(f"Deleted video file: {file_path}")
+
+    # Delete database record
+    from database import delete_video
+    if delete_video(video_id):
+        return {"success": True, "message": f"Video {video_id} deleted"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete video from database")
 
 @app.post("/api/genesis/render")
 async def api_genesis_render(
