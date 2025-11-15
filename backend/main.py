@@ -2315,8 +2315,9 @@ async def upload_image(
         with open(file_path, "wb") as f:
             f.write(contents)
 
-        # Return URL
-        image_url = f"/data/uploads/{unique_filename}"
+        # Return full URL (required for Replicate API)
+        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        image_url = f"{base_url}/data/uploads/{unique_filename}"
         print(f"Uploaded image: {file_path} -> {image_url}")
 
         return {
