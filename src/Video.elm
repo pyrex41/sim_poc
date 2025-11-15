@@ -119,15 +119,7 @@ update msg model =
             ( model, fetchModels model.selectedCollection )
 
         SelectCollection collection ->
-            let
-                _ =
-                    Debug.log "SelectCollection called with" collection
 
-                _ =
-                    Debug.log "current selectedCollection" model.selectedCollection
-
-                _ =
-                    Debug.log "are they equal?" (model.selectedCollection == collection)
             in
             -- Don't refetch if we're already on this collection
             if model.selectedCollection == collection then
@@ -140,13 +132,7 @@ update msg model =
         ModelsFetched result ->
             case result of
                 Ok models ->
-                    let
-                        _ =
-                            Debug.log "ModelsFetched" (List.map .id models)
 
-                        _ =
-                            Debug.log "pendingModelSelection" model.pendingModelSelection
-                    in
                     -- If there's a pending model selection, select it now
                     case model.pendingModelSelection of
                         Just modelId ->
@@ -156,8 +142,7 @@ update msg model =
                                         |> List.filter (\m -> m.id == modelId)
                                         |> List.head
 
-                                _ =
-                                    Debug.log "selected model" selected
+
                             in
                             case selected of
                                 Just selectedModel ->
@@ -175,16 +160,7 @@ update msg model =
                     ( { model | models = demoModels, error = Just ("Failed to fetch models: " ++ httpErrorToString error) }, Cmd.none )
 
         SelectModel modelId ->
-            let
-                _ =
-                    Debug.log "SelectModel called with" modelId
 
-                _ =
-                    Debug.log "models list is empty?" (List.isEmpty model.models)
-
-                _ =
-                    Debug.log "models list length" (List.length model.models)
-            in
             -- If models haven't loaded yet, store as pending
             if List.isEmpty model.models then
                 ( { model | pendingModelSelection = Just modelId }, Cmd.none )
@@ -195,8 +171,7 @@ update msg model =
                             |> List.filter (\m -> m.id == modelId)
                             |> List.head
 
-                    _ =
-                        Debug.log "found selected model?" selected
+
                 in
                 case selected of
                     Just selectedModel ->
