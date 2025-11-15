@@ -104,14 +104,19 @@ class LLMInterpreter:
             # Docs search failed, continue without it
             return ""
 
-    def _build_augmentation_prompt(
-        self,
-        shape: str,
-        base_dimensions: Dict[str, float],
-        description: str,
-        context: Optional[str] = None,
-        docs_context: str = ""
-    ) -> str:
+def _build_augmentation_prompt(
+    self,
+    shape: str,
+    base_dimensions: Dict[str, float],
+    description: str,
+    context: Optional[str] = None,
+    docs_context: str = ""
+) -> str:
+    # Incorporate vision context if available
+    if isinstance(context, dict):
+        context_str = f"Scene environment: {context.get('environment', '')}. Lighting: {context.get('lighting', 'natural')}."
+    else:
+        context_str = f"Scene context: {context}" if context else ""
         """Build the prompt for the LLM"""
 
         return f"""You are helping create a photorealistic 3D scene. A user has placed a simple {shape} shape and wants it rendered as: "{description}"{docs_context}
@@ -180,7 +185,7 @@ Examples for reference:
 Now generate properties for: "{description}"
 Shape: {shape}
 Current dimensions: {json.dumps(base_dimensions)}
-{f"Scene context: {context}" if context else ""}
+{context_str}
 
 Respond with ONLY the JSON object, no other text.
 """
@@ -229,7 +234,7 @@ Respond with ONLY the JSON object, no other text.
     async def augment_scene(
         self,
         scene_objects,
-        scene_context: Optional[str] = None
+        vision_context: Optional[Dict] = None
     ):
         """
         Augment all objects in a scene
@@ -247,6 +252,13 @@ Respond with ONLY the JSON object, no other text.
         objects_to_process = scene_objects.values() if is_dict else scene_objects
         augmented_objects = {} if is_dict else []
 
+        # Set lighting from vision context
+        if vision_context:
+            lighting = set_lighting(vision_context.get('lighting', 'natural'))
+            if not isinstance(scene_objects, dict):
+                scene_objects = {'temp': scene_objects[0]} if scene_objects else {}
+            scene_objects['lighting'] = lighting  # Add to scene level
+
         for obj in objects_to_process:
             # Skip if no description provided
             if not obj.get("description"):
@@ -260,13 +272,17 @@ Respond with ONLY the JSON object, no other text.
             shape = obj.get("visualProperties", {}).get("shape", "Box")
             scale = obj.get("transform", {}).get("scale", {"x": 1, "y": 1, "z": 1})
 
-            # Get augmented properties
+            # Get augmented properties with vision context
             properties = await self.augment_object(
                 shape=shape,
                 base_dimensions=scale,
                 description=obj["description"],
-                context=scene_context
+                context=vision_context.get('environment', '') if vision_context else None
             )
+
+            # Infer material
+            material = infer_material(obj["description"], vision_context or {})
+            obj["material_type"] = material
 
             # Add to object
             obj["genesis_properties"] = properties.model_dump()
@@ -278,6 +294,51 @@ Respond with ONLY the JSON object, no other text.
 
         return augmented_objects
 
+
+def set_lighting(lighting_context: str) -> Dict:
+    """
+    Set lighting properties based on vision context.
+    
+    Args:
+        lighting_context: e.g., 'warm', 'cool', 'natural'
+        
+    Returns:
+        Lighting dict for scene
+    """
+    lighting_map = {
+        'warm': {'color_temperature': 3000, 'intensity': 1.2, 'type': 'directional'},
+        'cool': {'color_temperature': 6500, 'intensity': 1.0, 'type': 'directional'},
+        'natural': {'color_temperature': 5500, 'intensity': 1.1, 'type': 'directional'},
+        'indoor': {'color_temperature': 4000, 'intensity': 0.8, 'type': 'ambient'},
+        'outdoor': {'color_temperature': 6000, 'intensity': 1.3, 'type': 'directional'}
+    }
+    return lighting_map.get(lighting_context.lower(), {'color_temperature': 5500, 'intensity': 1.0, 'type': 'directional'})
+
+def infer_material(description: str, vision_context: Dict) -> str:
+    """
+    Infer material type from description and vision context.
+    
+    Args:
+        description: Object description
+        vision_context: Vision-derived context
+        
+    Returns:
+        Material type e.g., 'metal', 'wood'
+    """
+    # Simple keyword-based inference
+    desc_lower = description.lower()
+    context_lower = ' '.join(str(vision_context).lower().split())
+    
+    if any(word in desc_lower + ' ' + context_lower for word in ['metal', 'steel', 'chrome', 'car']):
+        return 'metal'
+    elif any(word in desc_lower + ' ' + context_lower for word in ['wood', 'table', 'chair', 'furniture']):
+        return 'wood'
+    elif any(word in desc_lower + ' ' + context_lower for word in ['glass', 'window', 'transparent']):
+        return 'glass'
+    elif any(word in desc_lower + ' ' + context_lower for word in ['plastic', 'bottle', 'toy']):
+        return 'plastic'
+    else:
+        return 'generic'
 
 # Singleton instance
 _interpreter = None

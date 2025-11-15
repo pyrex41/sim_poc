@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -1025,6 +1025,76 @@ def process_video_generation_background(
         )
 
 
+@app.post("/api/vision-analyze")
+async def api_vision_analyze(
+    file: UploadFile = File(...),
+    prompt: Optional[str] = Form(None)
+):
+    """
+    Analyze uploaded image/video with vision model to generate scene JSON.
+    """
+    try:
+        # Validate file
+        validate_file(file)
+        
+        # Save temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
+            shutil.copyfileobj(file.file, tmp)
+            tmp_path = tmp.name
+        
+        try:
+            if file.content_type.startswith('image/'):
+                # Image analysis
+                base64_img = image_to_base64(tmp_path)
+                vision_json = analyze_image_base64(base64_img, prompt)
+            elif file.content_type.startswith('video/'):
+                # Video: extract frames and analyze
+                frames = extract_video_frames(tmp_path, num_frames=5)
+                vision_jsons = []
+                for frame in frames:
+                    buffer = BytesIO()
+                    frame.save(buffer, format='JPEG')
+                    base64_img = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                    frame_json = analyze_image_base64(base64_img, prompt)
+                    vision_jsons.append(frame_json)
+                
+                # Aggregate (simple merge, prioritize common objects)
+                vision_json = aggregate_vision_jsons(vision_jsons)  # TODO: Implement aggregation
+            else:
+                raise ValueError("Unsupported media type")
+            
+            # Generate scene from vision JSON (integrate with populator later)
+            scene_data = {}  # Placeholder: call populate_scene_from_vision(vision_json)
+            
+            return {
+                "status": "success",
+                "scene_json": vision_json,
+                "generated_scene": scene_data
+            }
+            
+        finally:
+            os.unlink(tmp_path)  # Clean up temp file
+            
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+
+def aggregate_vision_jsons(jsons: List[Dict]) -> Dict:
+    """
+    Simple aggregation: merge objects, prioritize frequent ones.
+    TODO: Enhance with object matching.
+    """
+    all_objects = []
+    for j in jsons:
+        all_objects.extend(j.get("objects", []))
+    # Dedup by description similarity (placeholder)
+    unique_objects = all_objects[:10]  # Limit to top 10
+    return {
+        "objects": unique_objects,
+        "scene_context": jsons[0].get("scene_context", {}) if jsons else {}
+    }
+
 @app.post("/api/run-video-model")
 async def api_run_video_model(request: RunVideoRequest, background_tasks: BackgroundTasks):
     """Initiate video generation and return immediately with a video ID."""
@@ -1183,7 +1253,7 @@ async def api_genesis_render(request: GenesisRenderRequest):
         # Create renderer with specified quality
         renderer = create_renderer(
             quality=request.quality,
-            output_dir="./backend/DATA/genesis_videos"
+            output_dir=str(GENESIS_VIDEO_DIR)
         )
 
         # Render the scene
