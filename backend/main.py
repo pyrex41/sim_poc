@@ -1227,15 +1227,19 @@ async def api_run_video_model(
         # In production, this should be the actual deployed URL
         base_url = os.getenv("BASE_URL", "http://localhost:8000")
 
+        # Only use webhooks if we have an HTTPS URL (production)
+        use_webhooks = base_url.startswith("https://")
+
         # Create prediction using HTTP API
         # Use version-based endpoint if version provided (more reliable)
         if request.version:
             payload = {
                 "version": request.version,
                 "input": converted_input,
-                "webhook": f"{base_url}/api/webhooks/replicate",
-                "webhook_events_filter": ["completed"]
             }
+            if use_webhooks:
+                payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+                payload["webhook_events_filter"] = ["completed"]
             url = "https://api.replicate.com/v1/predictions"
             print(f"DEBUG: Sending to Replicate API (version-based):")
             print(f"  Model: {request.model_id}")
@@ -1243,15 +1247,19 @@ async def api_run_video_model(
         else:
             payload = {
                 "input": converted_input,
-                "webhook": f"{base_url}/api/webhooks/replicate",
-                "webhook_events_filter": ["completed"]
             }
+            if use_webhooks:
+                payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+                payload["webhook_events_filter"] = ["completed"]
             url = f"https://api.replicate.com/v1/models/{request.model_id}/predictions"
             print(f"DEBUG: Sending to Replicate API (model-based):")
             print(f"  Model: {request.model_id}")
 
         print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
-        print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
+        if use_webhooks:
+            print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
+        else:
+            print(f"  Webhook: Disabled (local development - using polling only)")
         response = requests.post(url, headers=headers, json=payload, timeout=60)
 
         # Log the detailed error if request fails
@@ -1941,14 +1949,18 @@ async def api_run_image_model(
         # Get the base URL for webhooks
         base_url = os.getenv("BASE_URL", "http://localhost:8000")
 
+        # Only use webhooks if we have an HTTPS URL (production)
+        use_webhooks = base_url.startswith("https://")
+
         # Create prediction using HTTP API
         if request.version:
             payload = {
                 "version": request.version,
                 "input": converted_input,
-                "webhook": f"{base_url}/api/webhooks/replicate",
-                "webhook_events_filter": ["completed"]
             }
+            if use_webhooks:
+                payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+                payload["webhook_events_filter"] = ["completed"]
             url = "https://api.replicate.com/v1/predictions"
             print(f"DEBUG: Sending to Replicate API (version-based) for image:")
             print(f"  Model: {request.model_id}")
@@ -1956,15 +1968,19 @@ async def api_run_image_model(
         else:
             payload = {
                 "input": converted_input,
-                "webhook": f"{base_url}/api/webhooks/replicate",
-                "webhook_events_filter": ["completed"]
             }
+            if use_webhooks:
+                payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+                payload["webhook_events_filter"] = ["completed"]
             url = f"https://api.replicate.com/v1/models/{request.model_id}/predictions"
             print(f"DEBUG: Sending to Replicate API (model-based) for image:")
             print(f"  Model: {request.model_id}")
 
         print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
-        print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
+        if use_webhooks:
+            print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
+        else:
+            print(f"  Webhook: Disabled (local development - using polling only)")
         response = requests.post(url, headers=headers, json=payload, timeout=60)
 
         # Log the detailed error if request fails
