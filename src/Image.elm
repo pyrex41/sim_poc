@@ -534,6 +534,17 @@ viewParameter model param =
                         ]
                         []
 
+                else if param.paramType == "array" then
+                    textarea
+                        [ placeholder (Maybe.withDefault "[\"item1\", \"item2\"] or enter single value" param.default)
+                        , Html.Attributes.value param.value
+                        , onInput (UpdateParameter param.key)
+                        , disabled isDisabled
+                        , class "parameter-input parameter-textarea"
+                        , Html.Attributes.rows 3
+                        ]
+                        []
+
                 else
                     input
                         [ type_ (if param.paramType == "number" || param.paramType == "integer" then "number" else "text")
@@ -661,6 +672,15 @@ generateVideo modelId parameters collection maybeVersion =
                                         Encode.bool False
                                     _ ->
                                         Encode.string param.value
+
+                            "array" ->
+                                -- Try to parse as JSON array, fallback to string
+                                case Decode.decodeString (Decode.list Decode.string) param.value of
+                                    Ok strings ->
+                                        Encode.list Encode.string strings
+                                    Err _ ->
+                                        -- If not valid JSON array, treat as single-item array
+                                        Encode.list Encode.string [ param.value ]
 
                             _ ->
                                 Encode.string param.value
