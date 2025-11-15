@@ -5,7 +5,7 @@ import bcrypt
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status, Security
+from fastapi import Depends, HTTPException, status, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
 from database import (
     get_user_by_username,
@@ -204,12 +204,11 @@ async def get_current_user(
 
 # Simplified combined authentication
 async def verify_auth(
-    request: "Request",
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
     api_key: Optional[str] = Security(api_key_header)
 ) -> Dict[str, Any]:
     """Verify authentication from cookie, Bearer token, or API key."""
-    from fastapi import Request
 
     # Try cookie first (most common for web UI)
     cookie_token = request.cookies.get(COOKIE_NAME)
