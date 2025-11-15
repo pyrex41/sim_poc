@@ -2514,23 +2514,21 @@ IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/data/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
 # Serve frontend (must be last to catch all other routes)
-# NOTE: This catch-all route is disabled during development to avoid interfering with API routes
-# When running in production, uncomment this and ensure the static files are built
-# @app.get("/{full_path:path}")
-# async def serve_frontend(full_path: str):
-#     """Serve the frontend application for all non-API routes."""
-#     # Don't intercept API routes - they should be handled by their specific endpoints
-#     if full_path.startswith("api/") or full_path.startswith("data/"):
-#         raise HTTPException(status_code=404, detail="Not found")
-#
-#     # Check if we're in production mode with static files
-#     if STATIC_DIR.exists() and STATIC_DIR.is_dir():
-#         index_file = STATIC_DIR / "index.html"
-#         if index_file.exists():
-#             return FileResponse(str(index_file))
-#
-#     # Fallback for development or if static files don't exist
-#     return {"message": "Frontend not built. Run 'npm run build' to build the frontend."}
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    """Serve the frontend application for all non-API routes."""
+    # Don't intercept API routes - they should be handled by their specific endpoints
+    if full_path.startswith("api/") or full_path.startswith("data/"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Check if we're in production mode with static files
+    if STATIC_DIR.exists() and STATIC_DIR.is_dir():
+        index_file = STATIC_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+
+    # Fallback for development or if static files don't exist
+    return {"message": "Frontend not built. Run 'npm run build' to build the frontend."}
 
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
