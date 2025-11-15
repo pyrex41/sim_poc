@@ -1387,10 +1387,23 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
                 if not is_video:
                     raise ValueError(f"Downloaded file does not appear to be a valid video (header: {header.hex()})")
 
+            # Read the video data before moving the file
+            with open(temp_path, 'rb') as f:
+                video_binary_data = f.read()
+
+            # Store binary data in database
+            from database import get_db
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE generated_videos SET video_data = ? WHERE id = ?",
+                    (video_binary_data, video_id)
+                )
+                conn.commit()
+
             # Rename temp file to final path
             temp_path.rename(file_path)
 
-            print(f"Video downloaded successfully: {file_path} ({bytes_downloaded} bytes)")
+            print(f"Video downloaded successfully: {file_path} ({bytes_downloaded} bytes, stored in DB)")
             return str(file_path)
 
         except Exception as e:
@@ -2051,10 +2064,12 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
             if not content_type.startswith("image/"):
                 raise ValueError(f"Invalid content type: {content_type}, expected image/*")
 
-            # Save to file
+            # Save to file and collect binary data
+            image_binary_data = bytearray()
             with open(file_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
+                    image_binary_data.extend(chunk)
 
             # Verify file was created and has content
             if not file_path.exists():
@@ -2064,7 +2079,16 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
             if file_size == 0:
                 raise ValueError("Downloaded image file is empty")
 
-            print(f"Image {image_id} downloaded successfully: {file_size} bytes")
+            # Store binary data in database
+            from database import get_db
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE generated_images SET image_data = ? WHERE id = ?",
+                    (bytes(image_binary_data), image_id)
+                )
+                conn.commit()
+
+            print(f"Image {image_id} downloaded successfully: {file_size} bytes (stored in DB)")
             return str(file_path)
 
         except Exception as e:
@@ -2110,6 +2134,48 @@ async def api_get_image(
     if not image:
         raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
     return image
+
+@app.get("/api/images/{image_id}/data")
+async def api_get_image_data(
+    image_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get the binary image data from database. Requires authentication."""
+    from database import get_db
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT image_data FROM generated_images WHERE id = ?",
+            (image_id,)
+        ).fetchone()
+
+        if not row or not row["image_data"]:
+            raise HTTPException(status_code=404, detail=f"Image data not found for ID {image_id}")
+
+        # Return binary image data
+        from fastapi.responses import Response
+        return Response(content=row["image_data"], media_type="image/png")
+
+@app.get("/api/videos/{video_id}/data")
+async def api_get_video_data(
+    video_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get the binary video data from database. Requires authentication."""
+    from database import get_db
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT video_data FROM generated_videos WHERE id = ?",
+            (video_id,)
+        ).fetchone()
+
+        if not row or not row["video_data"]:
+            raise HTTPException(status_code=404, detail=f"Video data not found for ID {video_id}")
+
+        # Return binary video data
+        from fastapi.responses import Response
+        return Response(content=row["video_data"], media_type="video/mp4")
 
 @app.get("/api/admin/storage/stats")
 async def api_get_storage_stats(
@@ -2446,21 +2512,23 @@ IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/data/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
 # Serve frontend (must be last to catch all other routes)
-@app.get("/{full_path:path}")
-async def serve_frontend(full_path: str):
-    """Serve the frontend application for all non-API routes."""
-    # Don't intercept API routes - they should be handled by their specific endpoints
-    if full_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="API endpoint not found")
-
-    # Check if we're in production mode with static files
-    if STATIC_DIR.exists() and STATIC_DIR.is_dir():
-        index_file = STATIC_DIR / "index.html"
-        if index_file.exists():
-            return FileResponse(str(index_file))
-
-    # Fallback for development or if static files don't exist
-    return {"message": "Frontend not built. Run 'npm run build' to build the frontend."}
+# NOTE: This catch-all route is disabled during development to avoid interfering with API routes
+# When running in production, uncomment this and ensure the static files are built
+# @app.get("/{full_path:path}")
+# async def serve_frontend(full_path: str):
+#     """Serve the frontend application for all non-API routes."""
+#     # Don't intercept API routes - they should be handled by their specific endpoints
+#     if full_path.startswith("api/") or full_path.startswith("data/"):
+#         raise HTTPException(status_code=404, detail="Not found")
+#
+#     # Check if we're in production mode with static files
+#     if STATIC_DIR.exists() and STATIC_DIR.is_dir():
+#         index_file = STATIC_DIR / "index.html"
+#         if index_file.exists():
+#             return FileResponse(str(index_file))
+#
+#     # Fallback for development or if static files don't exist
+#     return {"message": "Frontend not built. Run 'npm run build' to build the frontend."}
 
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")

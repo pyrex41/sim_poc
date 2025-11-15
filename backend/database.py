@@ -99,6 +99,17 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN video_data BLOB")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Add image data column for generated_images
+        try:
+            conn.execute("ALTER TABLE generated_images ADD COLUMN image_data BLOB")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_created_at
             ON generated_scenes(created_at DESC)
