@@ -1084,10 +1084,9 @@ def process_video_generation_background(
                         print(f"Video {video_id} download already attempted by another process, skipping")
                         return
 
-                    # Download and save video locally with retries
+                    # Download and save video to database
                     try:
-                        local_path = download_and_save_video(video_url, video_id)
-                        local_url = f"/data/videos/{Path(local_path).name}"
+                        db_url = download_and_save_video(video_url, video_id)
                         metadata = {
                             "replicate_id": pred_data.get("id"),
                             "prediction_url": prediction_url,
@@ -1098,7 +1097,7 @@ def process_video_generation_background(
                         update_video_status(
                             video_id=video_id,
                             status="completed",
-                            video_url=local_url,
+                            video_url=db_url,
                             metadata=metadata
                         )
                         print(f"Video {video_id} completed successfully")
@@ -1387,7 +1386,7 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
                 if not is_video:
                     raise ValueError(f"Downloaded file does not appear to be a valid video (header: {header.hex()})")
 
-            # Read the video data before moving the file
+            # Read the video data from temp file
             with open(temp_path, 'rb') as f:
                 video_binary_data = f.read()
 
@@ -1400,11 +1399,12 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
                 )
                 conn.commit()
 
-            # Rename temp file to final path
-            temp_path.rename(file_path)
+            # Delete temp file - we only store in database now
+            temp_path.unlink()
 
-            print(f"Video downloaded successfully: {file_path} ({bytes_downloaded} bytes, stored in DB)")
-            return str(file_path)
+            print(f"Video downloaded successfully: {bytes_downloaded} bytes stored in DB (video_id={video_id})")
+            # Return a database URL instead of file path
+            return f"/api/videos/{video_id}/data"
 
         except Exception as e:
             last_error = e
@@ -1492,15 +1492,15 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                             return
 
                         try:
-                            local_path = download_and_save_video(video_url, video_id)
-                            # Update database with local path
+                            db_url = download_and_save_video(video_url, video_id)
+                            # Update database with DB URL
                             update_video_status(
                                 video_id=video_id,
                                 status="completed",
-                                video_url=f"/data/videos/{Path(local_path).name}",
+                                video_url=db_url,
                                 metadata={"replicate_id": replicate_id, "original_url": video_url}
                             )
-                            print(f"Video {video_id} saved locally via webhook: {local_path}")
+                            print(f"Video {video_id} saved to database via webhook")
                         except Exception as e:
                             # Download failed after all retries - mark as permanently failed
                             error_msg = f"Failed to download video after retries: {str(e)}"
@@ -1535,15 +1535,15 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                             return
 
                         try:
-                            local_path = download_and_save_image(image_url, image_id)
-                            # Update database with local path
+                            db_url = download_and_save_image(image_url, image_id)
+                            # Update database with DB URL
                             update_image_status(
                                 image_id=image_id,
                                 status="completed",
-                                image_url=f"/data/images/{Path(local_path).name}",
+                                image_url=db_url,
                                 metadata={"replicate_id": replicate_id, "original_url": image_url}
                             )
-                            print(f"Image {image_id} saved locally via webhook: {local_path}")
+                            print(f"Image {image_id} saved to database via webhook")
                         except Exception as e:
                             # Download failed after all retries - mark as permanently failed
                             error_msg = f"Failed to download image after retries: {str(e)}"
@@ -1637,8 +1637,7 @@ async def api_list_videos(
 
             print(f"Retrying download for video {video_id} (less than 1 hour old)")
             try:
-                local_path = download_and_save_video(original_url, video_id)
-                local_url = f"/data/videos/{Path(local_path).name}"
+                db_url = download_and_save_video(original_url, video_id)
 
                 # Update metadata to preserve replicate_id
                 new_metadata = metadata.copy()
@@ -1647,7 +1646,7 @@ async def api_list_videos(
                 update_video_status(
                     video_id=video_id,
                     status="completed",
-                    video_url=local_url,
+                    video_url=db_url,
                     metadata=new_metadata
                 )
                 print(f"Video {video_id} successfully downloaded on retry")
@@ -1801,10 +1800,9 @@ def process_image_generation_background(
                         print(f"Image {image_id} download already attempted by another process, skipping")
                         return
 
-                    # Download and save image locally with retries
+                    # Download and save image to database
                     try:
-                        local_path = download_and_save_image(image_url, image_id)
-                        local_url = f"/data/images/{Path(local_path).name}"
+                        db_url = download_and_save_image(image_url, image_id)
                         metadata = {
                             "replicate_id": pred_data.get("id"),
                             "prediction_url": prediction_url,
@@ -1815,7 +1813,7 @@ def process_image_generation_background(
                         update_image_status(
                             image_id=image_id,
                             status="completed",
-                            image_url=local_url,
+                            image_url=db_url,
                             metadata=metadata
                         )
                         print(f"Image {image_id} completed successfully")
@@ -2064,7 +2062,7 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
             if not content_type.startswith("image/"):
                 raise ValueError(f"Invalid content type: {content_type}, expected image/*")
 
-            # Save to file and collect binary data
+            # Download to temp file and collect binary data
             image_binary_data = bytearray()
             with open(file_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
@@ -2088,8 +2086,12 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
                 )
                 conn.commit()
 
-            print(f"Image {image_id} downloaded successfully: {file_size} bytes (stored in DB)")
-            return str(file_path)
+            # Delete temp file - we only store in database now
+            file_path.unlink()
+
+            print(f"Image {image_id} downloaded successfully: {file_size} bytes stored in DB")
+            # Return a database URL instead of file path
+            return f"/api/images/{image_id}/data"
 
         except Exception as e:
             last_error = e
