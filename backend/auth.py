@@ -24,6 +24,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "7200
 bearer_scheme = HTTPBearer()
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+# Cookie name
+COOKIE_NAME = "access_token"
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash using bcrypt."""
     # Convert to bytes and truncate to 72 bytes for bcrypt
@@ -201,11 +204,26 @@ async def get_current_user(
 
 # Simplified combined authentication
 async def verify_auth(
+    request: "Request",
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
     api_key: Optional[str] = Security(api_key_header)
 ) -> Dict[str, Any]:
-    """Verify authentication from either Bearer token or API key."""
-    # Try API key first
+    """Verify authentication from cookie, Bearer token, or API key."""
+    from fastapi import Request
+
+    # Try cookie first (most common for web UI)
+    cookie_token = request.cookies.get(COOKIE_NAME)
+    if cookie_token:
+        payload = decode_access_token(cookie_token)
+        if payload:
+            username = payload.get("sub")
+            if username:
+                user = get_user_by_username(username)
+                if user and user["is_active"]:
+                    update_user_last_login(user["id"])
+                    return user
+
+    # Try API key
     if api_key:
         user = await get_current_user_from_api_key(api_key)
         if user:
@@ -222,7 +240,7 @@ async def verify_auth(
     # No valid authentication
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Not authenticated. Provide either a Bearer token (Authorization header) or X-API-Key header.",
+        detail="Not authenticated. Login required.",
         headers={"WWW-Authenticate": "Bearer"},
     )
 

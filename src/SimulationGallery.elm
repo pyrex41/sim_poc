@@ -1,4 +1,4 @@
-module SimulationGallery exposing (Model, Msg, init, update, view, subscriptions, fetchVideos)
+module SimulationGallery exposing (Model, Msg(..), init, update, view, subscriptions, fetchVideos)
 
 import Dict
 import Html exposing (..)
@@ -19,7 +19,6 @@ type alias Model =
     , error : Maybe String
     , selectedVideo : Maybe GenesisVideoRecord
     , showRawData : Bool
-    , token : Maybe String
     }
 
 
@@ -38,16 +37,15 @@ type alias GenesisVideoRecord =
     }
 
 
-init : Maybe String -> ( Model, Cmd Msg )
-init token =
+init : ( Model, Cmd Msg )
+init =
     ( { videos = []
       , loading = True
       , error = Nothing
       , selectedVideo = Nothing
       , showRawData = False
-      , token = token
       }
-    , fetchVideos token
+    , fetchVideos
     )
 
 
@@ -71,7 +69,7 @@ update msg model =
             ( model, Cmd.none )
 
         FetchVideos ->
-            ( { model | loading = True }, fetchVideos model.token )
+            ( { model | loading = True }, fetchVideos )
 
         VideosFetched result ->
             case result of
@@ -91,7 +89,7 @@ update msg model =
             ( { model | showRawData = not model.showRawData }, Cmd.none )
 
         Tick _ ->
-            ( { model | loading = True }, fetchVideos model.token )
+            ( { model | loading = True }, fetchVideos )
 
 
 -- VIEW
@@ -276,25 +274,12 @@ videoUrlFromPath path =
 -- HTTP
 
 
-fetchVideos : Maybe String -> Cmd Msg
-fetchVideos maybeToken =
-    let
-        headers =
-            case maybeToken of
-                Just token ->
-                    [ Http.header "Authorization" ("Bearer " ++ token) ]
-
-                Nothing ->
-                    []
-    in
-    Http.request
-        { method = "GET"
-        , headers = headers
-        , url = "/api/genesis/videos?limit=50"
-        , body = Http.emptyBody
+fetchVideos : Cmd Msg
+fetchVideos =
+    -- Cookies are sent automatically, no need for Authorization header
+    Http.get
+        { url = "/api/genesis/videos?limit=50"
         , expect = Http.expectJson VideosFetched (Decode.field "videos" (Decode.list videoDecoder))
-        , timeout = Nothing
-        , tracker = Nothing
         }
 
 

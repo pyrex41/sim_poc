@@ -18,7 +18,6 @@ type alias Model =
     , error : Maybe String
     , selectedVideo : Maybe VideoRecord
     , showRawData : Bool
-    , token : Maybe String
     }
 
 
@@ -35,16 +34,15 @@ type alias VideoRecord =
     }
 
 
-init : Maybe String -> ( Model, Cmd Msg )
-init token =
+init : ( Model, Cmd Msg )
+init =
     ( { videos = []
       , loading = True
       , error = Nothing
       , selectedVideo = Nothing
       , showRawData = False
-      , token = token
       }
-    , fetchVideos token
+    , fetchVideos
     )
 
 
@@ -68,7 +66,7 @@ update msg model =
             ( model, Cmd.none )
 
         FetchVideos ->
-            ( { model | loading = True }, fetchVideos model.token )
+            ( { model | loading = True }, fetchVideos )
 
         VideosFetched result ->
             case result of
@@ -98,7 +96,7 @@ update msg model =
             ( { model | showRawData = not model.showRawData }, Cmd.none )
 
         Tick _ ->
-            ( { model | loading = True }, fetchVideos model.token )
+            ( { model | loading = True }, fetchVideos )
 
 
 -- VIEW
@@ -138,7 +136,20 @@ viewVideoCard : VideoRecord -> Html Msg
 viewVideoCard videoRecord =
     div [ class "video-card", onClick (SelectVideo videoRecord) ]
         [ div [ class "video-thumbnail" ]
-            [ video [ src videoRecord.videoUrl, attribute "preload" "metadata" ] [] ]
+            [ if String.isEmpty videoRecord.videoUrl then
+                div
+                    [ style "width" "100%"
+                    , style "height" "100%"
+                    , style "display" "flex"
+                    , style "align-items" "center"
+                    , style "justify-content" "center"
+                    , style "background" "#333"
+                    , style "color" "#fff"
+                    ]
+                    [ text (String.toUpper videoRecord.status) ]
+              else
+                video [ src videoRecord.videoUrl, attribute "preload" "metadata" ] []
+            ]
         , div [ class "video-card-info" ]
             [ div [ class "video-prompt" ] [ text videoRecord.prompt ]
             , div [ class "video-meta" ]
@@ -229,25 +240,12 @@ formatDate dateStr =
 -- HTTP
 
 
-fetchVideos : Maybe String -> Cmd Msg
-fetchVideos maybeToken =
-    let
-        headers =
-            case maybeToken of
-                Just token ->
-                    [ Http.header "Authorization" ("Bearer " ++ token) ]
-
-                Nothing ->
-                    []
-    in
-    Http.request
-        { method = "GET"
-        , headers = headers
-        , url = "/api/videos?limit=50"
-        , body = Http.emptyBody
+fetchVideos : Cmd Msg
+fetchVideos =
+    -- Cookies are sent automatically, no need for Authorization header
+    Http.get
+        { url = "/api/videos?limit=50"
         , expect = Http.expectJson VideosFetched (Decode.field "videos" (Decode.list videoDecoder))
-        , timeout = Nothing
-        , tracker = Nothing
         }
 
 
@@ -263,7 +261,7 @@ videoDecoder =
             , collection = collection
             , parameters = parameters
             , metadata = metadata
-            , status = "completed"  -- Default status
+            , status = "completed"  -- Default, will be overridden below
             }
         )
         (Decode.field "id" Decode.int)
@@ -274,6 +272,16 @@ videoDecoder =
         (Decode.maybe (Decode.field "collection" Decode.string))
         (Decode.maybe (Decode.field "parameters" Decode.value))
         (Decode.maybe (Decode.field "metadata" Decode.value))
+        |> Decode.andThen
+            (\record ->
+                Decode.map
+                    (\status -> { record | status = status })
+                    (Decode.oneOf
+                        [ Decode.field "status" Decode.string
+                        , Decode.succeed "completed"
+                        ]
+                    )
+            )
 
 
 httpErrorToString : Http.Error -> String
