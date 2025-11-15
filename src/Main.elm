@@ -60,6 +60,7 @@ type alias Model =
     , imageDetailModel : Maybe ImageDetail.Model
     , imageGalleryModel : ImageGallery.Model
     , authModel : Auth.Auth
+    , pendingVideoFromImage : Maybe { modelId : String, imageUrl : String }
     }
 
 
@@ -171,6 +172,7 @@ init _ url key =
       , imageDetailModel = Nothing
       , imageGalleryModel = imageGalleryModel
       , authModel = Auth.init
+      , pendingVideoFromImage = Nothing
       }
     , Cmd.batch
         [ Cmd.map VideoMsg videoCmd
@@ -284,9 +286,25 @@ update msg model =
 
                         _ ->
                             Cmd.none
+
+                -- Pre-fill video model when navigating from image gallery
+                ( videoPrefillCmd, clearedPending ) =
+                    case ( newRoute, model.pendingVideoFromImage ) of
+                        ( Just Route.Videos, Just { modelId, imageUrl } ) ->
+                            -- Send messages to configure Video.elm with the model and image
+                            ( Cmd.batch
+                                [ Task.perform (always (VideoMsg (Video.SelectCollection "image-to-video"))) (Task.succeed ())
+                                , Task.perform (always (VideoMsg (Video.SelectModel modelId))) (Task.succeed ())
+                                , Task.perform (always (VideoMsg (Video.UpdateParameter "image" imageUrl))) (Task.succeed ())
+                                ]
+                            , Nothing
+                            )
+
+                        _ ->
+                            ( Cmd.none, model.pendingVideoFromImage )
             in
-            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel }
-            , Cmd.batch [ videoDetailCmd, imageDetailCmd, galleryCmd, imageGalleryCmd ]
+            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel, pendingVideoFromImage = clearedPending }
+            , Cmd.batch [ videoDetailCmd, imageDetailCmd, galleryCmd, imageGalleryCmd, videoPrefillCmd ]
             )
 
         UpdateTextInput text ->
@@ -824,17 +842,23 @@ update msg model =
                     ImageGallery.update imageGalleryMsg model.imageGalleryModel
 
                 -- Handle navigation to video page with image
-                navCmd =
+                ( navCmd, updatedModel ) =
                     case imageGalleryMsg of
-                        ImageGallery.CreateVideoFromImage imageUrl ->
-                            -- Navigate to videos page and pre-fill with image-to-video collection
-                            -- This will be handled by setting state before navigation
-                            Nav.pushUrl model.key "/videos"
+                        ImageGallery.CreateVideoFromImage modelId imageUrl ->
+                            -- Store the model ID and image URL, then navigate to videos page
+                            ( Nav.pushUrl model.key "/videos"
+                            , { model
+                                | imageGalleryModel = updatedImageGalleryModel
+                                , pendingVideoFromImage = Just { modelId = modelId, imageUrl = imageUrl }
+                              }
+                            )
 
                         _ ->
-                            Cmd.none
+                            ( Cmd.none
+                            , { model | imageGalleryModel = updatedImageGalleryModel }
+                            )
             in
-            ( { model | imageGalleryModel = updatedImageGalleryModel }, Cmd.batch [ Cmd.map ImageGalleryMsg imageGalleryCmd, navCmd ] )
+            ( updatedModel, Cmd.batch [ Cmd.map ImageGalleryMsg imageGalleryCmd, navCmd ] )
 
         AuthMsg authMsg ->
             let
