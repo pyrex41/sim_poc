@@ -161,6 +161,7 @@ init _ url key =
         [ Cmd.map VideoMsg videoCmd
         , Cmd.map GalleryMsg galleryCmd
         , Cmd.map SimulationGalleryMsg simulationGalleryCmd
+        , Cmd.map AuthMsg Auth.checkAuth
         ]
     )
 
