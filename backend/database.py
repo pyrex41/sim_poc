@@ -147,6 +147,34 @@ def init_db():
             ON genesis_videos(quality)
         """)
 
+        # Generated images table (similar to generated_videos)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS generated_images (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prompt TEXT NOT NULL,
+                image_url TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                parameters TEXT NOT NULL,
+                status TEXT DEFAULT 'completed',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                collection TEXT,
+                metadata TEXT,
+                download_attempted BOOLEAN DEFAULT 0,
+                download_retries INTEGER DEFAULT 0,
+                download_error TEXT
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_images_created_at
+            ON generated_images(created_at DESC)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_images_model
+            ON generated_images(model_id)
+        """)
+
         conn.commit()
 
 @contextmanager
@@ -558,6 +586,184 @@ def get_genesis_video_count(quality: Optional[str] = None) -> int:
     with get_db() as conn:
         row = conn.execute(query, params).fetchone()
         return row["count"]
+
+# Image generation functions
+def save_generated_image(
+    prompt: str,
+    image_url: str,
+    model_id: str,
+    parameters: dict,
+    collection: Optional[str] = None,
+    metadata: Optional[dict] = None,
+    status: str = "completed"
+) -> int:
+    """Save a generated image to the database."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO generated_images (prompt, image_url, model_id, parameters, collection, metadata, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                prompt,
+                image_url,
+                model_id,
+                json.dumps(parameters),
+                collection,
+                json.dumps(metadata) if metadata else None,
+                status
+            )
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+def update_image_status(
+    image_id: int,
+    status: str,
+    image_url: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> None:
+    """Update the status and optionally the image_url and metadata of an image."""
+    with get_db() as conn:
+        if image_url is not None:
+            conn.execute(
+                """
+                UPDATE generated_images
+                SET status = ?, image_url = ?, metadata = ?
+                WHERE id = ?
+                """,
+                (status, image_url, json.dumps(metadata) if metadata else None, image_id)
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE generated_images
+                SET status = ?
+                WHERE id = ?
+                """,
+                (status, image_id)
+            )
+        conn.commit()
+
+def mark_image_download_attempted(image_id: int) -> bool:
+    """Mark that a download has been attempted for an image. Returns False if already attempted."""
+    with get_db() as conn:
+        # Check if already attempted
+        row = conn.execute(
+            "SELECT download_attempted FROM generated_images WHERE id = ?",
+            (image_id,)
+        ).fetchone()
+
+        if row and row["download_attempted"]:
+            return False  # Already attempted
+
+        # Mark as attempted
+        conn.execute(
+            "UPDATE generated_images SET download_attempted = 1 WHERE id = ?",
+            (image_id,)
+        )
+        conn.commit()
+        return True
+
+def increment_image_download_retries(image_id: int) -> int:
+    """Increment the download retry counter for an image and return the new count."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE generated_images SET download_retries = download_retries + 1 WHERE id = ?",
+            (image_id,)
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT download_retries FROM generated_images WHERE id = ?",
+            (image_id,)
+        ).fetchone()
+
+        return row["download_retries"] if row else 0
+
+def mark_image_download_failed(image_id: int, error: str) -> None:
+    """Mark an image download as permanently failed."""
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE generated_images
+            SET status = 'failed', download_error = ?
+            WHERE id = ?
+            """,
+            (error, image_id)
+        )
+        conn.commit()
+
+def get_image_by_id(image_id: int) -> Optional[Dict[str, Any]]:
+    """Retrieve a specific image by ID."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM generated_images WHERE id = ?",
+            (image_id,)
+        ).fetchone()
+
+        if row:
+            return {
+                "id": row["id"],
+                "prompt": row["prompt"],
+                "image_url": row["image_url"],
+                "model_id": row["model_id"],
+                "parameters": json.loads(row["parameters"]),
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "collection": row["collection"],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+            }
+    return None
+
+def list_images(
+    limit: int = 50,
+    offset: int = 0,
+    model_id: Optional[str] = None,
+    collection: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """List generated images with pagination and optional filters."""
+    query = "SELECT * FROM generated_images WHERE 1=1"
+    params = []
+
+    if model_id:
+        query += " AND model_id = ?"
+        params.append(model_id)
+
+    if collection:
+        query += " AND collection = ?"
+        params.append(collection)
+
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    with get_db() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "prompt": row["prompt"],
+                "image_url": row["image_url"],
+                "model_id": row["model_id"],
+                "parameters": json.loads(row["parameters"]),
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "collection": row["collection"],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+            }
+            for row in rows
+        ]
+
+def delete_image(image_id: int) -> bool:
+    """Delete an image by ID."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM generated_images WHERE id = ?",
+            (image_id,)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
 
 # Authentication helper functions
 def create_user(username: str, email: str, hashed_password: str, is_admin: bool = False) -> int:
