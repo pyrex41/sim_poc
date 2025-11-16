@@ -119,8 +119,6 @@ update msg model =
             ( model, fetchModels model.selectedCollection )
 
         SelectCollection collection ->
-
-            in
             -- Don't refetch if we're already on this collection
             if model.selectedCollection == collection then
                 ( model, Cmd.none )

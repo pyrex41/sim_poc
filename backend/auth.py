@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
-from database import (
+from backend.database import (
     get_user_by_username,
     update_user_last_login,
     get_api_key_by_hash,

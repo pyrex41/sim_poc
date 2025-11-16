@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Response, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import Dict, Optional, List, Any
@@ -20,7 +20,8 @@ from pathlib import Path
 replicate = None
 REPLICATE_AVAILABLE = False
 
-from database import (
+from backend.config import get_settings
+from backend.database import (
     save_generated_scene,
     get_scene_by_id,
     list_scenes,
@@ -40,7 +41,7 @@ from database import (
     revoke_api_key
 )
 
-from auth import (
+from backend.auth import (
     verify_auth,
     get_current_admin_user,
     authenticate_user,
@@ -55,6 +56,17 @@ from auth import (
 if not load_dotenv('.env'):
     load_dotenv('../.env')
 # import genesis as gs  # Using geometric validation instead
+
+# Initialize centralized settings
+settings = get_settings()
+
+# Import limiter for rate limiting
+from backend.prompt_parser_service.core.limiter import limiter
+from slowapi.errors import RateLimitExceeded
+
+# Import prompt parser service router
+from backend.prompt_parser_service.api.v1 import parse as parse_api
+from backend.prompt_parser_service.api.v1 import briefs as briefs_api
 
 app = FastAPI(title="Physics Simulator API", version="1.0.0")
 
@@ -71,6 +83,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add rate limiting
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request, exc):
+    return JSONResponse({"detail": "Too many requests"}, status_code=429)
+
+app.state.limiter = limiter
 
 # Check if static files exist (production mode)
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -111,6 +130,7 @@ class Scene(BaseModel):
 
 class GenerateRequest(BaseModel):
     prompt: str
+    brief_id: Optional[str] = None  # Optional link to creative brief
 
 class ValidationResult(BaseModel):
     valid: bool
@@ -118,13 +138,12 @@ class ValidationResult(BaseModel):
     details: Optional[Dict] = None
 
 # AI client initialization
-replicate_api_key = os.getenv("REPLICATE_API_KEY")
-if replicate_api_key:
+if settings.REPLICATE_API_KEY:
     ai_client = {
-        "api_key": replicate_api_key,
+        "api_key": settings.REPLICATE_API_KEY,
         "base_url": "https://api.replicate.com/v1"
     }
-    replicate_client = replicate.Client(api_token=replicate_api_key) if REPLICATE_AVAILABLE and replicate else None
+    replicate_client = replicate.Client(api_token=settings.REPLICATE_API_KEY) if REPLICATE_AVAILABLE and replicate else None
     print("AI client initialized with Replicate")
 else:
     ai_client = None
@@ -603,21 +622,38 @@ async def api_generate_scene(
     request: GenerateRequest,
     current_user: Dict = Depends(verify_auth)
 ):
-    """Generate a physics scene from a text prompt. Requires authentication."""
+    """Generate a physics scene from a text prompt. Optionally links to creative brief. Requires authentication."""
     try:
+        # If brief_id is provided, validate ownership and use brief context
+        brief_context = None
+        if request.brief_id:
+            from database import get_creative_brief
+            brief = get_creative_brief(request.brief_id, current_user["id"])
+            if not brief:
+                raise HTTPException(status_code=404, detail="Brief not found or access denied")
+            brief_context = brief
+
         scene = generate_scene(request.prompt)
         scene_dict = scene.dict()
 
-        # Save to database
+        # Save to database with brief linkage
+        metadata = {
+            "source": "generate",
+            "user_id": current_user["id"]
+        }
+        if request.brief_id:
+            metadata["brief_id"] = request.brief_id
+
         scene_id = save_generated_scene(
             prompt=request.prompt,
             scene_data=scene_dict,
             model="claude-3.5-sonnet",
-            metadata={"source": "generate", "user_id": current_user["id"]}
+            metadata=metadata
         )
 
         # Add scene_id to response
         scene_dict["_id"] = scene_id
+        scene_dict["_brief_id"] = request.brief_id
 
         return scene_dict
     except HTTPException:
@@ -652,12 +688,14 @@ class RunVideoRequest(BaseModel):
     input: Dict[str, Any]  # Accepts strings, numbers, bools, etc.
     collection: Optional[str] = None
     version: Optional[str] = None  # Model version ID for reliable predictions
+    brief_id: Optional[str] = None  # Link to creative brief for context
 
 class RunImageRequest(BaseModel):
     model_id: str
     input: Dict[str, Any]  # Accepts strings, numbers, bools, etc.
     collection: Optional[str] = None
     version: Optional[str] = None  # Model version ID for reliable predictions
+    brief_id: Optional[str] = None  # Link to creative brief for context
 
 class GenesisRenderRequest(BaseModel):
     scene: Scene
@@ -1184,7 +1222,8 @@ async def api_run_video_model(
                 model_id=request.model_id,
                 parameters=request.input,
                 collection=request.collection,
-                status="processing"
+                status="processing",
+                brief_id=request.brief_id
             )
             return {"video_id": video_id, "status": "processing"}
 
@@ -1225,7 +1264,7 @@ async def api_run_video_model(
 
         # Get the base URL for webhooks
         # In production, this should be the actual deployed URL
-        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        base_url = settings.BASE_URL
 
         # Only use webhooks if we have an HTTPS URL (production)
         use_webhooks = base_url.startswith("https://")
@@ -1282,15 +1321,33 @@ async def api_run_video_model(
         if not prediction_url:
             raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
 
+        # Enhance prompt with brief context if provided
+        enhanced_prompt = request.input.get("prompt", "")
+        metadata = {"replicate_id": result.get("id"), "prediction_url": prediction_url}
+
+        if request.brief_id:
+            try:
+                from database import get_creative_brief
+                brief = get_creative_brief(request.brief_id, current_user["id"])
+                if brief:
+                    # Add brief context to prompt
+                    brief_context = f" [Style: {brief.get('creative_direction', {}).get('style', 'cinematic')}]"
+                    enhanced_prompt += brief_context
+                    metadata["brief_id"] = request.brief_id
+                    print(f"Enhanced video prompt with brief context: {brief_context}")
+            except Exception as e:
+                print(f"Failed to enhance video prompt with brief context: {e}")
+
         # Create video record with "processing" status
         video_id = save_generated_video(
-            prompt=request.input.get("prompt", ""),
+            prompt=enhanced_prompt,
             video_url="",  # Will be filled in when complete and downloaded
             model_id=request.model_id,
             parameters=request.input,
             collection=request.collection,
             status="processing",
-            metadata={"replicate_id": result.get("id"), "prediction_url": prediction_url}
+            metadata=metadata,
+            brief_id=request.brief_id
         )
 
         # Start background task to poll for completion (fallback if webhook fails)
@@ -1947,7 +2004,7 @@ async def api_run_image_model(
                 converted_input[key] = value
 
         # Get the base URL for webhooks
-        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        base_url = settings.BASE_URL
 
         # Only use webhooks if we have an HTTPS URL (production)
         use_webhooks = base_url.startswith("https://")
@@ -2003,15 +2060,33 @@ async def api_run_image_model(
         if not prediction_url:
             raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
 
+        # Enhance prompt with brief context if provided
+        enhanced_prompt = request.input.get("prompt", "")
+        metadata = {"replicate_id": result.get("id"), "prediction_url": prediction_url}
+
+        if request.brief_id:
+            try:
+                from database import get_creative_brief
+                brief = get_creative_brief(request.brief_id, current_user["id"])
+                if brief:
+                    # Add brief context to prompt
+                    brief_context = f" [Style: {brief.get('creative_direction', {}).get('style', 'modern')}]"
+                    enhanced_prompt += brief_context
+                    metadata["brief_id"] = request.brief_id
+                    print(f"Enhanced prompt with brief context: {brief_context}")
+            except Exception as e:
+                print(f"Failed to enhance prompt with brief context: {e}")
+
         # Create image record with "processing" status
         image_id = save_generated_image(
-            prompt=request.input.get("prompt", ""),
+            prompt=enhanced_prompt,
             image_url="",  # Will be filled in when complete and downloaded
             model_id=request.model_id,
             parameters=request.input,
             collection=request.collection,
             status="processing",
-            metadata={"replicate_id": result.get("id"), "prediction_url": prediction_url}
+            metadata=metadata,
+            brief_id=request.brief_id
         )
 
         # Start background task to poll for completion (fallback if webhook fails)
@@ -2359,7 +2434,7 @@ async def upload_image(
             f.write(contents)
 
         # Return full URL (required for Replicate API)
-        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        base_url = settings.BASE_URL
 
         # For local development, return data URL since Replicate can't access localhost
         # For production (HTTPS), return HTTP URL
@@ -2587,7 +2662,18 @@ IMAGES_DIR = Path(__file__).parent / "DATA" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/data/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
 
-# Serve frontend (must be last to catch all other routes)
+# ============================================================================
+# Creative Brief Parsing Endpoints
+# ============================================================================
+
+# Include the prompt parser router
+app.include_router(parse_api.router, prefix="/api/creative", tags=["creative"])
+app.include_router(briefs_api.router, prefix="/api/creative", tags=["creative"])
+
+# ============================================================================
+# Frontend Serving (catch-all route - must be last)
+# ============================================================================
+
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
     """Serve the frontend application for all non-API routes."""
@@ -2606,11 +2692,10 @@ async def serve_frontend(full_path: str):
 
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
-    port = int(os.getenv("PORT", "8000"))
-    host = os.getenv("HOST", "0.0.0.0")
     uvicorn.run(
         "main:app",
-        host=host,
-        port=port,
+        host=settings.HOST,
+        port=settings.PORT,
         reload=False  # Disable reload in production
+
     )
