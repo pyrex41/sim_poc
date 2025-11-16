@@ -742,7 +742,11 @@ decodeSceneResponse =
 decodeVideoResponse : Decode.Decoder VideoResponse
 decodeVideoResponse =
     Decode.map2 VideoResponse
-        (Decode.field "videoId" Decode.string)
+        (Decode.oneOf
+            [ Decode.field "videoId" Decode.string
+            , Decode.field "video_id" (Decode.map String.fromInt Decode.int)
+            ]
+        )
         (Decode.field "status" Decode.string)
 
 
@@ -791,11 +795,13 @@ generateVideo briefId =
     let
         body =
             Encode.object
-                [ ( "briefId", Encode.string briefId )
+                [ ( "model_id", Encode.string "stability-ai/stable-video-diffusion" )
+                , ( "input", Encode.object [ ( "prompt", Encode.string "Generate video from creative brief" ) ] )
+                , ( "brief_id", Encode.string briefId )
                 ]
     in
     Http.post
-        { url = "/api/genesis/render"
+        { url = "/api/run-video-model"
         , body = Http.jsonBody body
         , expect = Http.expectJson GotVideo decodeVideoResponse
         }
