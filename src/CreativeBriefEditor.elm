@@ -33,6 +33,17 @@ type alias Model =
     , briefId : Maybe String
     , autoScenePrompt : String
     , navigationKey : Nav.Key
+    , imageModels : List ImageModel
+    , selectedImageModel : Maybe String
+    , loadingImageModels : Bool
+    , generatingImages : Bool
+    }
+
+
+type alias ImageModel =
+    { name : String
+    , owner : String
+    , description : String
     }
 
 
@@ -93,7 +104,7 @@ init key =
       , videoUrl = ""
       , platform = "tiktok"
       , category = "luxury"
-      , llmProvider = "openai"
+      , llmProvider = "openrouter"
       , isLoading = False
       , error = Nothing
       , response = Nothing
@@ -101,8 +112,12 @@ init key =
       , briefId = Nothing
       , autoScenePrompt = ""
       , navigationKey = key
+      , imageModels = []
+      , selectedImageModel = Nothing
+      , loadingImageModels = True
+      , generatingImages = False
       }
-    , Cmd.none
+    , fetchImageModels
     )
 
 
@@ -130,6 +145,11 @@ type Msg
     | RefineBrief
     | GotRefine (Result Http.Error CreativeBriefResponse)
     | NavigateTo Route
+    | FetchImageModels
+    | ImageModelsFetched (Result Http.Error (List ImageModel))
+    | SelectImageModel String
+    | GenerateImages
+    | ImagesGenerated (Result Http.Error (List Int))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )

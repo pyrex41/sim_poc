@@ -9,6 +9,7 @@ from ..services.cache import CacheManager
 from ..services.llm.base import LLMProvider
 from ..services.llm.openai_provider import OpenAIProvider
 from ..services.llm.claude_provider import ClaudeProvider
+from ..services.llm.openrouter_provider import OpenRouterProvider
 from ..services.llm.mock_provider import MockProvider
 
 
@@ -26,7 +27,13 @@ def _llm_providers() -> dict[str, LLMProvider]:
         providers["mock"] = MockProvider()
         return providers
 
-    providers["openai"] = OpenAIProvider()
+    # Register OpenRouter with GPT-5-nano as the primary provider
+    if settings.OPENROUTER_API_KEY:
+        providers["openrouter"] = OpenRouterProvider(model="openai/gpt-5-nano-2025-08-07")
+
+    # Fallback providers
+    if settings.OPENAI_API_KEY:
+        providers["openai"] = OpenAIProvider()
     if settings.ANTHROPIC_API_KEY:
         providers["claude"] = ClaudeProvider()
     return providers
