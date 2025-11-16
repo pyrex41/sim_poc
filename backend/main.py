@@ -4064,26 +4064,6 @@ app.include_router(briefs_api.router, prefix="/api/creative", tags=["creative"])
 # Include clients and campaigns router (for ad-video-gen frontend)
 app.include_router(clients_campaigns_router, prefix="/api", tags=["Core Entities"])
 
-# ============================================================================
-# Frontend Serving (catch-all route - must be last)
-# ============================================================================
-
-@app.get("/{full_path:path}")
-async def serve_frontend(full_path: str):
-    """Serve the frontend application for all non-API routes."""
-    # Don't intercept API routes - they should be handled by their specific endpoints
-    if full_path.startswith("api/") or full_path.startswith("data/"):
-        raise HTTPException(status_code=404, detail="Not found")
-
-    # Check if we're in production mode with static files
-    if STATIC_DIR.exists() and STATIC_DIR.is_dir():
-        index_file = STATIC_DIR / "index.html"
-        if index_file.exists():
-            return FileResponse(str(index_file))
-
-    # Fallback for development or if static files don't exist
-    return {"message": "Frontend not built. Run 'npm run build' to build the frontend."}
-
 # ============================================
 # Database Administration Endpoints
 # ============================================
@@ -4264,6 +4244,26 @@ async def execute_sql_query(
     except Exception as e:
         logger.error(f"SQL query failed: {e}")
         raise HTTPException(status_code=400, detail=f"Query execution failed: {str(e)}")
+
+# ============================================================================
+# Frontend Serving (catch-all route - must be last)
+# ============================================================================
+
+@app.get("/{full_path:path}")
+async def serve_frontend(full_path: str):
+    """Serve the frontend application for all non-API routes."""
+    # Don't intercept API routes - they should be handled by their specific endpoints
+    if full_path.startswith("api/") or full_path.startswith("data/"):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    # Check if we're in production mode with static files
+    if STATIC_DIR.exists() and STATIC_DIR.is_dir():
+        index_file = STATIC_DIR / "index.html"
+        if index_file.exists():
+            return FileResponse(str(index_file))
+
+    # Fallback for development or if static files don't exist
+    return {"message": "Frontend not built. Run 'npm run build' to build the frontend."}
 
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
