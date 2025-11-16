@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from backend.prompt_parser_service.services.cache import CacheManager
-from backend.prompt_parser_service.core.dependencies import get_cache_manager
+from ...services.cache import CacheManager
+from ...core.dependencies import get_cache_manager
 
 router = APIRouter()
 

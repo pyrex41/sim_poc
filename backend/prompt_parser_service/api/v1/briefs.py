@@ -5,11 +5,11 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from backend.prompt_parser_service.core.dependencies import get_cache_manager, get_llm_provider_registry
-from backend.prompt_parser_service.services.cache import CacheManager
-from backend.prompt_parser_service.services.llm.base import LLMProvider
-from backend.database import get_user_briefs, get_creative_brief, update_brief, get_brief_count
-from backend.auth import verify_auth
+from ...core.dependencies import get_cache_manager, get_llm_provider_registry
+from ...services.cache import CacheManager
+from ...services.llm.base import LLMProvider
+from ....database import get_user_briefs, get_creative_brief, update_brief, get_brief_count
+from ....auth import verify_auth
 
 router = APIRouter()
 

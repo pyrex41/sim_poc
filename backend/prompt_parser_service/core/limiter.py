@@ -3,7 +3,7 @@
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from backend.prompt_parser_service.core.config import get_settings
+from .config import get_settings
 
 settings = get_settings()
 limiter = Limiter(

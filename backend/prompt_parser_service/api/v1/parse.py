@@ -8,30 +8,30 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import ValidationError
 
 # Import auth from main backend
-from backend.auth import verify_auth
+from ....auth import verify_auth
 
-from backend.config import get_settings
-from backend.prompt_parser_service.core.dependencies import get_cache_manager, get_llm_provider_registry
-from backend.prompt_parser_service.models.request import ParseRequest, PromptInput
-from backend.prompt_parser_service.models.response import ParseResponse, Scene
-from backend.prompt_parser_service.prompts.creative_direction import (
+from ....config import get_settings
+from ...core.dependencies import get_cache_manager, get_llm_provider_registry
+from ...models.request import ParseRequest, PromptInput
+from ...models.response import ParseResponse, Scene
+from ...prompts.creative_direction import (
     CREATIVE_DIRECTION_SYSTEM_PROMPT,
     build_creative_direction_prompt,
 )
-from backend.prompt_parser_service.services.cache import CacheManager, generate_cache_key
-from backend.prompt_parser_service.core.limiter import limiter
-from backend.prompt_parser_service.services.defaults import apply_smart_defaults
-from backend.prompt_parser_service.services.llm.base import LLMProvider
-from backend.prompt_parser_service.services.input_orchestrator import analyze_inputs
-from backend.prompt_parser_service.services.parsers.text_parser import parse_text_prompt
-from backend.prompt_parser_service.services.scene_generator import generate_scenes
-from backend.prompt_parser_service.services.validator import calculate_confidence, validate_scenes
-from backend.prompt_parser_service.services.edit_handler import merge_iterative_edit
-from backend.prompt_parser_service.services.cost_estimator import estimate_cost
-from backend.prompt_parser_service.services.content_safety import ensure_prompt_safe, ContentSafetyError
+from ...services.cache import CacheManager, generate_cache_key
+from ...core.limiter import limiter
+from ...services.defaults import apply_smart_defaults
+from ...services.llm.base import LLMProvider
+from ...services.input_orchestrator import analyze_inputs
+from ...services.parsers.text_parser import parse_text_prompt
+from ...services.scene_generator import generate_scenes
+from ...services.validator import calculate_confidence, validate_scenes
+from ...services.edit_handler import merge_iterative_edit
+from ...services.cost_estimator import estimate_cost
+from ...services.content_safety import ensure_prompt_safe, ContentSafetyError
 
 # Import database functions
-from backend.database import save_creative_brief
+from ....database import save_creative_brief
 import uuid
 
 logger = structlog.get_logger(__name__)

@@ -8,8 +8,8 @@ from typing import Any
 from openai import AsyncOpenAI
 import structlog
 
-from backend.prompt_parser_service.core.config import get_settings
-from backend.prompt_parser_service.services.llm.base import LLMProvider
+from ...core.config import get_settings
+from .base import LLMProvider
 
 logger = structlog.get_logger(__name__)
 

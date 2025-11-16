@@ -7,11 +7,11 @@ from typing import Any, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from backend.prompt_parser_service.api.v1.parse import process_parse_request
-from backend.prompt_parser_service.core.dependencies import get_cache_manager, get_llm_provider_registry
-from backend.prompt_parser_service.models.request import ParseRequest
-from backend.prompt_parser_service.services.cache import CacheManager
-from backend.prompt_parser_service.services.llm.base import LLMProvider
+from api.v1.parse import process_parse_request
+from ...core.dependencies import get_cache_manager, get_llm_provider_registry
+from ...models.request import ParseRequest
+from ...services.cache import CacheManager
+from ...services.llm.base import LLMProvider
 
 router = APIRouter()
 

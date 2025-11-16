@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 import httpx
 from PIL import Image
 
-from backend.prompt_parser_service.services.media_utils import extract_dominant_color, resize_for_analysis
+from .media_utils import extract_dominant_color, resize_for_analysis
 
 
 async def _load_image_bytes(image_url: Optional[str], image_base64: Optional[str]) -> bytes:
