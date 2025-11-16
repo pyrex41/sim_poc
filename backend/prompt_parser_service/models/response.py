@@ -38,3 +38,4 @@ class ParseResponse(BaseModel):
     metadata: Metadata
     cost_estimate: Optional[dict[str, Any]] = None
     extracted_references: Optional[dict[str, Any]] = None
+    briefId: Optional[str] = None  # Added for frontend compatibility

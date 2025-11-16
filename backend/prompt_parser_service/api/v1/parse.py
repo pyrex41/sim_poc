@@ -197,6 +197,8 @@ async def parse_prompt(
         # This keeps the creative brief generation focused on prompt parsing and brief creation
         # The generation_prompt in scenes can be used later for physics simulation generation
 
+        # Add brief_id to response
+        response.briefId = brief_id
         return response
 
     except Exception as e:
@@ -218,6 +220,7 @@ async def parse_prompt(
                 response = await process_parse_request(text_only_request, cache, llm_providers, bypass_cache, primary_name)
 
                 # Save fallback brief to database
+                brief_id = None
                 try:
                     brief_id = str(uuid.uuid4())
                     save_creative_brief(
@@ -233,6 +236,8 @@ async def parse_prompt(
                 except Exception as db_error:
                     logger.error(f"Failed to save fallback brief to database: {db_error}")
 
+                # Add brief_id to response
+                response.briefId = brief_id
                 return response
 
             except Exception as fallback_error:
