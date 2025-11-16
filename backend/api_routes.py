@@ -3,10 +3,11 @@
 This module provides RESTful API endpoints for the ad-video-gen frontend:
 - /api/clients - Client CRUD operations
 - /api/clients/:id/stats - Client statistics
-- /api/clients/:id/assets - Client asset management
 - /api/campaigns - Campaign CRUD operations
 - /api/campaigns/:id/stats - Campaign statistics
-- /api/campaigns/:id/assets - Campaign asset management
+
+Note: Asset management has been consolidated into /api/v2/upload-asset
+Use that endpoint with clientId/campaignId parameters for asset uploads.
 """
 
 from fastapi import APIRouter, HTTPException, Depends, File, UploadFile, Query
@@ -25,9 +26,6 @@ from .database_helpers import (
     update_client,
     delete_client,
     get_client_stats,
-    create_client_asset,
-    list_client_assets,
-    delete_client_asset,
     # Campaign operations
     create_campaign,
     get_campaign_by_id,
@@ -35,9 +33,6 @@ from .database_helpers import (
     update_campaign,
     delete_campaign,
     get_campaign_stats,
-    create_campaign_asset,
-    list_campaign_assets,
-    delete_campaign_asset,
     # Video operations
     list_videos_by_campaign,
     update_video_metrics
@@ -276,77 +271,12 @@ async def get_client_statistics(
     return ApiResponse(data=stats)
 
 
-@router.post("/clients/{client_id}/assets", status_code=201)
-async def upload_client_asset(
-    client_id: str,
-    file: UploadFile = File(...),
-    current_user: Dict[str, Any] = Depends(verify_auth)
-) -> ApiResponse:
-    """
-    Upload a client asset (logo, brand document, etc.).
-
-    Args:
-        client_id: Client UUID
-        file: File to upload
-
-    Returns:
-        ApiResponse with ClientAsset object
-
-    Raises:
-        404: Client not found
-        400: Invalid file type
-    """
-    # Verify client exists and user owns it
-    client = get_client_by_id(client_id, current_user["id"])
-    if not client:
-        raise HTTPException(status_code=404, detail="Client not found")
-
-    # Determine asset type from MIME type
-    content_type = file.content_type or ""
-    if content_type.startswith("image/"):
-        asset_type = "logo" if "logo" in file.filename.lower() else "image"
-    elif content_type == "application/pdf" or file.filename.endswith(".pdf"):
-        asset_type = "document"
-    else:
-        raise HTTPException(status_code=400, detail="Invalid file type. Supported: images, PDF documents")
-
-    # Save file to storage (using DATA directory)
-    from pathlib import Path
-    data_dir = Path(os.getenv("DATA", "./DATA"))
-    client_assets_dir = data_dir / "client_assets" / client_id
-    client_assets_dir.mkdir(parents=True, exist_ok=True)
-
-    # Generate unique filename
-    file_extension = Path(file.filename).suffix
-    unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = client_assets_dir / unique_filename
-
-    # Write file
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-
-    # Create asset URL (relative path)
-    asset_url = f"/api/client-assets/{client_id}/{unique_filename}"
-
-    # Save to database
-    asset_id = create_client_asset(
-        client_id=client_id,
-        asset_type=asset_type,
-        url=asset_url,
-        name=file.filename
-    )
-
-    # Return asset data
-    asset_data = {
-        "id": asset_id,
-        "type": asset_type,
-        "url": asset_url,
-        "name": file.filename,
-        "uploadedAt": datetime.utcnow().isoformat() + "Z"
-    }
-
-    return ApiResponse(data=asset_data, message="Asset uploaded successfully")
+# ============================================================================
+# DEPRECATED: Use POST /api/v2/upload-asset with clientId parameter instead
+# ============================================================================
+# @router.post("/clients/{client_id}/assets", status_code=201)
+# This endpoint has been deprecated in favor of the consolidated asset API.
+# Use POST /api/v2/upload-asset with form-data parameter clientId={client_id}
 
 
 # ============================================================================
@@ -536,79 +466,12 @@ async def get_campaign_statistics(
     return ApiResponse(data=stats)
 
 
-@router.post("/campaigns/{campaign_id}/assets", status_code=201)
-async def upload_campaign_asset(
-    campaign_id: str,
-    file: UploadFile = File(...),
-    current_user: Dict[str, Any] = Depends(verify_auth)
-) -> ApiResponse:
-    """
-    Upload a campaign asset (image, video, document).
-
-    Args:
-        campaign_id: Campaign UUID
-        file: File to upload
-
-    Returns:
-        ApiResponse with CampaignAsset object
-
-    Raises:
-        404: Campaign not found
-        400: Invalid file type
-    """
-    # Verify campaign exists and user owns it
-    campaign = get_campaign_by_id(campaign_id, current_user["id"])
-    if not campaign:
-        raise HTTPException(status_code=404, detail="Campaign not found")
-
-    # Determine asset type from MIME type
-    content_type = file.content_type or ""
-    if content_type.startswith("image/"):
-        asset_type = "image"
-    elif content_type.startswith("video/"):
-        asset_type = "video"
-    elif content_type == "application/pdf" or file.filename.endswith(".pdf"):
-        asset_type = "document"
-    else:
-        raise HTTPException(status_code=400, detail="Invalid file type. Supported: images, videos, PDF documents")
-
-    # Save file to storage
-    from pathlib import Path
-    data_dir = Path(os.getenv("DATA", "./DATA"))
-    campaign_assets_dir = data_dir / "campaign_assets" / campaign_id
-    campaign_assets_dir.mkdir(parents=True, exist_ok=True)
-
-    # Generate unique filename
-    file_extension = Path(file.filename).suffix
-    unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = campaign_assets_dir / unique_filename
-
-    # Write file
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-
-    # Create asset URL
-    asset_url = f"/api/campaign-assets/{campaign_id}/{unique_filename}"
-
-    # Save to database
-    asset_id = create_campaign_asset(
-        campaign_id=campaign_id,
-        asset_type=asset_type,
-        url=asset_url,
-        name=file.filename
-    )
-
-    # Return asset data
-    asset_data = {
-        "id": asset_id,
-        "type": asset_type,
-        "url": asset_url,
-        "name": file.filename,
-        "uploadedAt": datetime.utcnow().isoformat() + "Z"
-    }
-
-    return ApiResponse(data=asset_data, message="Asset uploaded successfully")
+# ============================================================================
+# DEPRECATED: Use POST /api/v2/upload-asset with campaignId parameter instead
+# ============================================================================
+# @router.post("/campaigns/{campaign_id}/assets", status_code=201)
+# This endpoint has been deprecated in favor of the consolidated asset API.
+# Use POST /api/v2/upload-asset with form-data parameter campaignId={campaign_id}
 
 
 # ============================================================================
