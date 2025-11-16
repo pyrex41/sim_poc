@@ -2111,6 +2111,97 @@ async def api_run_image_model(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
+
+@app.post("/api/generate-images-from-brief")
+async def api_generate_images_from_brief(
+    request: Dict,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Generate images from all scenes in a creative brief.
+
+    Expects:
+        - briefId: The creative brief ID
+        - modelName: The image generation model to use (e.g., "flux-schnell")
+
+    Returns:
+        - imageIds: List of created image IDs
+    """
+    try:
+        brief_id = request.get("briefId")
+        model_name = request.get("modelName")
+
+        if not brief_id:
+            raise HTTPException(status_code=400, detail="Missing briefId")
+        if not model_name:
+            raise HTTPException(status_code=400, detail="Missing modelName")
+
+        # Fetch the brief
+        from database import get_brief
+        brief = get_brief(brief_id, current_user["id"])
+
+        if not brief:
+            raise HTTPException(status_code=404, detail="Brief not found")
+
+        # Extract scenes from brief
+        scenes = brief.get("scenes", [])
+        if not scenes:
+            raise HTTPException(status_code=400, detail="No scenes found in brief")
+
+        # Find the model to get owner/name
+        # Model name comes as just the name, need to look it up from image models
+        image_ids = []
+
+        # For each scene, extract the generation prompt and create an image
+        for scene in scenes:
+            visual = scene.get("visual", {})
+            if not visual:
+                continue
+
+            generation_prompt = visual.get("generation_prompt")
+            if not generation_prompt:
+                continue
+
+            # Model name should now be in format "owner/model"
+            # If not, skip this scene
+            if "/" not in model_name:
+                print(f"Warning: Invalid model format '{model_name}', expected 'owner/model', skipping scene")
+                continue
+
+            model_id = model_name
+
+            # Create image generation request
+            image_request = RunImageRequest(
+                model_id=model_id,
+                input={"prompt": generation_prompt},
+                collection="text-to-image",
+                version=None,
+                brief_id=brief_id
+            )
+
+            # Call the existing image generation endpoint logic
+            try:
+                result = await api_run_image_model(image_request, background_tasks, current_user)
+                image_ids.append(result["image_id"])
+                print(f"Created image {result['image_id']} for scene prompt: {generation_prompt[:50]}...")
+            except Exception as e:
+                print(f"Error generating image for scene: {str(e)}")
+                # Continue with other scenes even if one fails
+
+        if not image_ids:
+            raise HTTPException(status_code=500, detail="Failed to generate any images from brief")
+
+        return {"imageIds": image_ids, "count": len(image_ids)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error generating images from brief: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
 def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3) -> str:
     """
     Download an image from Replicate and save it locally with retry logic.
