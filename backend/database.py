@@ -848,8 +848,8 @@ def list_images(
     query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
-    # Get ngrok URL if available
-    base_url = os.getenv("NGROK_URL", "").strip()
+    # Get base URL for full URLs
+    base_url = os.getenv("BASE_URL", "").strip()
 
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
