@@ -92,6 +92,9 @@ from slowapi.errors import RateLimitExceeded
 from .prompt_parser_service.api.v1 import parse as parse_api
 from .prompt_parser_service.api.v1 import briefs as briefs_api
 
+# Import clients and campaigns router
+from .api_routes import router as clients_campaigns_router
+
 app = FastAPI(title="Physics Simulator API", version="1.0.0")
 
 # CORS middleware (for development)
@@ -3734,6 +3737,9 @@ async def get_job_metadata(job_id: int):
 # Include the prompt parser router
 app.include_router(parse_api.router, prefix="/api/creative", tags=["creative"])
 app.include_router(briefs_api.router, prefix="/api/creative", tags=["creative"])
+
+# Include clients and campaigns router (for ad-video-gen frontend)
+app.include_router(clients_campaigns_router, prefix="/api", tags=["clients-campaigns"])
 
 # ============================================================================
 # Frontend Serving (catch-all route - must be last)
