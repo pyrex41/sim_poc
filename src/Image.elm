@@ -357,6 +357,11 @@ view model =
                 , class (if model.selectedCollection == "text-to-image" then "collection-button active" else "collection-button")
                 ]
                 [ text "Text to Image" ]
+            , button
+                [ onClick (SelectCollection "super-resolution")
+                , class (if model.selectedCollection == "super-resolution" then "collection-button active" else "collection-button")
+                ]
+                [ text "Super Resolution / Upscalers" ]
             ]
         , div [ class "search-section" ]
             [ input

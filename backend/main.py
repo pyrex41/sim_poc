@@ -868,14 +868,6 @@ class RunImageRequest(BaseModel):
     version: Optional[str] = None  # Model version ID for reliable predictions
     brief_id: Optional[str] = None  # Link to creative brief for context
 
-class UpscaleImageRequest(BaseModel):
-    image_url: str
-    scale: int = 2
-    prompt: Optional[str] = None
-    dynamic: int = 6  # HDR level from 3-9
-    sharpen: int = 0  # Sharpening intensity from 0-10
-    collection: Optional[str] = None
-
 class GenesisRenderRequest(BaseModel):
     scene: Scene
     duration: float = 5.0
@@ -1920,7 +1912,7 @@ async def api_get_video(
 
 @app.get("/api/image-models")
 async def api_get_image_models(
-    collection: Optional[str] = Query("text-to-image", description="Collection slug: text-to-image, etc.")
+    collection: Optional[str] = Query("text-to-image", description="Collection slug: text-to-image, super-resolution, etc.")
 ):
     """Get image generation models from Replicate collections API."""
     try:
@@ -1953,6 +1945,24 @@ async def api_get_image_models(
                 "run_count": model_data.get("run_count", 0),
                 "input_schema": None  # Will be fetched when model is selected
             })
+
+        # If the collection is super-resolution, ensure the clarity-upscaler is included
+        if collection == "super-resolution":
+            upscaler_model_id = settings.UPSCALER_MODEL
+            # Check if it's already in the list
+            if not any(m["id"] == upscaler_model_id for m in models):
+                # Add it manually
+                owner, name = upscaler_model_id.split("/")
+                models.insert(0, {
+                    "id": upscaler_model_id,
+                    "name": "Clarity Upscaler",
+                    "owner": owner,
+                    "description": "High-resolution AI image upscaler with stunning detail and quality",
+                    "cover_image_url": None,
+                    "latest_version": None,
+                    "run_count": 0,
+                    "input_schema": None
+                })
 
         return {"models": models}
     except Exception as e:
@@ -2479,133 +2489,6 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
 
     # All retries failed
     raise Exception(f"Failed to download image after {max_retries} attempts. Last error: {str(last_error)}")
-
-@app.post("/api/upscale-image", tags=["Image Upscaling"])
-async def api_upscale_image(
-    request: UpscaleImageRequest,
-    background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
-):
-    """
-    Upscale an image using the Clarity Upscaler model from Replicate.
-
-    This endpoint accepts an image URL and upscales it with configurable parameters.
-    The upscaler model can be configured via the UPSCALER_MODEL environment variable.
-
-    Args:
-        request: UpscaleImageRequest with image_url and optional parameters
-
-    Returns:
-        dict: Response containing image_id and status
-    """
-    try:
-        from .services.replicate_client import ReplicateClient
-
-        # Get the configured upscaler model
-        upscaler_model = settings.UPSCALER_MODEL
-
-        # Validate image URL
-        if not request.image_url or not request.image_url.startswith(('http://', 'https://')):
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid image URL. Must be a valid HTTP/HTTPS URL."
-            )
-
-        # Validate scale parameter
-        if request.scale < 1 or request.scale > 4:
-            raise HTTPException(
-                status_code=400,
-                detail="Scale must be between 1 and 4"
-            )
-
-        # Validate dynamic parameter (HDR level)
-        if request.dynamic < 3 or request.dynamic > 9:
-            raise HTTPException(
-                status_code=400,
-                detail="Dynamic (HDR level) must be between 3 and 9"
-            )
-
-        # Validate sharpen parameter
-        if request.sharpen < 0 or request.sharpen > 10:
-            raise HTTPException(
-                status_code=400,
-                detail="Sharpen must be between 0 and 10"
-            )
-
-        # Create a pending image record
-        image_id = save_generated_image(
-            prompt=f"Upscaled image (scale={request.scale})",
-            image_url="",
-            model_id=upscaler_model,
-            parameters={
-                "image_url": request.image_url,
-                "scale": request.scale,
-                "prompt": request.prompt,
-                "dynamic": request.dynamic,
-                "sharpen": request.sharpen
-            },
-            collection=request.collection,
-            status="processing"
-        )
-
-        # Process upscaling in background
-        async def upscale_task():
-            try:
-                # Initialize Replicate client
-                replicate_client = ReplicateClient(api_key=settings.REPLICATE_API_KEY)
-
-                logger.info(f"Starting upscale for image {image_id}")
-
-                # Upscale the image
-                result = replicate_client.upscale_image(
-                    image_url=request.image_url,
-                    model=upscaler_model,
-                    scale=request.scale,
-                    prompt=request.prompt,
-                    dynamic=request.dynamic,
-                    sharpen=request.sharpen
-                )
-
-                if result['success']:
-                    # Update image with upscaled URL
-                    update_image_status(
-                        image_id=image_id,
-                        status="completed",
-                        image_url=result['upscaled_url']
-                    )
-                    logger.info(f"Image {image_id} upscaled successfully: {result['upscaled_url']}")
-                else:
-                    # Update image with error status
-                    update_image_status(
-                        image_id=image_id,
-                        status="failed"
-                    )
-                    logger.error(f"Image {image_id} upscaling failed: {result['error']}")
-
-            except Exception as e:
-                logger.error(f"Error upscaling image {image_id}: {str(e)}")
-                update_image_status(
-                    image_id=image_id,
-                    status="failed"
-                )
-
-        # Schedule background task
-        background_tasks.add_task(upscale_task)
-
-        return {
-            "image_id": image_id,
-            "status": "processing",
-            "message": "Image upscaling started"
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in upscale endpoint: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to start upscaling: {str(e)}"
-        )
 
 @app.get("/api/images")
 async def api_get_images(

@@ -13,7 +13,6 @@ type Route
     | Images
     | ImageDetail Int
     | ImageGallery
-    | Upscaler
     | Auth
     | BriefGallery
     | CreativeBriefEditor
@@ -31,7 +30,6 @@ parser =
         , Parser.map Images (s "images")
         , Parser.map ImageDetail (s "image" </> int)
         , Parser.map ImageGallery (s "image-gallery")
-        , Parser.map Upscaler (s "upscaler")
         , Parser.map Auth (s "auth")
         , Parser.map BriefGallery (s "briefs")
         , Parser.map CreativeBriefEditor (s "creative")
@@ -74,9 +72,6 @@ toHref route =
 
         ImageGallery ->
             "/image-gallery"
-
-        Upscaler ->
-            "/upscaler"
 
         Auth ->
             "/auth"
