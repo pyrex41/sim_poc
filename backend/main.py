@@ -1946,16 +1946,18 @@ async def api_get_image_models(
                 "input_schema": None  # Will be fetched when model is selected
             })
 
-        # If the collection is super-resolution, ensure the clarity-upscaler is included
+        # If the collection is super-resolution, ensure the configured upscaler is included
+        # This allows flexibility to change upscaler models via UPSCALER_MODEL env variable
         if collection == "super-resolution":
             upscaler_model_id = settings.UPSCALER_MODEL
             # Check if it's already in the list
             if not any(m["id"] == upscaler_model_id for m in models):
-                # Add it manually
+                # Add it manually with dynamic name based on model ID
                 owner, name = upscaler_model_id.split("/")
+                display_name = name.replace("-", " ").replace("_", " ").title()
                 models.insert(0, {
                     "id": upscaler_model_id,
-                    "name": "Clarity Upscaler",
+                    "name": display_name,
                     "owner": owner,
                     "description": "High-resolution AI image upscaler with stunning detail and quality",
                     "cover_image_url": None,
@@ -2140,9 +2142,19 @@ async def api_run_image_model(
 ):
     """Initiate image generation and return immediately with an image ID. Requires authentication.
 
+    This endpoint handles all image generation models including:
+    - Text-to-image models (prompt -> image)
+    - Image-to-image models (image + prompt -> image)
+    - Super-resolution/upscaler models (image + scale/dynamic/sharpen -> upscaled image)
+
+    The upscaling functionality is integrated into the standard image generation workflow.
+    Upscaler models from the 'super-resolution' collection accept an 'image' input parameter
+    along with upscaling-specific parameters instead of just 'prompt'.
+
     Note: Input validation is handled by the frontend (Elm) which validates required fields
-    against the model schema before submission. Replicate API also validates and will return
-    clear error messages if inputs are invalid.
+    against the model schema before submission. Additional validation for super-resolution
+    models is performed below. Replicate API also validates and will return clear error messages
+    if inputs are invalid.
     """
     try:
         if not ai_client:
@@ -2191,6 +2203,45 @@ async def api_run_image_model(
                 converted_input[key] = value
             else:
                 converted_input[key] = value
+
+        # Validate parameters for super-resolution models
+        # Super-resolution models (upscalers) have specific parameter constraints
+        if request.collection == "super-resolution":
+            # Validate scale parameter (if provided)
+            if "scale" in converted_input:
+                scale = converted_input["scale"]
+                if not isinstance(scale, (int, float)) or not (1 <= scale <= 4):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Scale parameter must be between 1 and 4"
+                    )
+
+            # Validate dynamic/HDR parameter (if provided)
+            if "dynamic" in converted_input:
+                dynamic = converted_input["dynamic"]
+                if not isinstance(dynamic, (int, float)) or not (3 <= dynamic <= 9):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Dynamic (HDR) parameter must be between 3 and 9"
+                    )
+
+            # Validate sharpen parameter (if provided)
+            if "sharpen" in converted_input:
+                sharpen = converted_input["sharpen"]
+                if not isinstance(sharpen, (int, float)) or not (0 <= sharpen <= 10):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Sharpen parameter must be between 0 and 10"
+                    )
+
+            # Validate image URL parameter (required for upscaling)
+            if "image" in converted_input:
+                image_url = converted_input["image"]
+                if not isinstance(image_url, str) or not image_url.startswith(('http://', 'https://')):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Image parameter must be a valid HTTP/HTTPS URL"
+                    )
 
         # Get the base URL for webhooks
         base_url = settings.BASE_URL
