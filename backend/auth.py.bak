@@ -134,7 +134,7 @@ async def get_current_user_from_api_key(
     # Try to find API key in database
     # We need to check all API keys and verify the hash
     # This is a simple implementation - for production, consider caching
-    from .database import get_db
+    from database import get_db
 
     with get_db() as conn:
         rows = conn.execute(

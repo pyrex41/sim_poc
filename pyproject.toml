@@ -19,7 +19,5 @@ dependencies = [
     "structlog>=25.5.0",
     "tenacity>=9.1.2",
     "pydantic-settings>=2.11.0",
-    "numpy>=2.3.4",
-    "opencv-python>=4.11.0.86",
     "slowapi>=0.1.9",
 ]

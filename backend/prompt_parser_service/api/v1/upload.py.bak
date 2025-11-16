@@ -35,7 +35,7 @@ async def upload_media(
         raise HTTPException(400, "No data received")
     
     # Save to brief BLOB (assume brief exists)
-    from ...database import get_creative_brief, update_brief
+    from database import get_creative_brief, update_brief
     brief = get_creative_brief(brief_id, current_user["id"])
     if not brief:
         raise HTTPException(404, "Brief not found")
