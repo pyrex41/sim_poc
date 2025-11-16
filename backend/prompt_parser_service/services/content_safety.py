@@ -5,7 +5,7 @@ from __future__ import annotations
 import structlog
 from openai import AsyncOpenAI
 
-from backend.prompt_parser_service.core.config import get_settings
+from ..core.config import get_settings
 
 logger = structlog.get_logger(__name__)
 

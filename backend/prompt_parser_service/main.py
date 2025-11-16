@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from slowapi.errors import RateLimitExceeded
 
-from backend.prompt_parser_service.core.config import Settings, get_settings
-from backend.prompt_parser_service.core.logging import configure_logging
-from backend.prompt_parser_service.core.limiter import limiter
-from backend.prompt_parser_service.api.v1 import parse as parse_api
-from backend.prompt_parser_service.api.v1 import health as health_api
+from .core.config import Settings, get_settings
+from .core.logging import configure_logging
+from .core.limiter import limiter
+from api.v1 import parse as parse_api
+from api.v1 import health as health_api
 
 
 @asynccontextmanager
@@ -29,10 +29,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    from backend.prompt_parser_service.api.v1 import batch as batch_api
-    from backend.prompt_parser_service.api.v1 import metrics as metrics_api
-    from backend.prompt_parser_service.api.v1 import providers as providers_api
-    from backend.prompt_parser_service.api.v1 import cache_admin as cache_admin_api
+    from api.v1 import batch as batch_api
+    from api.v1 import metrics as metrics_api
+    from api.v1 import providers as providers_api
+    from api.v1 import cache_admin as cache_admin_api
 
     from fastapi.responses import JSONResponse
 

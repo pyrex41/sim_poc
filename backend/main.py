@@ -20,8 +20,8 @@ from pathlib import Path
 replicate = None
 REPLICATE_AVAILABLE = False
 
-from backend.config import get_settings
-from backend.database import (
+from .config import get_settings
+from .database import (
     save_generated_scene,
     get_scene_by_id,
     list_scenes,
@@ -41,7 +41,7 @@ from backend.database import (
     revoke_api_key
 )
 
-from backend.auth import (
+from .auth import (
     verify_auth,
     get_current_admin_user,
     authenticate_user,
@@ -61,12 +61,12 @@ if not load_dotenv('.env'):
 settings = get_settings()
 
 # Import limiter for rate limiting
-from backend.prompt_parser_service.core.limiter import limiter
+from .prompt_parser_service.core.limiter import limiter
 from slowapi.errors import RateLimitExceeded
 
 # Import prompt parser service router
-from backend.prompt_parser_service.api.v1 import parse as parse_api
-from backend.prompt_parser_service.api.v1 import briefs as briefs_api
+from .prompt_parser_service.api.v1 import parse as parse_api
+from .prompt_parser_service.api.v1 import briefs as briefs_api
 
 app = FastAPI(title="Physics Simulator API", version="1.0.0")
 
@@ -2693,9 +2693,8 @@ async def serve_frontend(full_path: str):
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
     uvicorn.run(
-        "main:app",
+        "backend.main:app",
         host=settings.HOST,
         port=settings.PORT,
         reload=False  # Disable reload in production
-
     )

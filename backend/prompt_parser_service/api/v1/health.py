@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from backend.prompt_parser_service.core.dependencies import get_cache_manager, get_llm_provider_registry
-from backend.prompt_parser_service.services.cache import CacheManager
-from backend.prompt_parser_service.services.llm.base import LLMProvider
+from ...core.dependencies import get_cache_manager, get_llm_provider_registry
+from ...services.cache import CacheManager
+from ...services.llm.base import LLMProvider
 
 router = APIRouter()
 

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from typing import Optional
 import base64
-from backend.auth import verify_auth
-from backend.database import save_creative_brief  # For direct save if needed
+from ....auth import verify_auth
+from ....database import save_creative_brief  # For direct save if needed
 
 router = APIRouter(prefix="/creative", tags=["creative"])
 
