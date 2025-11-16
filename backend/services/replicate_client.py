@@ -34,10 +34,12 @@ class ReplicateClient:
     # Model pricing (in USD)
     FLUX_SCHNELL_PRICE_PER_IMAGE = 0.003
     SKYREELS2_PRICE_PER_SECOND = 0.10
+    UPSCALER_PRICE_PER_IMAGE = 0.016
 
     # Default models
     DEFAULT_IMAGE_MODEL = "black-forest-labs/flux-schnell"
     DEFAULT_VIDEO_MODEL = "fofr/skyreels-2"
+    DEFAULT_UPSCALER_MODEL = "philz1337x/clarity-upscaler"
 
     # Polling configuration
     DEFAULT_POLL_INTERVAL = 5  # seconds
@@ -298,6 +300,132 @@ class ReplicateClient:
                 "error": f"Unexpected error: {str(e)}",
                 "prediction_id": None,
                 "duration_seconds": 0
+            }
+
+    def upscale_image(
+        self,
+        image_url: str,
+        model: str = DEFAULT_UPSCALER_MODEL,
+        scale: int = 2,
+        prompt: Optional[str] = None,
+        dynamic: int = 6,
+        sharpen: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Upscale an image using Replicate's Clarity Upscaler model.
+
+        Args:
+            image_url (str): URL of the image to upscale
+            model (str): Model identifier (default: philz1337x/clarity-upscaler)
+            scale (int): Upscale factor (default: 2)
+            prompt (str, optional): Enhancement prompt (default: None, uses model default)
+            dynamic (int): HDR level from 3-9 (default: 6)
+            sharpen (int): Sharpening intensity from 0-10 (default: 0)
+
+        Returns:
+            dict: Response containing:
+                - success (bool): Whether the request was successful
+                - upscaled_url (str): URL of the upscaled image (if successful)
+                - error (str): Error message (if failed)
+                - prediction_id (str): Replicate prediction ID for polling
+
+        Example:
+            >>> client = ReplicateClient()
+            >>> result = client.upscale_image("https://example.com/image.jpg", scale=4)
+            >>> if result['success']:
+            ...     print(f"Upscaled Image URL: {result['upscaled_url']}")
+        """
+        logger.info(f"Upscaling image: {image_url} with scale={scale}")
+
+        try:
+            # Prepare input parameters
+            input_params = {
+                "image": image_url,
+                "scale": scale,
+                "dynamic": dynamic,
+                "sharpen": sharpen
+            }
+
+            # Add prompt if provided, otherwise use model default
+            if prompt:
+                input_params["prompt"] = prompt
+            else:
+                # Use the default prompt from the model
+                input_params["prompt"] = "masterpiece, best quality, highres, <lora:more_details:0.5> <lora:SDXLrender_v2.0:1>"
+
+            # Create prediction
+            response = self.session.post(
+                f"{self.base_url}/predictions",
+                json={
+                    "version": self._get_model_version(model),
+                    "input": input_params
+                },
+                timeout=30
+            )
+            response.raise_for_status()
+
+            prediction_data = response.json()
+            prediction_id = prediction_data.get('id')
+
+            if not prediction_id:
+                logger.error("No prediction ID returned from API")
+                return {
+                    "success": False,
+                    "upscaled_url": None,
+                    "error": "No prediction ID returned from API",
+                    "prediction_id": None
+                }
+
+            logger.info(f"Image upscaling started, prediction ID: {prediction_id}")
+
+            # Poll for completion
+            poll_result = self.poll_prediction(prediction_id)
+
+            if poll_result['status'] == 'succeeded':
+                # Extract upscaled image URL from output
+                output = poll_result.get('output')
+                upscaled_url = output[0] if isinstance(output, list) else output
+
+                logger.info(f"Image upscaling succeeded: {upscaled_url}")
+                return {
+                    "success": True,
+                    "upscaled_url": upscaled_url,
+                    "error": None,
+                    "prediction_id": prediction_id
+                }
+            else:
+                error_msg = poll_result.get('error', f"Upscaling failed with status: {poll_result['status']}")
+                logger.error(f"Image upscaling failed: {error_msg}")
+                return {
+                    "success": False,
+                    "upscaled_url": None,
+                    "error": error_msg,
+                    "prediction_id": prediction_id
+                }
+
+        except requests.exceptions.Timeout:
+            logger.error("Request timeout while upscaling image")
+            return {
+                "success": False,
+                "upscaled_url": None,
+                "error": "Request timeout",
+                "prediction_id": None
+            }
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error while upscaling image: {str(e)}")
+            return {
+                "success": False,
+                "upscaled_url": None,
+                "error": f"Network error: {str(e)}",
+                "prediction_id": None
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error while upscaling image: {str(e)}")
+            return {
+                "success": False,
+                "upscaled_url": None,
+                "error": f"Unexpected error: {str(e)}",
+                "prediction_id": None
             }
 
     def poll_prediction(

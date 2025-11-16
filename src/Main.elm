@@ -24,6 +24,7 @@ import ImageGallery
 import Auth
 import CreativeBriefEditor
 import BriefGallery
+import Upscaler
 import Browser.Navigation as Nav
 
 
@@ -67,6 +68,7 @@ type alias Model =
     , pendingVideoFromImage : Maybe { modelId : String, imageUrl : String }
     , creativeBriefEditorModel : CreativeBriefEditor.Model
     , briefGalleryModel : BriefGallery.Model
+    , upscalerModel : Upscaler.Model
     }
 
 
@@ -163,6 +165,9 @@ init _ url key =
         ( briefGalleryModel, briefGalleryCmd ) =
             BriefGallery.init key
 
+        ( upscalerModel, upscalerCmd ) =
+            Upscaler.init
+
         route =
             Route.fromUrl url
     in
@@ -187,6 +192,7 @@ init _ url key =
       , pendingVideoFromImage = Nothing
       , creativeBriefEditorModel = creativeBriefEditorModel
       , briefGalleryModel = briefGalleryModel
+      , upscalerModel = upscalerModel
       }
     , Cmd.batch
         [ Cmd.map VideoMsg videoCmd
@@ -196,6 +202,7 @@ init _ url key =
         , Cmd.map ImageGalleryMsg imageGalleryCmd
         , Cmd.map CreativeBriefEditorMsg creativeBriefEditorCmd
         , Cmd.map BriefGalleryMsg briefGalleryCmd
+        , Cmd.map UpscalerMsg upscalerCmd
         , Cmd.map AuthMsg Auth.checkAuth
         ]
     )
@@ -238,6 +245,7 @@ type Msg
     | SimulationGalleryMsg SimulationGallery.Msg
     | ImageMsg Image.Msg
     | ImageDetailMsg ImageDetail.Msg
+    | UpscalerMsg Upscaler.Msg
     | ImageGalleryMsg ImageGallery.Msg
     | AuthMsg Auth.Msg
     | CreativeBriefEditorMsg CreativeBriefEditor.Msg
@@ -848,6 +856,15 @@ update msg model =
             in
             ( updatedModel, Cmd.batch [ Cmd.map ImageGalleryMsg imageGalleryCmd, navCmd ] )
 
+        UpscalerMsg upscalerMsg ->
+            let
+                ( updatedUpscalerModel, upscalerCmd ) =
+                    Upscaler.update upscalerMsg model.upscalerModel
+            in
+            ( { model | upscalerModel = updatedUpscalerModel }
+            , Cmd.map UpscalerMsg upscalerCmd
+            )
+
         AuthMsg authMsg ->
             let
                 ( updatedAuthModel, authCmd ) =
@@ -1006,6 +1023,10 @@ viewMainContent model =
                 ImageGallery.view model.imageGalleryModel
                     |> Html.map ImageGalleryMsg
 
+            Just Route.Upscaler ->
+                Upscaler.view model.upscalerModel
+                    |> Html.map UpscalerMsg
+
             Just Route.Auth ->
                 Html.map AuthMsg (Auth.view model.authModel)
 
@@ -1050,6 +1071,11 @@ viewTabs model =
             , class (if model.route == Just Route.ImageGallery then "active" else "")
             ]
             [ text "Image Gallery" ]
+        , a
+            [ href "/upscaler"
+            , class (if model.route == Just Route.Upscaler then "active" else "")
+            ]
+            [ text "Upscaler" ]
         , a
             [ href "/simulations"
             , class (if model.route == Just Route.SimulationGallery then "active" else "")
