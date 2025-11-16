@@ -95,6 +95,115 @@ from .prompt_parser_service.api.v1 import briefs as briefs_api
 # Import clients and campaigns router
 from .api_routes import router as clients_campaigns_router
 
+# Import logging
+import logging
+logger = logging.getLogger(__name__)
+
+# Security: Allowed file extensions (prevents path traversal)
+ALLOWED_FILE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'mp3', 'wav', 'pdf'}
+
+# Magic bytes for file type validation
+MAGIC_BYTES = {
+    b'\x89PNG\r\n\x1a\n': 'png',
+    b'\xff\xd8\xff': 'jpg',  # JPEG (various markers)
+    b'GIF87a': 'gif',
+    b'GIF89a': 'gif',
+    b'RIFF': 'webp',  # Also WAV, need to check further
+    b'\x00\x00\x00\x18ftypmp42': 'mp4',  # MP4
+    b'\x00\x00\x00\x1cftypmp42': 'mp4',
+    b'\x00\x00\x00\x20ftypmp42': 'mp4',
+    b'\x00\x00\x00\x1cftypisom': 'mp4',
+    b'ID3': 'mp3',
+    b'\xff\xfb': 'mp3',  # MP3 without ID3
+    b'%PDF': 'pdf',
+}
+
+def validate_and_sanitize_format(format_str: str) -> str:
+    """
+    Validate and sanitize file format to prevent path traversal attacks.
+
+    Args:
+        format_str: File format/extension to validate
+
+    Returns:
+        Sanitized format string
+
+    Raises:
+        HTTPException: If format is invalid or not allowed
+    """
+    if not format_str:
+        raise HTTPException(status_code=400, detail="File format is required")
+
+    # Remove dots and convert to lowercase
+    format_clean = format_str.lower().strip().lstrip('.')
+
+    # Check against whitelist
+    if format_clean not in ALLOWED_FILE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file format: {format_clean}. Allowed: {', '.join(sorted(ALLOWED_FILE_EXTENSIONS))}"
+        )
+
+    return format_clean
+
+def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str) -> bool:
+    """
+    Validate file type using magic bytes to prevent file type spoofing.
+
+    Args:
+        file_contents: First bytes of the file
+        claimed_type: The MIME type claimed by the client
+
+    Returns:
+        True if validation passes, False otherwise
+    """
+    # Extract first 32 bytes for magic byte checking
+    header = file_contents[:32]
+
+    # Check common image formats
+    if claimed_type.startswith('image/'):
+        if header.startswith(b'\x89PNG'):
+            return claimed_type in ['image/png']
+        elif header.startswith(b'\xff\xd8\xff'):
+            return claimed_type in ['image/jpeg', 'image/jpg']
+        elif header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):
+            return claimed_type in ['image/gif']
+        elif b'WEBP' in header[:16]:
+            return claimed_type in ['image/webp']
+        else:
+            logger.warning(f"Unknown image magic bytes for claimed type {claimed_type}")
+            return False
+
+    # Check video formats
+    elif claimed_type.startswith('video/'):
+        if b'ftyp' in header[:32]:  # MP4/MOV container
+            return claimed_type in ['video/mp4', 'video/quicktime']
+        else:
+            logger.warning(f"Unknown video magic bytes for claimed type {claimed_type}")
+            return False
+
+    # Check audio formats
+    elif claimed_type.startswith('audio/'):
+        if header.startswith(b'ID3') or header.startswith(b'\xff\xfb') or header.startswith(b'\xff\xf3'):
+            return claimed_type in ['audio/mpeg', 'audio/mp3']
+        elif header.startswith(b'RIFF') and b'WAVE' in header[:16]:
+            return claimed_type in ['audio/wav', 'audio/wave']
+        else:
+            logger.warning(f"Unknown audio magic bytes for claimed type {claimed_type}")
+            return False
+
+    # Check document formats
+    elif claimed_type == 'application/pdf':
+        if header.startswith(b'%PDF'):
+            return True
+        else:
+            logger.warning(f"Invalid PDF magic bytes")
+            return False
+
+    # Unknown type
+    logger.warning(f"Unrecognized content type for validation: {claimed_type}")
+    return False
+
 app = FastAPI(title="Physics Simulator API", version="1.0.0")
 
 # CORS middleware (for development)
@@ -2650,6 +2759,13 @@ async def upload_asset_v2(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
+    # Security: Validate file type with magic bytes (prevents file type spoofing)
+    if not validate_file_type_with_magic_bytes(contents, file.content_type):
+        raise HTTPException(
+            status_code=400,
+            detail=f"File content does not match claimed type {file.content_type}. Possible file type spoofing attempt."
+        )
+
     # Validate file size (max 50MB)
     max_size = 50 * 1024 * 1024  # 50MB
     size_bytes = len(contents)
@@ -2695,7 +2811,7 @@ async def upload_asset_v2(
         with open(file_path, "wb") as f:
             f.write(contents)
 
-        print(f"Asset uploaded: {file_path} ({size_bytes} bytes) by user {user_id}")
+        logger.info(f"Asset uploaded: {file_path} ({size_bytes} bytes) by user {user_id}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
@@ -2703,7 +2819,7 @@ async def upload_asset_v2(
     try:
         metadata = extract_file_metadata(str(file_path), file.content_type)
     except Exception as e:
-        print(f"Warning: Failed to extract metadata: {e}")
+        logger.warning(f"Failed to extract metadata: {e}")
         metadata = {
             'asset_type': 'document',
             'format': file_ext.lstrip('.'),
@@ -2719,9 +2835,9 @@ async def upload_asset_v2(
             if generate_video_thumbnail(str(file_path), str(thumbnail_path)):
                 base_url = settings.BASE_URL
                 thumbnail_url = f"{base_url}/api/v2/assets/{asset_id}/thumbnail"
-                print(f"Video thumbnail generated: {thumbnail_path}")
+                logger.info(f"Video thumbnail generated: {thumbnail_path}")
         except Exception as e:
-            print(f"Warning: Failed to generate video thumbnail: {e}")
+            logger.warning(f"Failed to generate video thumbnail: {e}")
 
     # Determine display name
     display_name = name or file.filename or filename
@@ -2766,10 +2882,16 @@ async def upload_asset_v2(
     return created_asset
 
 @app.get("/api/v2/assets/{asset_id}")
-async def get_asset_v2(asset_id: str):
+async def get_asset_v2(
+    asset_id: str,
+    current_user: Dict = Depends(verify_auth)
+):
     """
     Serve an uploaded asset file.
-    Public endpoint (no authentication required) for use in Replicate API calls.
+    Requires authentication - only asset owner can access.
+
+    For public asset sharing (e.g., in campaigns), consider implementing
+    a separate public endpoint with signed URLs or access tokens.
     """
     from fastapi.responses import FileResponse
     import mimetypes
@@ -2780,9 +2902,16 @@ async def get_asset_v2(asset_id: str):
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Construct file path from asset ID and format
+    # Security: Verify ownership
+    if asset.get("userId") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Security: Validate and sanitize file format (prevents path traversal)
+    format_clean = validate_and_sanitize_format(asset['format'])
+
+    # Construct file path with sanitized format
     uploads_base = Path(__file__).parent / "DATA" / "assets"
-    file_path = uploads_base / f"{asset_id}.{asset['format']}"
+    file_path = uploads_base / f"{asset_id}.{format_clean}"
 
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Asset file not found on disk")
@@ -2795,14 +2924,14 @@ async def get_asset_v2(asset_id: str):
         'document': 'application'
     }
     base_type = type_map.get(asset['type'], 'application')
-    media_type = f"{base_type}/{asset['format']}"
+    media_type = f"{base_type}/{format_clean}"
 
     # Special cases
-    if asset['format'] == 'jpg':
+    if format_clean == 'jpg' or format_clean == 'jpeg':
         media_type = 'image/jpeg'
-    elif asset['format'] == 'pdf':
+    elif format_clean == 'pdf':
         media_type = 'application/pdf'
-    elif asset['format'] == 'mp3':
+    elif format_clean == 'mp3':
         media_type = 'audio/mpeg'
 
     return FileResponse(
@@ -2813,26 +2942,49 @@ async def get_asset_v2(asset_id: str):
 
 
 @app.get("/api/v2/assets/{asset_id}/thumbnail")
-async def get_asset_thumbnail_v2(asset_id: str):
+async def get_asset_thumbnail_v2(
+    asset_id: str,
+    current_user: Dict = Depends(verify_auth)
+):
     """
     Serve the thumbnail for a video or document asset.
-    Public endpoint (no authentication required).
+    Requires authentication - only asset owner can access.
     """
     from fastapi.responses import FileResponse
     from backend.database_helpers import get_asset_by_id as get_asset_helper
+    import re
 
     # Get asset metadata
     asset = get_asset_helper(asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
+    # Security: Verify ownership
+    if asset.get("userId") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
     # Check if asset has a thumbnail
     if not asset.get('thumbnailUrl'):
         raise HTTPException(status_code=404, detail="Asset does not have a thumbnail")
 
+    # Security: Validate asset_id is a valid UUID (prevents path traversal)
+    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    if not uuid_pattern.match(asset_id):
+        raise HTTPException(status_code=400, detail="Invalid asset ID format")
+
     # Thumbnail is stored as {asset_id}_thumb.jpg
     uploads_base = Path(__file__).parent / "DATA" / "assets"
     thumbnail_path = uploads_base / f"{asset_id}_thumb.jpg"
+
+    # Security: Verify the resolved path is still within uploads_base
+    try:
+        thumbnail_path = thumbnail_path.resolve()
+        uploads_base_resolved = uploads_base.resolve()
+        if not str(thumbnail_path).startswith(str(uploads_base_resolved)):
+            raise HTTPException(status_code=403, detail="Access denied")
+    except Exception as e:
+        logger.error(f"Path resolution error: {e}")
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if not thumbnail_path.exists():
         raise HTTPException(status_code=404, detail="Thumbnail file not found on disk")
@@ -2853,6 +3005,7 @@ async def delete_asset_v2(
     Only the owner can delete their assets.
     """
     import os
+    import re
     from backend.database_helpers import get_asset_by_id as get_asset_helper, delete_asset as delete_asset_helper
 
     # Get asset metadata to verify ownership
@@ -2864,29 +3017,52 @@ async def delete_asset_v2(
     if asset.get("userId") != current_user["id"]:
         raise HTTPException(status_code=403, detail="You don't have permission to delete this asset")
 
-    # Delete from database
+    # Security: Validate and sanitize file format (prevents path traversal)
+    format_clean = validate_and_sanitize_format(asset['format'])
+
+    # Security: Validate asset_id is a valid UUID (prevents path traversal)
+    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    if not uuid_pattern.match(asset_id):
+        raise HTTPException(status_code=400, detail="Invalid asset ID format")
+
+    # Delete from database first
     deleted = delete_asset_helper(asset_id)
     if not deleted:
         raise HTTPException(status_code=500, detail="Failed to delete asset from database")
 
-    # Delete file from disk
+    # Delete file from disk with sanitized path
     uploads_base = Path(__file__).parent / "DATA" / "assets"
-    file_path = uploads_base / f"{asset_id}.{asset['format']}"
+    file_path = uploads_base / f"{asset_id}.{format_clean}"
+
+    # Security: Verify the resolved path is still within uploads_base
+    try:
+        file_path_resolved = file_path.resolve()
+        uploads_base_resolved = uploads_base.resolve()
+        if not str(file_path_resolved).startswith(str(uploads_base_resolved)):
+            logger.error(f"Attempted path traversal: {file_path}")
+            raise HTTPException(status_code=403, detail="Access denied")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Path resolution error during deletion: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete asset file")
+
     if file_path.exists():
         try:
             os.remove(file_path)
-            print(f"Deleted asset file: {file_path}")
+            logger.info(f"Deleted asset file: {file_path}")
         except Exception as e:
-            print(f"Warning: Failed to delete asset file {file_path}: {e}")
+            logger.warning(f"Failed to delete asset file {file_path}: {e}")
 
     # Delete thumbnail if it exists
     thumbnail_path = uploads_base / f"{asset_id}_thumb.jpg"
-    if thumbnail_path.exists():
-        try:
+    try:
+        thumbnail_path_resolved = thumbnail_path.resolve()
+        if str(thumbnail_path_resolved).startswith(str(uploads_base_resolved)) and thumbnail_path.exists():
             os.remove(thumbnail_path)
-            print(f"Deleted thumbnail: {thumbnail_path}")
-        except Exception as e:
-            print(f"Warning: Failed to delete thumbnail {thumbnail_path}: {e}")
+            logger.info(f"Deleted thumbnail: {thumbnail_path}")
+    except Exception as e:
+        logger.warning(f"Failed to delete thumbnail {thumbnail_path}: {e}")
 
     return {
         "success": True,

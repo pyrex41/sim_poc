@@ -4,13 +4,21 @@
 
 The asset management system has been consolidated into a single, unified API that supports images, videos, audio, and documents. Assets can be associated with clients, campaigns, or both.
 
-**Key Changes:**
+**Key Features:**
 - ✅ Single consolidated `assets` table (replaced `uploaded_assets`, `client_assets`, `campaign_assets`)
 - ✅ Discriminated union response format for type-safe asset handling
 - ✅ Automatic metadata extraction (dimensions, duration, file size)
 - ✅ Automatic thumbnail generation for videos
 - ✅ Flexible filtering by client, campaign, and asset type
 - ❌ Deprecated: `POST /api/clients/{id}/assets` and `POST /api/campaigns/{id}/assets`
+
+**Security Features:**
+- 🔒 Path traversal protection with format whitelisting
+- 🔒 File type validation with magic byte checking
+- 🔒 Owner-only access control for all asset operations
+- 🔒 UUID validation for asset IDs
+- 🔒 Path resolution verification
+- 🔒 50MB file size limit
 
 ---
 
@@ -50,7 +58,7 @@ The asset management system has been consolidated into a single, unified API tha
 
 **Content-Type:** `multipart/form-data`
 
-**Rate Limit:** 10 uploads per minute
+**Security:** File type validation with magic bytes, maximum file size: 50MB
 
 **Form-Data Parameters:**
 
@@ -261,9 +269,9 @@ Returns an array of Asset objects (discriminated union):
 
 **Endpoint:** `GET /api/v2/assets/{asset_id}`
 
-**Authentication:** None (public endpoint for file serving)
+**Authentication:** Required (Bearer token, owner only)
 
-**Description:** Serves the actual asset file (image, video, audio, or document).
+**Description:** Serves the actual asset file (image, video, audio, or document). Only the asset owner can access their files.
 
 **Example:**
 
@@ -273,9 +281,11 @@ GET /api/v2/assets/asset-uuid-abc
 ```
 
 **Use Cases:**
-- Display images: `<img src="/api/v2/assets/{asset_id}" />`
-- Play videos: `<video src="/api/v2/assets/{asset_id}" />`
-- Download documents: Direct link to file
+- Display images: Include Bearer token in request headers
+- Play videos: Use authenticated API client for fetching
+- Download documents: Authenticate before accessing
+
+**Note:** Since authentication is now required, you'll need to pass the Bearer token in the Authorization header when accessing assets from your frontend.
 
 ---
 
@@ -283,9 +293,9 @@ GET /api/v2/assets/asset-uuid-abc
 
 **Endpoint:** `GET /api/v2/assets/{asset_id}/thumbnail`
 
-**Authentication:** None (public endpoint)
+**Authentication:** Required (Bearer token, owner only)
 
-**Description:** Serves the auto-generated thumbnail for video or document assets.
+**Description:** Serves the auto-generated thumbnail for video or document assets. Only the asset owner can access thumbnails.
 
 **Note:** Only available if the asset has a `thumbnailUrl` field.
 
