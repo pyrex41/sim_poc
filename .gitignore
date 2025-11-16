@@ -34,3 +34,10 @@ coverage/
 dist/
 build/TEAM_CREDENTIALS.md
 backend/DATA/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
