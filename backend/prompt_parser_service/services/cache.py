@@ -12,7 +12,7 @@ from typing import Any, Optional
 import sqlite3
 import structlog
 
-from backend.prompt_parser_service.core.metrics import CACHE_HITS, CACHE_MISSES
+from ..core.metrics import CACHE_HITS, CACHE_MISSES
 
 
 logger = structlog.get_logger(__name__)

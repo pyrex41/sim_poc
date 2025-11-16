@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from backend.prompt_parser_service.services.llm.base import LLMProvider
+from .base import LLMProvider
 
 
 class MockProvider(LLMProvider):

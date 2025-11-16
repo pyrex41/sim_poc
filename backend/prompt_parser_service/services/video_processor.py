@@ -11,7 +11,7 @@ import os
 import cv2
 import httpx
 
-from backend.prompt_parser_service.services.media_utils import extract_dominant_color
+from .media_utils import extract_dominant_color
 from PIL import Image
 
 

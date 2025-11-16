@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from backend.config import get_settings
-from backend.prompt_parser_service.services.cache import CacheManager
-from backend.prompt_parser_service.services.llm.base import LLMProvider
-from backend.prompt_parser_service.services.llm.openai_provider import OpenAIProvider
-from backend.prompt_parser_service.services.llm.claude_provider import ClaudeProvider
-from backend.prompt_parser_service.services.llm.mock_provider import MockProvider
+from ...config import get_settings
+from ..services.cache import CacheManager
+from ..services.llm.base import LLMProvider
+from ..services.llm.openai_provider import OpenAIProvider
+from ..services.llm.claude_provider import ClaudeProvider
+from ..services.llm.mock_provider import MockProvider
 
 
 @lru_cache

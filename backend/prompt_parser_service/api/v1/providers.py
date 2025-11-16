@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends
 
-from backend.prompt_parser_service.core.dependencies import get_llm_provider_registry
+from ...core.dependencies import get_llm_provider_registry
 
 router = APIRouter()
 

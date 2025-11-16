@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from backend.prompt_parser_service.models.request import PromptInput
-from backend.prompt_parser_service.services.image_processor import process_image_primary
-from backend.prompt_parser_service.services.video_processor import process_video_input
+from ..models.request import PromptInput
+from .image_processor import process_image_primary
+from .video_processor import process_video_input
 
 
 @dataclass
