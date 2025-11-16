@@ -34,6 +34,7 @@ coverage/
 dist/
 build/TEAM_CREDENTIALS.md
 backend/DATA/
+DATA/
 
 # Python
 __pycache__/

@@ -2604,28 +2604,44 @@ async def upload_image(
 async def upload_asset_v2(
     request: Request,
     file: UploadFile = File(...),
+    clientId: Optional[str] = Form(None),
+    campaignId: Optional[str] = Form(None),
+    name: Optional[str] = Form(None),
     current_user: Dict = Depends(verify_auth)
 ):
     """
-    Upload an image or video asset for use in video generation.
-    Supports: jpg, jpeg, png, gif, webp, mp4, mov
+    Upload a media asset (image, video, audio, or document).
+
+    Form-data parameters:
+    - file: The binary file (required)
+    - clientId: Associate with a client (optional)
+    - campaignId: Associate with a campaign (optional)
+    - name: Custom display name (optional, defaults to filename)
+
+    Supports: jpg, jpeg, png, gif, webp, mp4, mov, mp3, wav, pdf
     Max file size: 50MB
     Rate limit: 10 uploads per minute per user
+
+    Returns: Full Asset object with discriminated union type
     """
     import uuid
     import mimetypes
     from pathlib import Path
+    from backend.database_helpers import create_asset
+    from backend.asset_metadata import extract_file_metadata, generate_video_thumbnail
 
     # Validate file type
     allowed_types = {
         "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
-        "video/mp4", "video/quicktime"
+        "video/mp4", "video/quicktime",
+        "audio/mpeg", "audio/mp3", "audio/wav",
+        "application/pdf"
     }
 
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type: {file.content_type}. Allowed: jpg, jpeg, png, gif, webp, mp4, mov"
+            detail=f"Invalid file type: {file.content_type}. Allowed: images (jpg, png, gif, webp), videos (mp4, mov), audio (mp3, wav), documents (pdf)"
         )
 
     # Read file contents
@@ -2654,22 +2670,25 @@ async def upload_asset_v2(
             "image/gif": ".gif",
             "image/webp": ".webp",
             "video/mp4": ".mp4",
-            "video/quicktime": ".mov"
+            "video/quicktime": ".mov",
+            "audio/mpeg": ".mp3",
+            "audio/mp3": ".mp3",
+            "audio/wav": ".wav",
+            "application/pdf": ".pdf"
         }
         file_ext = ext_map.get(file.content_type, ".bin")
 
     # Generate unique asset ID
     asset_id = str(uuid.uuid4())
 
-    # Create user-specific upload directory
+    # Create consolidated upload directory
     user_id = current_user["id"]
-    uploads_base = Path(__file__).parent / "DATA" / "uploads"
-    user_dir = uploads_base / str(user_id)
-    user_dir.mkdir(parents=True, exist_ok=True)
+    uploads_base = Path(__file__).parent / "DATA" / "assets"
+    uploads_base.mkdir(parents=True, exist_ok=True)
 
     # Create file path
     filename = f"{asset_id}{file_ext}"
-    file_path = user_dir / filename
+    file_path = uploads_base / filename
 
     # Save file
     try:
@@ -2680,33 +2699,71 @@ async def upload_asset_v2(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
-    # Save metadata to database
+    # Extract metadata from the file
     try:
-        save_uploaded_asset(
-            asset_id=asset_id,
+        metadata = extract_file_metadata(str(file_path), file.content_type)
+    except Exception as e:
+        print(f"Warning: Failed to extract metadata: {e}")
+        metadata = {
+            'asset_type': 'document',
+            'format': file_ext.lstrip('.'),
+            'size': size_bytes
+        }
+
+    # Generate thumbnail for videos
+    thumbnail_url = None
+    if metadata.get('asset_type') == 'video':
+        try:
+            thumbnail_filename = f"{asset_id}_thumb.jpg"
+            thumbnail_path = uploads_base / thumbnail_filename
+            if generate_video_thumbnail(str(file_path), str(thumbnail_path)):
+                base_url = settings.BASE_URL
+                thumbnail_url = f"{base_url}/api/v2/assets/{asset_id}/thumbnail"
+                print(f"Video thumbnail generated: {thumbnail_path}")
+        except Exception as e:
+            print(f"Warning: Failed to generate video thumbnail: {e}")
+
+    # Determine display name
+    display_name = name or file.filename or filename
+
+    # Save to database using new consolidated assets table
+    base_url = settings.BASE_URL
+    asset_url = f"{base_url}/api/v2/assets/{asset_id}"
+
+    try:
+        db_asset_id = create_asset(
+            name=display_name,
+            asset_type=metadata.get('asset_type', 'document'),
+            url=asset_url,
+            format=metadata.get('format', file_ext.lstrip('.')),
+            size=size_bytes,
             user_id=user_id,
-            filename=file.filename or filename,
-            file_path=str(file_path),
-            file_type=file.content_type,
-            size_bytes=size_bytes
+            client_id=clientId,
+            campaign_id=campaignId,
+            tags=None,
+            width=metadata.get('width'),
+            height=metadata.get('height'),
+            duration=metadata.get('duration'),
+            thumbnail_url=thumbnail_url,
+            waveform_url=None,  # TODO: Implement waveform generation for audio
+            page_count=metadata.get('pageCount')
         )
     except Exception as e:
         # Clean up file if database save fails
         if file_path.exists():
             file_path.unlink()
+        if thumbnail_url and Path(uploads_base / f"{asset_id}_thumb.jpg").exists():
+            Path(uploads_base / f"{asset_id}_thumb.jpg").unlink()
         raise HTTPException(status_code=500, detail=f"Failed to save asset metadata: {str(e)}")
 
-    # Return asset URL
-    base_url = settings.BASE_URL
-    asset_url = f"{base_url}/api/v2/assets/{asset_id}"
+    # Fetch the created asset to return full discriminated union object
+    from backend.database_helpers import get_asset_by_id as get_asset_by_id_helper
+    created_asset = get_asset_by_id_helper(db_asset_id)
 
-    return {
-        "success": True,
-        "url": asset_url,
-        "asset_id": asset_id,
-        "filename": file.filename or filename,
-        "size_bytes": size_bytes
-    }
+    if not created_asset:
+        raise HTTPException(status_code=500, detail="Failed to retrieve created asset")
+
+    return created_asset
 
 @app.get("/api/v2/assets/{asset_id}")
 async def get_asset_v2(asset_id: str):
@@ -2716,28 +2773,74 @@ async def get_asset_v2(asset_id: str):
     """
     from fastapi.responses import FileResponse
     import mimetypes
+    from backend.database_helpers import get_asset_by_id as get_asset_helper
 
-    # Get asset metadata
-    asset = get_asset_by_id(asset_id)
+    # Get asset metadata from new assets table
+    asset = get_asset_helper(asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Check if file exists
-    file_path = Path(asset["file_path"])
+    # Construct file path from asset ID and format
+    uploads_base = Path(__file__).parent / "DATA" / "assets"
+    file_path = uploads_base / f"{asset_id}.{asset['format']}"
+
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Asset file not found on disk")
 
-    # Determine media type
-    media_type = asset.get("file_type")
-    if not media_type:
-        media_type, _ = mimetypes.guess_type(str(file_path))
-        if not media_type:
-            media_type = "application/octet-stream"
+    # Determine media type from asset type and format
+    type_map = {
+        'image': 'image',
+        'video': 'video',
+        'audio': 'audio',
+        'document': 'application'
+    }
+    base_type = type_map.get(asset['type'], 'application')
+    media_type = f"{base_type}/{asset['format']}"
+
+    # Special cases
+    if asset['format'] == 'jpg':
+        media_type = 'image/jpeg'
+    elif asset['format'] == 'pdf':
+        media_type = 'application/pdf'
+    elif asset['format'] == 'mp3':
+        media_type = 'audio/mpeg'
 
     return FileResponse(
         path=str(file_path),
         media_type=media_type,
-        filename=asset["filename"]
+        filename=asset["name"]
+    )
+
+
+@app.get("/api/v2/assets/{asset_id}/thumbnail")
+async def get_asset_thumbnail_v2(asset_id: str):
+    """
+    Serve the thumbnail for a video or document asset.
+    Public endpoint (no authentication required).
+    """
+    from fastapi.responses import FileResponse
+    from backend.database_helpers import get_asset_by_id as get_asset_helper
+
+    # Get asset metadata
+    asset = get_asset_helper(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Check if asset has a thumbnail
+    if not asset.get('thumbnailUrl'):
+        raise HTTPException(status_code=404, detail="Asset does not have a thumbnail")
+
+    # Thumbnail is stored as {asset_id}_thumb.jpg
+    uploads_base = Path(__file__).parent / "DATA" / "assets"
+    thumbnail_path = uploads_base / f"{asset_id}_thumb.jpg"
+
+    if not thumbnail_path.exists():
+        raise HTTPException(status_code=404, detail="Thumbnail file not found on disk")
+
+    return FileResponse(
+        path=str(thumbnail_path),
+        media_type="image/jpeg",
+        filename=f"{asset['name']}_thumbnail.jpg"
     )
 
 @app.delete("/api/v2/assets/{asset_id}")
@@ -2750,29 +2853,40 @@ async def delete_asset_v2(
     Only the owner can delete their assets.
     """
     import os
+    from backend.database_helpers import get_asset_by_id as get_asset_helper, delete_asset as delete_asset_helper
 
     # Get asset metadata to verify ownership
-    asset = get_asset_by_id(asset_id)
+    asset = get_asset_helper(asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
     # Verify ownership
-    if asset["user_id"] != current_user["id"]:
+    if asset.get("userId") != current_user["id"]:
         raise HTTPException(status_code=403, detail="You don't have permission to delete this asset")
 
     # Delete from database
-    deleted = delete_asset(asset_id, current_user["id"])
+    deleted = delete_asset_helper(asset_id)
     if not deleted:
         raise HTTPException(status_code=500, detail="Failed to delete asset from database")
 
     # Delete file from disk
-    file_path = Path(asset["file_path"])
+    uploads_base = Path(__file__).parent / "DATA" / "assets"
+    file_path = uploads_base / f"{asset_id}.{asset['format']}"
     if file_path.exists():
         try:
             os.remove(file_path)
             print(f"Deleted asset file: {file_path}")
         except Exception as e:
             print(f"Warning: Failed to delete asset file {file_path}: {e}")
+
+    # Delete thumbnail if it exists
+    thumbnail_path = uploads_base / f"{asset_id}_thumb.jpg"
+    if thumbnail_path.exists():
+        try:
+            os.remove(thumbnail_path)
+            print(f"Deleted thumbnail: {thumbnail_path}")
+        except Exception as e:
+            print(f"Warning: Failed to delete thumbnail {thumbnail_path}: {e}")
 
     return {
         "success": True,
@@ -2782,28 +2896,37 @@ async def delete_asset_v2(
 @app.get("/api/v2/assets")
 async def list_assets_v2(
     current_user: Dict = Depends(verify_auth),
+    clientId: Optional[str] = Query(None),
+    campaignId: Optional[str] = Query(None),
+    asset_type: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0)
 ):
     """
-    List all uploaded assets for the current user.
-    Returns asset metadata with URLs.
+    List assets with optional filtering.
+
+    Query parameters:
+    - clientId: Filter by client ID
+    - campaignId: Filter by campaign ID
+    - asset_type: Filter by type ('image', 'video', 'audio', 'document')
+    - limit: Maximum results (default: 50, max: 100)
+    - offset: Pagination offset (default: 0)
+
+    Returns: Array of Asset objects (discriminated union)
     """
-    base_url = settings.BASE_URL
+    from backend.database_helpers import list_assets as list_assets_helper
 
-    # Get user's assets
-    assets = list_user_assets(current_user["id"], limit=limit, offset=offset)
+    # Get filtered assets
+    assets = list_assets_helper(
+        user_id=current_user["id"],
+        client_id=clientId,
+        campaign_id=campaignId,
+        asset_type=asset_type,
+        limit=limit,
+        offset=offset
+    )
 
-    # Add URLs to each asset
-    for asset in assets:
-        asset["url"] = f"{base_url}/api/v2/assets/{asset['asset_id']}"
-
-    return {
-        "success": True,
-        "assets": assets,
-        "limit": limit,
-        "offset": offset
-    }
+    return assets
 
 @app.post("/api/genesis/render")
 async def api_genesis_render(

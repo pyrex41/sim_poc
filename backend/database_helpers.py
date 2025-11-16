@@ -204,63 +204,253 @@ def get_client_stats(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
 
 
 # ============================================================================
-# CLIENT ASSETS CRUD OPERATIONS
+# CONSOLIDATED ASSETS CRUD OPERATIONS
 # ============================================================================
 
-def create_client_asset(
-    client_id: str,
+def create_asset(
+    name: str,
     asset_type: str,
     url: str,
-    name: str
+    format: str,
+    size: Optional[int] = None,
+    user_id: Optional[int] = None,
+    client_id: Optional[str] = None,
+    campaign_id: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    duration: Optional[int] = None,
+    thumbnail_url: Optional[str] = None,
+    waveform_url: Optional[str] = None,
+    page_count: Optional[int] = None
 ) -> str:
-    """Create a client asset (logo, image, document)."""
+    """Create a new asset in the consolidated assets table.
+
+    Args:
+        name: Display name of the asset
+        asset_type: Type discriminator ('image', 'video', 'audio', 'document')
+        url: Full URL to the file in cloud storage
+        format: Specific file format ('png', 'mp4', 'mp3', 'pdf', etc.)
+        size: File size in bytes
+        user_id: Owner user ID (nullable)
+        client_id: Associated client ID (nullable)
+        campaign_id: Associated campaign ID (nullable)
+        tags: Array of text tags
+        width: For images and videos
+        height: For images and videos
+        duration: For videos and audio (in seconds)
+        thumbnail_url: For videos and documents
+        waveform_url: For audio
+        page_count: For documents
+
+    Returns:
+        Asset ID (UUID string)
+    """
     asset_id = str(uuid.uuid4())
 
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO client_assets (id, client_id, type, url, name)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO assets (
+                id, user_id, client_id, campaign_id, name, asset_type, url,
+                size, format, tags, width, height, duration, thumbnail_url,
+                waveform_url, page_count
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (asset_id, client_id, asset_type, url, name)
+            (
+                asset_id,
+                user_id,
+                client_id,
+                campaign_id,
+                name,
+                asset_type,
+                url,
+                size,
+                format,
+                json.dumps(tags) if tags else None,
+                width,
+                height,
+                duration,
+                thumbnail_url,
+                waveform_url,
+                page_count
+            )
         )
         conn.commit()
         return asset_id
 
 
-def list_client_assets(client_id: str) -> List[Dict[str, Any]]:
-    """List all assets for a client."""
+def get_asset_by_id(asset_id: str) -> Optional[Dict[str, Any]]:
+    """Get an asset by ID and return as discriminated union."""
     with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM client_assets
-            WHERE client_id = ?
+        row = conn.execute(
+            "SELECT * FROM assets WHERE id = ?",
+            (asset_id,)
+        ).fetchone()
+
+        if row:
+            return _row_to_asset_dict(row)
+    return None
+
+
+def list_assets(
+    user_id: Optional[int] = None,
+    client_id: Optional[str] = None,
+    campaign_id: Optional[str] = None,
+    asset_type: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Dict[str, Any]]:
+    """List assets with optional filtering.
+
+    Args:
+        user_id: Filter by user
+        client_id: Filter by client
+        campaign_id: Filter by campaign
+        asset_type: Filter by type ('image', 'video', 'audio', 'document')
+        limit: Maximum number of results
+        offset: Pagination offset
+
+    Returns:
+        List of asset dictionaries (discriminated union format)
+    """
+    with get_db() as conn:
+        # Build dynamic query
+        where_clauses = []
+        values = []
+
+        if user_id is not None:
+            where_clauses.append("user_id = ?")
+            values.append(user_id)
+
+        if client_id is not None:
+            where_clauses.append("client_id = ?")
+            values.append(client_id)
+
+        if campaign_id is not None:
+            where_clauses.append("campaign_id = ?")
+            values.append(campaign_id)
+
+        if asset_type is not None:
+            where_clauses.append("asset_type = ?")
+            values.append(asset_type)
+
+        where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        values.extend([limit, offset])
+
+        query = f"""
+            SELECT * FROM assets
+            {where_clause}
             ORDER BY uploaded_at DESC
-            """,
-            (client_id,)
-        ).fetchall()
+            LIMIT ? OFFSET ?
+        """
 
-        return [
-            {
-                "id": row["id"],
-                "type": row["type"],
-                "url": row["url"],
-                "name": row["name"],
-                "uploadedAt": row["uploaded_at"]
-            }
-            for row in rows
-        ]
+        rows = conn.execute(query, values).fetchall()
+        return [_row_to_asset_dict(row) for row in rows]
 
 
-def delete_client_asset(asset_id: str, client_id: str) -> bool:
-    """Delete a client asset."""
+def update_asset(
+    asset_id: str,
+    name: Optional[str] = None,
+    client_id: Optional[str] = None,
+    campaign_id: Optional[str] = None,
+    tags: Optional[List[str]] = None
+) -> bool:
+    """Update an asset (partial update)."""
+    with get_db() as conn:
+        update_fields = []
+        values = []
+
+        if name is not None:
+            update_fields.append("name = ?")
+            values.append(name)
+
+        if client_id is not None:
+            update_fields.append("client_id = ?")
+            values.append(client_id)
+
+        if campaign_id is not None:
+            update_fields.append("campaign_id = ?")
+            values.append(campaign_id)
+
+        if tags is not None:
+            update_fields.append("tags = ?")
+            values.append(json.dumps(tags))
+
+        if not update_fields:
+            return False
+
+        values.append(asset_id)
+
+        query = f"""
+            UPDATE assets
+            SET {', '.join(update_fields)}
+            WHERE id = ?
+        """
+
+        cursor = conn.execute(query, values)
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_asset(asset_id: str) -> bool:
+    """Delete an asset."""
     with get_db() as conn:
         cursor = conn.execute(
-            "DELETE FROM client_assets WHERE id = ? AND client_id = ?",
-            (asset_id, client_id)
+            "DELETE FROM assets WHERE id = ?",
+            (asset_id,)
         )
         conn.commit()
         return cursor.rowcount > 0
+
+
+def _row_to_asset_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    """Convert a database row to an Asset discriminated union dict.
+
+    Returns the appropriate asset type with all its fields based on asset_type.
+    """
+    # Common fields for all asset types
+    base_dict = {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "clientId": row["client_id"],
+        "campaignId": row["campaign_id"],
+        "name": row["name"],
+        "url": row["url"],
+        "size": row["size"],
+        "uploadedAt": row["uploaded_at"],
+        "tags": json.loads(row["tags"]) if row["tags"] else None,
+        "type": row["asset_type"],  # Discriminator field
+        "format": row["format"]
+    }
+
+    # Add type-specific fields based on asset_type
+    asset_type = row["asset_type"]
+
+    if asset_type == "image":
+        # ImageAsset: has width, height
+        base_dict["width"] = row["width"]
+        base_dict["height"] = row["height"]
+
+    elif asset_type == "video":
+        # VideoAsset: has width, height, duration, thumbnailUrl
+        base_dict["width"] = row["width"]
+        base_dict["height"] = row["height"]
+        base_dict["duration"] = row["duration"]
+        base_dict["thumbnailUrl"] = row["thumbnail_url"]
+
+    elif asset_type == "audio":
+        # AudioAsset: has duration, waveformUrl
+        base_dict["duration"] = row["duration"]
+        base_dict["waveformUrl"] = row["waveform_url"]
+
+    elif asset_type == "document":
+        # DocumentAsset: has pageCount, thumbnailUrl
+        base_dict["pageCount"] = row["page_count"]
+        base_dict["thumbnailUrl"] = row["thumbnail_url"]
+
+    return base_dict
 
 
 # ============================================================================
@@ -459,63 +649,9 @@ def get_campaign_stats(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
 
 
 # ============================================================================
-# CAMPAIGN ASSETS CRUD OPERATIONS
+# DEPRECATED: Old campaign asset functions (use consolidated assets API)
 # ============================================================================
-
-def create_campaign_asset(
-    campaign_id: str,
-    asset_type: str,
-    url: str,
-    name: str
-) -> str:
-    """Create a campaign asset (image, video, document)."""
-    asset_id = str(uuid.uuid4())
-
-    with get_db() as conn:
-        conn.execute(
-            """
-            INSERT INTO campaign_assets (id, campaign_id, type, url, name)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (asset_id, campaign_id, asset_type, url, name)
-        )
-        conn.commit()
-        return asset_id
-
-
-def list_campaign_assets(campaign_id: str) -> List[Dict[str, Any]]:
-    """List all assets for a campaign."""
-    with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM campaign_assets
-            WHERE campaign_id = ?
-            ORDER BY uploaded_at DESC
-            """,
-            (campaign_id,)
-        ).fetchall()
-
-        return [
-            {
-                "id": row["id"],
-                "type": row["type"],
-                "url": row["url"],
-                "name": row["name"],
-                "uploadedAt": row["uploaded_at"]
-            }
-            for row in rows
-        ]
-
-
-def delete_campaign_asset(asset_id: str, campaign_id: str) -> bool:
-    """Delete a campaign asset."""
-    with get_db() as conn:
-        cursor = conn.execute(
-            "DELETE FROM campaign_assets WHERE id = ? AND campaign_id = ?",
-            (asset_id, campaign_id)
-        )
-        conn.commit()
-        return cursor.rowcount > 0
+# These functions are kept for backward compatibility but redirect to new assets table
 
 
 # ============================================================================
