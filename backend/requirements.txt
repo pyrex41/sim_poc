@@ -17,3 +17,4 @@ pillow>=10.1.0
 numpy>=1.26.4
 opencv-python>=4.8.1.78
 slowapi>=0.1.9
+redis>=5.0.0
