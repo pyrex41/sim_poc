@@ -42,10 +42,29 @@ CREATIVE_DIRECTION_SYSTEM_PROMPT = dedent(
         "cuts_per_minute": 0,
         "energy_curve": ""
       },
-      "cta": {"text": "", "start_time": 0, "duration": 0, "style": "", "action": ""}
+      "cta": {"text": "", "start_time": 0, "duration": 0, "style": "", "action": ""},
+      "scenes": [
+        {
+          "id": "scene_1",
+          "scene_number": 1,
+          "purpose": "",
+          "duration": 5.0,
+          "visual": {
+            "shot_type": "",
+            "subject": "",
+            "generation_prompt": ""
+          }
+        }
+      ]
     }
-    Include a "scenes" array (5-8 scenes) with id, purpose, timing, visual/audio/text details,
-    and a "metadata" section containing warnings, defaults_used, and reasoning summaries.
+    IMPORTANT: Each scene in the "scenes" array must have:
+    - id: string (e.g., "scene_1", "scene_2")
+    - scene_number: integer (1, 2, 3, etc.)
+    - purpose: string describing the scene's role
+    - duration: float in seconds
+    - visual: object with shot_type, subject, and generation_prompt fields
+
+    Include a "metadata" section containing warnings, defaults_used, and reasoning summaries.
     """
 ).strip()
 

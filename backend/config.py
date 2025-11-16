@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     REPLICATE_API_KEY: str | None = None
     OPENAI_API_KEY: str | None = None
     ANTHROPIC_API_KEY: str | None = None
+    OPENROUTER_API_KEY: str | None = None
 
     # Prompt parser settings (from prompt_parser_service)
     APP_ENV: Literal["development", "staging", "production"] = "development"
@@ -25,7 +26,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"  # Will use SQLite instead
     RATE_LIMIT_PER_MINUTE: int = Field(10, ge=1)  # Aligned to PRD
     USE_MOCK_LLM: bool = False
-    DEFAULT_LLM_PROVIDER: str = Field("openai", description="Default LLM provider (e.g., openai for GPT-4o, claude)")
+    DEFAULT_LLM_PROVIDER: str = Field("openrouter", description="Default LLM provider (openrouter for GPT-5-nano, openai for GPT-4o, claude)")
 
     model_config = SettingsConfigDict(
         env_file=".env",
