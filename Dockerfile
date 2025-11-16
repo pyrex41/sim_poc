@@ -35,10 +35,6 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY backend/ ./backend/
 
-# Copy database.py and auth.py to root for imports
-COPY backend/database.py ./database.py
-COPY backend/auth.py ./auth.py
-
 # Copy built frontend from builder stage
 COPY --from=frontend-builder /app/dist ./static
 
@@ -52,9 +48,6 @@ ENV DATA=/data
 # Set port for Fly.io
 ENV PORT=8080
 EXPOSE 8080
-
-# Set PYTHONPATH so database.py can be imported
-ENV PYTHONPATH=/app
 
 # Run the application using uv's virtual environment
 CMD ["/app/.venv/bin/uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8080"]
