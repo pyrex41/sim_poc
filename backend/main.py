@@ -3181,7 +3181,9 @@ async def approve_job_storyboard(
         raise HTTPException(status_code=500, detail=f"Failed to approve job: {str(e)}")
 
 @app.post("/api/v2/jobs/{job_id}/render", response_model=JobResponse)
+@limiter.limit("5/minute")
 async def render_approved_video(
+    request: Request,
     job_id: int,
     background_tasks: BackgroundTasks,
     current_user: Dict = Depends(verify_auth)
@@ -3295,7 +3297,9 @@ async def get_job_video(job_id: int):
         raise HTTPException(status_code=500, detail=f"Failed to fetch video: {str(e)}")
 
 @app.get("/api/v2/jobs/{job_id}/export")
+@limiter.limit("5/minute")
 async def export_job_video(
+    request: Request,
     job_id: int,
     format: str = Query("mp4", pattern="^(mp4|mov|webm)$"),
     quality: str = Query("medium", pattern="^(low|medium|high)$"),
