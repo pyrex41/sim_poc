@@ -12,8 +12,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
     HOST: str = "0.0.0.0"
     PORT: int = Field(8000, ge=1, le=65535)
-    BASE_URL: str = "http://localhost:8000"
-    NGROK_URL: str = ""
+    BASE_URL: str = "http://localhost:8000"  # Set to ngrok URL for local dev, or deployed URL for production
 
     # AI/ML settings
     REPLICATE_API_KEY: str | None = None
