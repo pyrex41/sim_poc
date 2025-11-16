@@ -220,6 +220,10 @@ openapi_tags = [
     {
         "name": "creative",
         "description": "Creative brief parsing and management."
+    },
+    {
+        "name": "Database",
+        "description": "Database administration and inspection endpoints (admin only)."
     }
 ]
 
@@ -4079,6 +4083,187 @@ async def serve_frontend(full_path: str):
 
     # Fallback for development or if static files don't exist
     return {"message": "Frontend not built. Run 'npm run build' to build the frontend."}
+
+# ============================================
+# Database Administration Endpoints
+# ============================================
+
+@app.get("/api/db/schema", tags=["Database"])
+async def get_database_schema(
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """
+    Get the complete database schema (all tables and their columns).
+    Requires admin authentication.
+    """
+    from .database import get_db
+
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            # Get all tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            tables = [row[0] for row in cursor.fetchall()]
+
+            schema = {}
+            for table in tables:
+                # Get table info
+                cursor.execute(f"PRAGMA table_info({table})")
+                columns = []
+                for row in cursor.fetchall():
+                    columns.append({
+                        "cid": row[0],
+                        "name": row[1],
+                        "type": row[2],
+                        "notnull": bool(row[3]),
+                        "default_value": row[4],
+                        "primary_key": bool(row[5])
+                    })
+
+                # Get indexes
+                cursor.execute(f"PRAGMA index_list({table})")
+                indexes = [{"name": row[1], "unique": bool(row[2])} for row in cursor.fetchall()]
+
+                # Get foreign keys
+                cursor.execute(f"PRAGMA foreign_key_list({table})")
+                foreign_keys = []
+                for row in cursor.fetchall():
+                    foreign_keys.append({
+                        "id": row[0],
+                        "table": row[2],
+                        "from": row[3],
+                        "to": row[4]
+                    })
+
+                schema[table] = {
+                    "columns": columns,
+                    "indexes": indexes,
+                    "foreign_keys": foreign_keys
+                }
+
+            # Get triggers
+            cursor.execute("SELECT name, tbl_name, sql FROM sqlite_master WHERE type='trigger' ORDER BY name")
+            triggers = [{"name": row[0], "table": row[1], "sql": row[2]} for row in cursor.fetchall()]
+
+            return {
+                "tables": schema,
+                "triggers": triggers,
+                "total_tables": len(tables)
+            }
+    except Exception as e:
+        logger.error(f"Failed to get database schema: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get database schema: {str(e)}")
+
+@app.get("/api/db/download", tags=["Database"])
+async def download_database(
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """
+    Download the complete SQLite database file.
+    Requires admin authentication.
+    """
+    from .database import DB_PATH
+    import shutil
+    from tempfile import NamedTemporaryFile
+
+    try:
+        # Create a temporary copy to avoid locking issues
+        with NamedTemporaryFile(delete=False, suffix='.db') as tmp_file:
+            shutil.copy2(DB_PATH, tmp_file.name)
+            tmp_path = tmp_file.name
+
+        # Return the database file
+        return FileResponse(
+            path=tmp_path,
+            media_type="application/x-sqlite3",
+            filename="scenes.db",
+            headers={
+                "Content-Disposition": "attachment; filename=scenes.db"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to download database: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download database: {str(e)}")
+
+class SQLQueryRequest(BaseModel):
+    query: str
+    params: Optional[List[Any]] = None
+
+@app.post("/api/db/query", tags=["Database"])
+async def execute_sql_query(
+    request: SQLQueryRequest,
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """
+    Execute a raw SQL query against the database.
+
+    ⚠️ WARNING: This is a powerful endpoint. Only SELECT queries are allowed for safety.
+
+    Supports parameterized queries using ? placeholders.
+
+    Example:
+    ```json
+    {
+        "query": "SELECT * FROM users WHERE id = ?",
+        "params": [1]
+    }
+    ```
+
+    Requires admin authentication.
+    """
+    from .database import get_db
+
+    # Security: Only allow SELECT queries (read-only)
+    query_upper = request.query.strip().upper()
+    if not query_upper.startswith('SELECT'):
+        raise HTTPException(
+            status_code=403,
+            detail="Only SELECT queries are allowed. Use database tools for modifications."
+        )
+
+    # Additional safety checks
+    dangerous_keywords = ['ATTACH', 'DETACH', 'PRAGMA']
+    if any(keyword in query_upper for keyword in dangerous_keywords):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Query contains forbidden keywords: {', '.join(dangerous_keywords)}"
+        )
+
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor()
+
+            # Execute query with parameters if provided
+            if request.params:
+                cursor.execute(request.query, request.params)
+            else:
+                cursor.execute(request.query)
+
+            # Fetch results
+            rows = cursor.fetchall()
+
+            # Get column names
+            if cursor.description:
+                columns = [desc[0] for desc in cursor.description]
+            else:
+                columns = []
+
+            # Convert rows to list of dicts
+            results = []
+            for row in rows:
+                results.append(dict(zip(columns, row)))
+
+            return {
+                "query": request.query,
+                "row_count": len(results),
+                "columns": columns,
+                "results": results
+            }
+
+    except Exception as e:
+        logger.error(f"SQL query failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Query execution failed: {str(e)}")
 
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
