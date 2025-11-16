@@ -20,10 +20,15 @@ class ReplicateClient:
     Client for interacting with Replicate API for image and video generation.
 
     This client provides methods for:
-    - Generating images using Flux-Schnell model
+    - Generating images using Flux-Schnell model (or other image models)
     - Generating videos using SkyReels-2 model
     - Polling prediction status with automatic retries
     - Estimating costs for operations
+
+    Note: Image upscaling is handled through the standard image generation
+    workflow via generate_image(). Upscaler models from the 'super-resolution'
+    collection accept an 'image' input parameter along with upscaling parameters
+    (scale, dynamic, sharpen, etc.) instead of just 'prompt'.
 
     Attributes:
         api_key (str): Replicate API key for authentication
@@ -34,10 +39,12 @@ class ReplicateClient:
     # Model pricing (in USD)
     FLUX_SCHNELL_PRICE_PER_IMAGE = 0.003
     SKYREELS2_PRICE_PER_SECOND = 0.10
+    UPSCALER_PRICE_PER_IMAGE = 0.016  # Reference pricing for clarity-upscaler
 
     # Default models
     DEFAULT_IMAGE_MODEL = "black-forest-labs/flux-schnell"
     DEFAULT_VIDEO_MODEL = "fofr/skyreels-2"
+    DEFAULT_UPSCALER_MODEL = "philz1337x/clarity-upscaler"  # Configurable via settings
 
     # Polling configuration
     DEFAULT_POLL_INTERVAL = 5  # seconds
