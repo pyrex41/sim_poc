@@ -24,8 +24,9 @@ class Settings(BaseSettings):
     APP_ENV: Literal["development", "staging", "production"] = "development"
     LOG_LEVEL: str = "INFO"
     REDIS_URL: str = "redis://localhost:6379/0"  # Will use SQLite instead
-    RATE_LIMIT_PER_MINUTE: int = Field(60, ge=1)
+    RATE_LIMIT_PER_MINUTE: int = Field(10, ge=1)  # Aligned to PRD
     USE_MOCK_LLM: bool = False
+    DEFAULT_LLM_PROVIDER: str = Field("openai", description="Default LLM provider (e.g., openai for GPT-4o, claude)")
 
     model_config = SettingsConfigDict(
         env_file=".env",

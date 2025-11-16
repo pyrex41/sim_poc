@@ -1,887 +1,627 @@
 {
-  "master": {
+  "promptparser": {
     "tasks": [
       {
         "id": 1,
-        "title": "Set up Elm application structure and basic UI layout",
-        "description": "Initialize the Elm project with the main application structure, including the three-panel layout (left panel for generation, canvas for rendering, right panel for properties), and define basic ports for communication with JavaScript.",
-        "details": "Use Elm 0.19.1 to create the Main.elm file with the Browser.element program. Define the Model with Scene, UiState, and SimulationState. Implement the view function to render the app-container with left-panel, canvas-container, and right-panel. Set up ports for sendSceneToThreeJs, sendSelectionToThreeJs, etc. Ensure the HTML includes the canvas-container div. Use Vite for build configuration as specified.",
-        "testStrategy": "Verify that the Elm app compiles without errors, the UI renders the three panels correctly in the browser, and ports are defined without runtime issues.",
+        "title": "Merge Project Dependencies and Structure",
+        "description": "Integrate the promptparser service into the main backend by copying its structure and merging requirements.txt.",
+        "details": "Copy the promptparser/app directory to backend/prompt_parser_service/. Merge requirements.txt to include new dependencies like Anthropic, OpenCV, SlowAPI. Ensure Python 3.11+ and FastAPI 0.109+ compatibility. Update backend/__init__.py and main.py to include the new namespace. Use pip install to set up the environment.",
+        "testStrategy": "Verify that all dependencies install without conflicts and the backend starts without errors. Run a basic import test for new modules.",
         "priority": "high",
         "dependencies": [],
         "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Initialize Elm project structure",
-            "description": "Set up the basic Elm project using Elm 0.19.1, create the Main.elm file with Browser.element program, and define the initial Model structure including Scene, UiState, and SimulationState.",
+            "title": "Copy PromptParser Directory Structure",
+            "description": "Copy the promptparser/app directory to the backend/prompt_parser_service/ location to integrate the service structure.",
             "dependencies": [],
-            "details": "Use Elm init to create the project, ensure Vite is configured for building. In Main.elm, import necessary modules, define the Model type with placeholders for Scene, UiState, and SimulationState. Set up the main function with Browser.element, including init, update, view, and subscriptions.",
+            "details": "Navigate to the project root, use a file copying command (e.g., cp -r on Unix or robocopy on Windows) to copy the entire promptparser/app directory into backend/prompt_parser_service/. Ensure all subdirectories and files are copied without modification. Verify the copy by checking file counts and permissions.",
             "status": "completed",
-            "testStrategy": "Verify that the Elm project compiles successfully without errors using elm make."
+            "testStrategy": "Manually verify the directory exists and contains the expected files by listing contents."
           },
           {
             "id": 2,
-            "title": "Implement three-panel UI layout and basic ports",
-            "description": "Implement the view function to render the app-container with left-panel, canvas-container, and right-panel, and define ports for communication with JavaScript.",
-            "dependencies": [1],
-            "details": "In the view function, use Html to create divs for the three panels: left-panel for generation, canvas-container for rendering, and right-panel for properties. Ensure the HTML includes the canvas-container div. Define ports such as sendSceneToThreeJs, sendSelectionToThreeJs, and others as specified. Update the update function to handle any initial messages if needed.",
+            "title": "Merge Requirements.txt Files",
+            "description": "Merge the requirements.txt from promptparser into the main backend requirements.txt, adding new dependencies.",
+            "dependencies": [
+              1
+            ],
+            "details": "Open the promptparser/requirements.txt and the backend/requirements.txt. Append new dependencies like Anthropic, OpenCV, SlowAPI to the backend file if not already present. Ensure compatibility with Python 3.11+ and FastAPI 0.109+. Remove duplicates and sort alphabetically for cleanliness.",
             "status": "completed",
-            "testStrategy": "Compile the Elm app, load it in the browser, and check that the three panels are rendered correctly, and ports are defined without runtime errors."
+            "testStrategy": "Run pip install -r requirements.txt in a virtual environment and check for no installation errors or conflicts."
+          },
+          {
+            "id": 3,
+            "title": "Update Backend Initialization Files",
+            "description": "Update backend/__init__.py and main.py to include the new prompt_parser_service namespace and set up the environment.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Modify backend/__init__.py to import or reference the new prompt_parser_service module. Update main.py to include the namespace in the application setup. Run pip install to install all merged dependencies. Ensure the backend can start without errors after changes.",
+            "status": "completed",
+            "testStrategy": "Attempt to start the backend application and perform a basic import test for the new modules, checking for any runtime errors."
           }
         ]
       },
       {
         "id": 2,
-        "title": "Implement Elm scene model types and state management",
-        "description": "Define the Elm types for Scene, PhysicsObject, Transform, PhysicsProperties, etc., and implement the update function to handle messages like UpdateTextInput, GenerateScene, SceneGenerated, ObjectClicked, etc.",
-        "details": "Based on the provided Elm code in the PRD, implement the Model, Msg types, and update function. Handle state transitions for text input, scene generation, object selection, transform updates, and simulation toggling. Ensure pure state management without side effects except through ports. Use Dict for objects and track initial states for reset.",
-        "testStrategy": "Test Elm compilation, simulate user interactions in the Elm debugger (e.g., update text input, trigger generate), and verify state changes correctly update the model without errors.",
+        "title": "Centralize Configuration Management",
+        "description": "Adopt Pydantic Settings for all environment variables to unify config across the integrated service.",
+        "details": "Create or update config.py using Pydantic BaseSettings to handle env vars like OPENAI_API_KEY, REPLICATE_API_KEY, etc. Ensure it supports both existing backend and new prompt parser configs. Update dependencies.py for dependency injection of config instances.",
+        "testStrategy": "Load config in a test environment and assert that all required keys are present and validated correctly.",
         "priority": "high",
-        "dependencies": [1],
+        "dependencies": [
+          1
+        ],
         "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Define Elm Model and Msg types for scene management",
-            "description": "Define the core Elm types including Model, Msg, Scene, PhysicsObject, Transform, PhysicsProperties, and related structures using records and unions.",
-            "dependencies": [1],
-            "details": "Based on the PRD Elm code, create type aliases and union types for Model (containing scene data, selected object, simulation state, etc.), Msg (covering UpdateTextInput, GenerateScene, SceneGenerated, ObjectClicked, etc.), and nested types like Scene with Dict for objects. Ensure types support state tracking for reset functionality.",
+            "title": "Create or Update config.py with Pydantic BaseSettings",
+            "description": "Develop or modify config.py to use Pydantic BaseSettings for managing environment variables across the integrated service.",
+            "dependencies": [],
+            "details": "Implement Pydantic BaseSettings in config.py to define settings classes for handling env vars like OPENAI_API_KEY, REPLICATE_API_KEY, etc. Ensure support for both existing backend and new prompt parser configurations by creating separate or unified settings classes as needed. Include validation rules for required fields and default values where appropriate.",
             "status": "completed",
-            "testStrategy": "Compile the Elm code and verify no type errors; use Elm debugger to inspect initial model structure."
+            "testStrategy": "Load the config in a test environment and verify that Pydantic validates the settings correctly, raising errors for missing required env vars."
           },
           {
             "id": 2,
-            "title": "Implement update function for message handling",
-            "description": "Implement the update function to handle various Msg types, managing state transitions for text input, scene generation, object selection, transform updates, and simulation toggling.",
-            "dependencies": [1],
-            "details": "In the update function, pattern match on Msg variants to update the Model accordingly, ensuring pure functions without side effects. Handle dependencies like updating scene from SceneGenerated, selecting objects via ObjectClicked, and toggling simulation state. Use Dict operations for object management and track initial states for reset.",
+            "title": "Handle Environment Variables Setup",
+            "description": "Configure the handling of environment variables to ensure they are properly loaded and validated through the Pydantic settings.",
+            "dependencies": [
+              1
+            ],
+            "details": "Update the config.py to include logic for loading environment variables from .env files or system environment, with support for different environments (e.g., dev, prod). Ensure all specified env vars are covered and add documentation for required variables. Integrate with existing backend and prompt parser to avoid conflicts.",
             "status": "completed",
-            "testStrategy": "Simulate message dispatches in Elm debugger (e.g., send UpdateTextInput, GenerateScene) and verify model updates correctly without errors or side effects."
+            "testStrategy": "Set up test environment variables and assert that the config loads them correctly, checking for presence and type validation."
           },
           {
             "id": 3,
-            "title": "Integrate ports for pure state management and external communication",
-            "description": "Set up ports for communication with JavaScript (e.g., for scene generation, object clicks, and simulation commands) while maintaining pure Elm state management.",
-            "dependencies": [1, 2],
-            "details": "Define incoming and outgoing ports for messages like sceneGenerated, objectClicked, and commands to update Three.js. Ensure the update function uses Cmd for port calls and subscriptions for incoming data. Track initial scene states in Model for reset, and avoid direct side effects in update logic.",
+            "title": "Integrate Configuration with Dependency Injection",
+            "description": "Update dependencies.py to inject config instances using the new Pydantic settings for unified access across the service.",
+            "dependencies": [
+              2
+            ],
+            "details": "Modify dependencies.py to create and provide config instances via dependency injection. Ensure that both backend and prompt parser services can access the centralized config. Update any existing DI setup to use the new Pydantic-based config, maintaining compatibility with FastAPI and other components.",
             "status": "completed",
-            "testStrategy": "Test port integration by triggering Elm actions (e.g., generate scene) and verify JavaScript receives correct data; check that state remains pure by reloading and confirming no unexpected changes."
+            "testStrategy": "Run integration tests to verify that config instances are injected correctly into services, and assert that all required keys are present and validated in the injected configs."
           }
         ]
       },
       {
         "id": 3,
-        "title": "Set up Three.js renderer and basic scene rendering",
-        "description": "Initialize Three.js in the JavaScript bridge, set up the renderer, camera, controls, lights, and ground plane, and implement the loadScene method to render objects from Elm data.",
-        "details": "In index.js, create the PhysicsRenderer class with setupRenderer, setupCamera, setupControls (OrbitControls), setupLights, and setupPhysics (Rapier world). Implement loadScene to clear existing objects and add new ones using addObject, which creates Three.js meshes and Rapier bodies/colliders for Box, Sphere, Cylinder. Handle geometry creation based on object type and apply materials with visual properties.",
-        "testStrategy": "Run the app, verify Three.js renders a basic scene (e.g., ground plane), and check console for no WebGL errors. Manually test camera orbiting and ensure Rapier initializes without issues.",
+        "title": "Extend Database Schema",
+        "description": "Add the creative_briefs table to the SQLite database and implement related functions.",
+        "details": "In database.py, add the SQL schema for creative_briefs table with fields as specified (id, user_id, etc.). Implement functions: save_creative_brief(), get_user_briefs(), update_brief(). Ensure foreign key constraints and indexes. Use SQLAlchemy or raw SQL as per existing patterns.",
+        "testStrategy": "Create unit tests to insert, retrieve, and update briefs in a test database. Verify foreign key integrity and query performance.",
         "priority": "high",
-        "dependencies": [1],
+        "dependencies": [
+          1
+        ],
         "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Initialize Three.js renderer and camera",
-            "description": "Set up the basic Three.js renderer and camera in the PhysicsRenderer class to enable scene rendering.",
+            "title": "Define Creative Briefs Table Schema",
+            "description": "Create the SQL schema for the creative_briefs table in database.py, including fields like id, user_id, and others as specified.",
             "dependencies": [],
-            "details": "In index.js, within the PhysicsRenderer class, implement the setupRenderer method to create a WebGLRenderer, set its size to match the canvas container, and append it to the DOM. Implement setupCamera to create a PerspectiveCamera with appropriate field of view, aspect ratio, near and far planes, and position it suitably for the scene.",
+            "details": "Use SQLAlchemy or raw SQL to define the table with appropriate data types, ensuring it aligns with existing database patterns in the project.",
             "status": "completed",
-            "testStrategy": "Verify that the renderer initializes without WebGL errors and the camera is positioned correctly by checking the canvas renders a basic view."
+            "testStrategy": null
           },
           {
             "id": 2,
-            "title": "Set up OrbitControls and lighting",
-            "description": "Configure OrbitControls for camera manipulation and add basic lighting to the scene for proper object visibility.",
-            "dependencies": [1],
-            "details": "Implement setupControls to initialize OrbitControls with the camera and renderer DOM element, enabling mouse-based orbiting, zooming, and panning. Implement setupLights to add ambient and directional lights to the scene, positioning them to illuminate objects effectively and include a ground plane mesh for reference.",
+            "title": "Implement CRUD Functions for Creative Briefs",
+            "description": "Implement the functions save_creative_brief(), get_user_briefs(), and update_brief() in database.py.",
+            "dependencies": [
+              1
+            ],
+            "details": "Write the functions to handle saving, retrieving, and updating creative briefs, using the defined schema and following existing code patterns.",
             "status": "completed",
-            "testStrategy": "Test camera controls by orbiting and zooming in the rendered scene, and ensure lights illuminate objects without shadows or rendering artifacts."
+            "testStrategy": null
           },
           {
             "id": 3,
-            "title": "Implement scene loading with Rapier physics integration",
-            "description": "Develop the loadScene method to handle scene updates from Elm, integrating Three.js meshes with Rapier physics bodies and colliders.",
-            "dependencies": [2],
-            "details": "Implement setupPhysics to initialize the Rapier world with gravity. Create the loadScene method to clear existing meshes and physics bodies, then use addObject to iterate through Elm-provided objects, creating Three.js geometries (BoxGeometry, SphereGeometry, CylinderGeometry) and meshes with materials based on visual properties. For each object, add corresponding Rapier rigid bodies and colliders (cuboid, ball, cylinder) linked to the meshes.",
+            "title": "Add Foreign Key Constraints and Indexes",
+            "description": "Ensure foreign key constraints are in place and add necessary indexes for performance.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add foreign key constraints linking to user_id and other relevant tables, plus indexes on key fields to optimize queries.",
             "status": "completed",
-            "testStrategy": "Load a sample scene via Elm ports, verify objects render correctly with physics applied (e.g., falling under gravity), and check console for no Rapier initialization errors."
+            "testStrategy": null
+          },
+          {
+            "id": 4,
+            "title": "Write Unit Tests for Database Operations",
+            "description": "Create unit tests to verify the database schema and CRUD functions work correctly.",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Develop tests that insert, retrieve, and update briefs in a test database, checking foreign key integrity and query performance.",
+            "status": "completed",
+            "testStrategy": "Create unit tests to insert, retrieve, and update briefs in a test database. Verify foreign key integrity and query performance."
           }
         ]
       },
       {
         "id": 4,
-        "title": "Integrate Rapier physics simulation loop",
-        "description": "Connect Rapier to the animation loop, sync Three.js meshes with physics bodies during simulation, and handle start/pause/reset commands from Elm.",
-        "details": "In the animate method, step the Rapier world when simulating, update mesh positions and rotations from body data, and send frame updates to Elm via ports. Implement startSimulation, pauseSimulation, and resetSimulation methods that detach transform controls and reload scene on reset. Ensure 60 FPS simulation with proper timestep.",
-        "testStrategy": "Trigger simulation via Elm, observe objects falling realistically under gravity, check that pause stops updates, and reset restores initial positions. Use browser dev tools to monitor FPS and ensure no performance drops.",
+        "title": "Implement Core Parsing Endpoint",
+        "description": "Develop the POST /api/creative/parse endpoint with multi-modal input handling.",
+        "details": "In prompt_parser_service/api/v1/parse.py, implement the endpoint using FastAPI. Accept ParseRequest (text, image_url, video_url, platform, category). Use LLM (GPT-4o/Claude) to generate ParseResponse with CreativeDirection and Scenes. Include validation for feasibility (duration, scene count). Add rate limiting with SlowAPI (10/min per user).",
+        "testStrategy": "Unit test the endpoint with mock LLM responses. Integration test with real inputs to ensure JSON output and confidence scores. Test rate limiting.",
         "priority": "high",
-        "dependencies": [3],
+        "dependencies": [
+          2,
+          3
+        ],
         "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Connect Rapier to the animation loop",
-            "description": "Modify the animate method to step the Rapier world during simulation, ensuring proper timestep for 60 FPS.",
-            "dependencies": [3],
-            "details": "In the PhysicsRenderer class, update the animate method to call world.step() when simulation is active, using a fixed timestep like 1/60 to maintain consistent physics updates. Integrate this with the requestAnimationFrame loop to synchronize physics stepping with rendering.",
+            "title": "Define Request and Response Models",
+            "description": "Create Pydantic models for ParseRequest and ParseResponse to handle multi-modal inputs and outputs.",
+            "dependencies": [],
+            "details": "In the prompt_parser_service models file, define ParseRequest with fields: text (str), image_url (Optional[str]), video_url (Optional[str]), platform (str), category (str). Define ParseResponse with CreativeDirection (dict) and Scenes (list of dicts). Ensure models include validation for required fields and optional URLs.",
             "status": "completed",
-            "testStrategy": "Monitor FPS in browser dev tools during simulation to ensure it stays at 60 FPS without drops."
+            "testStrategy": "Unit tests for model instantiation and validation with various input combinations."
           },
           {
             "id": 2,
-            "title": "Sync Three.js meshes with physics bodies",
-            "description": "Update mesh positions and rotations from Rapier body data during each animation frame.",
-            "dependencies": [1],
-            "details": "In the animate method, after stepping the world, iterate through all physics bodies, retrieve their positions and rotations, and apply them to the corresponding Three.js meshes using mesh.position.copy(body.translation()) and mesh.quaternion.copy(body.rotation()). Send frame updates to Elm via ports if needed.",
+            "title": "Integrate LLM Providers",
+            "description": "Set up integration with GPT-4o and Claude for generating creative directions and scenes from inputs.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Using the LLM registry from services/, configure support for GPT-4o and Claude with fallback logic. Ensure dependency injection via dependencies.py pulls from centralized config (task 2). Handle multi-modal inputs by processing text, image_url, and video_url appropriately for LLM prompts.",
             "status": "completed",
-            "testStrategy": "Trigger simulation and observe objects falling realistically under gravity, verifying that meshes follow physics bodies accurately."
+            "testStrategy": "Mock LLM API calls to test response generation and fallback behavior."
           },
           {
             "id": 3,
-            "title": "Implement start, pause, and reset simulation commands",
-            "description": "Add methods to handle startSimulation, pauseSimulation, and resetSimulation commands from Elm.",
-            "dependencies": [2],
-            "details": "Implement startSimulation to begin stepping the world and detach transform controls, pauseSimulation to stop stepping, and resetSimulation to reload the scene, restore initial positions, and reattach controls. Ensure these methods are called via Elm ports and handle state transitions properly.",
+            "title": "Add Feasibility Validation",
+            "description": "Implement validation checks for duration and scene count to ensure generated content is feasible.",
+            "dependencies": [
+              1
+            ],
+            "details": "In the parsing logic, add checks post-LLM generation: validate total duration against platform limits, ensure scene count is within acceptable ranges (e.g., 5-20 scenes). Raise appropriate errors or adjust if invalid. Integrate with ParseResponse to include validation flags.",
             "status": "completed",
-            "testStrategy": "Send commands from Elm to start, pause, and reset simulation, checking that pause stops updates, reset restores positions, and controls detach/reattach correctly."
+            "testStrategy": "Unit tests with mock responses to verify validation logic for edge cases like excessive duration or scene count."
+          },
+          {
+            "id": 4,
+            "title": "Implement Rate Limiting",
+            "description": "Add rate limiting to the endpoint using SlowAPI to restrict to 10 requests per minute per user.",
+            "dependencies": [],
+            "details": "Integrate SlowAPI into the FastAPI app. Configure a limiter for the /api/creative/parse endpoint with 10/min per user, using user identification (e.g., via API key or IP). Handle rate limit exceeded responses gracefully with appropriate HTTP status codes.",
+            "status": "completed",
+            "testStrategy": "Integration tests to simulate multiple requests and verify rate limiting enforcement."
+          },
+          {
+            "id": 5,
+            "title": "Implement Endpoint Logic",
+            "description": "Develop the core logic for the POST /api/creative/parse endpoint using FastAPI.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "In prompt_parser_service/api/v1/parse.py, create the endpoint function that accepts ParseRequest, calls the LLM integration for generation, applies validation, and returns ParseResponse. Ensure proper error handling for invalid inputs or LLM failures. Tie in rate limiting from subtask 4.",
+            "status": "completed",
+            "testStrategy": "Unit tests with mocked dependencies to verify endpoint flow and response structure."
+          },
+          {
+            "id": 6,
+            "title": "Comprehensive Testing",
+            "description": "Conduct thorough testing including unit, integration, and rate limiting tests for the parsing endpoint.",
+            "dependencies": [
+              5
+            ],
+            "details": "Write unit tests for endpoint logic with mock LLM responses. Perform integration tests using real inputs to check JSON output, confidence scores, and end-to-end functionality. Test rate limiting separately. Aim for high coverage and validate against test strategies from subtasks 1-5.",
+            "status": "completed",
+            "testStrategy": "Run full test suite to ensure 100% coverage, including performance checks for generation time under 15s."
           }
         ]
       },
       {
         "id": 5,
-        "title": "Set up FastAPI backend server with CORS and basic structure",
-        "description": "Initialize the FastAPI application, configure CORS for local development, and define the basic endpoint structure including models for Vec3, Transform, PhysicsObject, Scene, etc.",
-        "details": "Create main.py with FastAPI app, add CORSMiddleware for localhost:5173. Define Pydantic models matching the JSON schema. Set up uvicorn for running the server on port 8000. Include placeholders for AI client and cache initialization. Ensure requirements.txt includes fastapi, uvicorn, pydantic.",
-        "testStrategy": "Start the server with uvicorn, verify it runs on localhost:8000, test CORS by making a request from the frontend, and check that models validate JSON correctly without errors.",
+        "title": "Integrate Authentication and Security",
+        "description": "Secure new endpoints with JWT/API key verification and add input validation.",
+        "details": "Apply existing auth.py middleware to /api/creative/parse and other new endpoints. Sanitize URLs and scan uploaded media for malware using integrated services. Implement graceful error handling with fallbacks (e.g., text-only if media fails). Ensure data privacy by storing briefs per-user.",
+        "testStrategy": "Test auth middleware by attempting unauthorized access. Validate input sanitization with malicious payloads. Check error responses for fallbacks.",
         "priority": "high",
-        "dependencies": [],
+        "dependencies": [
+          3
+        ],
         "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Initialize FastAPI application with CORS and define Pydantic models",
-            "description": "Set up the FastAPI app in main.py, configure CORSMiddleware for localhost:5173, and define Pydantic models for Vec3, Transform, PhysicsObject, Scene, etc., matching the JSON schema.",
-            "dependencies": [],
-            "details": "Create main.py with FastAPI instance, add CORSMiddleware allowing origins from localhost:5173. Define Pydantic BaseModel classes for Vec3, Transform, PhysicsObject, Scene, and other required models based on the provided JSON schema. Include placeholders for AI client and cache initialization. Ensure requirements.txt includes fastapi, uvicorn, and pydantic. Set up uvicorn to run the server on port 8000.",
+            "title": "Apply Authentication Middleware to New Endpoints",
+            "description": "Secure the new endpoints such as /api/creative/parse with JWT/API key verification using the existing auth.py middleware.",
+            "dependencies": [
+              3
+            ],
+            "details": "Update the backend routes to apply the auth.py middleware to /api/creative/parse and any other new endpoints. Ensure the middleware checks for valid JWT tokens or API keys before allowing access to these endpoints. This involves importing and integrating the middleware in the FastAPI app setup.",
             "status": "completed",
-            "testStrategy": "Start the server with uvicorn and verify it runs on localhost:8000. Test CORS by making a cross-origin request from the frontend and confirm models validate JSON inputs without errors."
+            "testStrategy": "Test by attempting unauthorized access to the endpoints and verifying that requests without valid JWT or API keys are rejected with appropriate error responses."
+          },
+          {
+            "id": 2,
+            "title": "Implement Input Sanitization and Malware Scanning",
+            "description": "Add input validation by sanitizing URLs and scanning uploaded media for malware using integrated services.",
+            "dependencies": [
+              1
+            ],
+            "details": "Integrate URL sanitization logic to clean and validate incoming URLs in requests. For uploaded media, implement malware scanning using services like antivirus APIs or libraries. Ensure that all inputs to the endpoints are validated before processing, rejecting or sanitizing malicious content.",
+            "status": "completed",
+            "testStrategy": "Validate input sanitization by sending malicious payloads and URLs, checking that they are properly sanitized or rejected. Test malware scanning with sample files to ensure detection and blocking of threats."
+          },
+          {
+            "id": 3,
+            "title": "Add Graceful Error Handling with Fallbacks",
+            "description": "Implement error handling mechanisms with fallbacks, such as switching to text-only mode if media processing fails.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Add try-except blocks and error handlers in the endpoint logic to catch exceptions during processing. Implement fallbacks like generating text-only responses if media uploads or scans fail. Ensure that errors are logged and user-friendly messages are returned without exposing sensitive information.",
+            "status": "completed",
+            "testStrategy": "Simulate failures in media processing and input validation, then verify that the system gracefully falls back to alternatives (e.g., text-only) and returns appropriate error responses."
+          },
+          {
+            "id": 4,
+            "title": "Conduct Security Testing",
+            "description": "Perform comprehensive security testing to ensure authentication, input validation, and error handling work correctly.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Run tests for unauthorized access attempts, malicious input injections, and error scenarios. Use tools like unit tests, integration tests, and possibly penetration testing tools to validate the security measures. Ensure data privacy by confirming that briefs are stored per-user and not accessible across users.",
+            "status": "completed",
+            "testStrategy": "Execute automated tests for auth middleware, input validation with edge cases, and error handling. Manually test for data privacy by checking user-specific brief storage and access controls."
           }
         ]
       },
       {
         "id": 6,
-        "title": "Integrate AI for scene generation",
-        "description": "Implement the /api/generate endpoint to use AI API for generating scenes from text prompts, including caching with LMDB.",
-        "details": "In main.py, implement generate_scene function with prompt template, call AI API, parse response as Scene, cache successful results using hashlib and lmdb. Handle errors for JSON parsing and API failures. Use environment variables for AI model configuration.",
-        "testStrategy": "Send POST requests to /api/generate with sample text (e.g., 'red box'), verify JSON response matches schema, check cache by repeating request (should be faster), and ensure invalid prompts return appropriate errors.",
-        "priority": "high",
-        "dependencies": [5],
+        "title": "Add Caching and LLM Services",
+        "description": "Implement shared caching with SQLite and unified LLM provider registry.",
+        "details": "In services/, create LLM registry supporting GPT-4o and Claude with fallback logic. Integrate SQLite for caching LLM responses and briefs. Set cache TTL and invalidation strategies (e.g., on refinement). Update dependencies.py for DI of cache and LLM clients.",
+        "testStrategy": "Mock SQLite and LLM calls to test cache hits/misses. Measure cache hit rate in integration tests aiming for >70%.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          4
+        ],
         "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Implement /api/generate endpoint with AI API integration",
-            "description": "Create the /api/generate endpoint in main.py that accepts text prompts, uses a prompt template, calls the AI API, and parses the response into a Scene object. Handle errors for API failures and JSON parsing issues. Configure AI model settings via environment variables.",
-            "dependencies": [5],
-            "details": "In main.py, define the generate_scene function that constructs a prompt template for scene generation, makes an API call to AI using the configured model (from env vars), parses the JSON response into a Scene object, and returns it. Implement error handling for invalid responses or API errors, raising appropriate exceptions. Ensure the endpoint is a POST route that accepts JSON with a 'prompt' field.",
+            "title": "Create LLM Registry with Fallback Logic",
+            "description": "Develop a unified LLM provider registry in services/ that supports GPT-4o and Claude models, including fallback logic to switch providers if one fails.",
+            "dependencies": [],
+            "details": "Implement a registry class that initializes clients for OpenAI GPT-4o and Anthropic Claude. Add fallback mechanism to retry with the alternative provider on errors. Ensure configuration for API keys and endpoints.",
             "status": "completed",
-            "testStrategy": "Send POST requests to /api/generate with valid text prompts (e.g., 'red box'), verify the JSON response conforms to the Scene schema, and check that invalid prompts or API failures return proper error messages."
+            "testStrategy": "Unit tests to verify fallback behavior using mocked API responses."
           },
           {
             "id": 2,
-            "title": "Add LMDB caching for generated scenes",
-            "description": "Integrate LMDB caching to store successful scene generation results using hashlib for key generation, ensuring repeated requests for the same prompt are served from cache for improved performance.",
-            "dependencies": [1],
-            "details": "In the generate_scene function, before calling the Claude API, compute a hash of the prompt using hashlib (e.g., SHA256), check if the result exists in an LMDB database. If cached, return the stored Scene; otherwise, proceed with API call and cache the successful result in LMDB. Handle cache misses and ensure thread-safe access if needed. Use environment variables for LMDB path configuration.",
+            "title": "Integrate SQLite for Caching",
+            "description": "Set up SQLite integration to cache LLM responses and creative briefs in the services layer.",
+            "dependencies": [],
+            "details": "Configure SQLite client in services/. Implement caching functions for storing and retrieving LLM responses and briefs. Ensure connection handling and error management for SQLite operations.",
             "status": "completed",
-            "testStrategy": "Send identical POST requests to /api/generate, measure response times to verify caching (second request should be faster), and inspect LMDB database to confirm cached entries are stored correctly."
+            "testStrategy": "Mock SQLite to test cache storage and retrieval of sample data."
+          },
+          {
+            "id": 3,
+            "title": "Implement Cache TTL and Invalidation Strategies",
+            "description": "Define and apply Time-To-Live (TTL) settings and invalidation rules for cached data, such as invalidating on brief refinement.",
+            "dependencies": [
+              2
+            ],
+            "details": "Set appropriate TTL values for different cache types (e.g., 1 hour for LLM responses) using timestamps in SQLite. Implement invalidation logic triggered by events like brief updates. Use SQLite expiration features and custom invalidation methods.",
+            "status": "completed",
+            "testStrategy": "Integration tests to check TTL expiration and invalidation on refinement, measuring cache hit rates."
+          },
+          {
+            "id": 4,
+            "title": "Update Dependencies for DI and Testing",
+            "description": "Modify dependencies.py to include Dependency Injection (DI) for cache and LLM clients, and ensure testing integration.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Update the DI container in dependencies.py to provide SQLite cache and LLM registry instances. Integrate with FastAPI's dependency system. Add configurations for testing environments with mocks.",
+            "status": "completed",
+            "testStrategy": "Run integration tests with mocked SQLite and LLM calls to validate DI and achieve >70% cache hit rate."
+          }
+        ]
+      },
+          {
+            "id": 2,
+            "title": "Integrate SQLite for Caching",
+            "description": "Set up SQLite integration to cache LLM responses and creative briefs in the services layer.",
+            "dependencies": [],
+            "details": "Configure SQLite client in services/. Implement caching functions for storing and retrieving LLM responses and briefs. Ensure connection handling and error management for SQLite operations.",
+            "status": "pending",
+            "testStrategy": "Mock SQLite to test cache storage and retrieval of sample data."
+          },
+          {
+            "id": 3,
+            "title": "Implement Cache TTL and Invalidation Strategies",
+            "description": "Define and apply Time-To-Live (TTL) settings and invalidation rules for cached data, such as invalidating on brief refinement.",
+            "dependencies": [
+              2
+            ],
+            "details": "Set appropriate TTL values for different cache types (e.g., 1 hour for LLM responses) using timestamps in SQLite. Implement invalidation logic triggered by events like brief updates.",
+            "status": "pending",
+            "testStrategy": "Integration tests to check TTL expiration and invalidation on refinement, measuring cache hit rates."
+          },
+          {
+            "id": 4,
+            "title": "Update Dependencies for DI and Testing",
+            "description": "Modify dependencies.py to include Dependency Injection (DI) for cache and LLM clients, and ensure testing integration.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Update the DI container in dependencies.py to provide SQLite cache and LLM registry instances. Integrate with FastAPI's dependency system. Add configurations for testing environments with mocks.",
+            "status": "pending",
+            "testStrategy": "Run integration tests with mocked SQLite and LLM calls to validate DI and achieve >70% cache hit rate."
           }
         ]
       },
       {
         "id": 7,
-        "title": "Add Genesis physics validation to backend",
-        "description": "Implement validate_with_genesis function and integrate it into scene generation and a separate /api/validate endpoint.",
-        "details": "Use genesis-world library to create a scene, add entities based on object types, simulate 60 frames, and check for stability. Return validation results. Integrate into generate_scene to reject invalid scenes. Ensure Genesis handles Box and Sphere types primarily.",
-        "testStrategy": "Test /api/validate with valid and invalid scenes (e.g., overlapping objects), verify it detects issues like instability, and ensure generate_scene fails gracefully on validation errors.",
+        "title": "Implement Brief Persistence and Retrieval",
+        "description": "Add database operations for saving and retrieving creative briefs.",
+        "details": "Enhance the parsing endpoint to save briefs to creative_briefs table post-generation. Implement GET /api/creative/briefs for paginated user briefs. Add POST /api/creative/briefs/{id}/refine to update briefs with refinement text, re-using cache where possible.",
+        "testStrategy": "Test save/load operations with sample briefs. Verify pagination and refinement updates DB correctly. Check cache re-use in refinement tests.",
         "priority": "medium",
-        "dependencies": [5, 6],
+        "dependencies": [
+          3,
+          4,
+          5
+        ],
         "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Implement validate_with_genesis function using Genesis library",
-            "description": "Create the validate_with_genesis function that uses genesis-world to build a scene, add Box and Sphere entities, simulate 60 frames, and check for stability.",
-            "dependencies": [5, 6],
-            "details": "In the backend, import genesis-world, define validate_with_genesis(scene_data) that parses object types, creates a Genesis scene, adds rigid bodies for Boxes and Spheres with appropriate properties, runs a 60-frame simulation, and evaluates stability by checking for excessive movement or collisions. Return a validation result object indicating pass/fail with details.",
+            "title": "Enhance Parsing Endpoint for Brief Saving",
+            "description": "Modify the POST /api/creative/parse endpoint to save generated creative briefs to the creative_briefs table after generation.",
+            "dependencies": [
+              3,
+              4,
+              5
+            ],
+            "details": "Update the parsing endpoint in prompt_parser_service/api/v1/parse.py to call save_creative_brief() function after generating the ParseResponse. Ensure the brief is associated with the authenticated user and includes all required fields like user_id, title, description, etc. Handle any database errors gracefully.",
             "status": "completed",
-            "testStrategy": "Unit test the function with mock scene data containing stable and unstable configurations, verifying it correctly identifies stability issues like overlapping objects falling apart."
+            "testStrategy": "Unit test the endpoint to verify briefs are saved correctly with mock data. Integration test to confirm database entries match generated briefs."
           },
           {
             "id": 2,
-            "title": "Integrate Genesis validation into scene generation and API endpoint",
-            "description": "Integrate the validate_with_genesis function into generate_scene to reject invalid scenes and expose it via a new /api/validate endpoint.",
-            "dependencies": [1],
-            "details": "Modify generate_scene to call validate_with_genesis after scene creation and reject if validation fails, raising an appropriate error. Create a new Flask route /api/validate that accepts scene data via POST, calls validate_with_genesis, and returns the validation results as JSON. Ensure error handling for unsupported object types beyond Box and Sphere.",
+            "title": "Implement GET Endpoint for Brief Retrieval",
+            "description": "Develop the GET /api/creative/briefs endpoint to retrieve paginated user-specific creative briefs.",
+            "dependencies": [
+              3,
+              5
+            ],
+            "details": "In prompt_parser_service/api/v1/briefs.py (or appropriate file), implement the endpoint using FastAPI. It should accept query parameters for pagination (e.g., page, limit). Use get_user_briefs() to fetch briefs for the authenticated user, apply pagination, and return a JSON response with brief list and metadata.",
             "status": "completed",
-            "testStrategy": "Test generate_scene by attempting to generate invalid scenes (e.g., unstable stacks) and confirm rejection. Hit /api/validate with valid/invalid JSON payloads and verify correct pass/fail responses, including error messages for unsupported types."
+            "testStrategy": "Unit test with mock database calls to check pagination logic. Integration test by inserting briefs and verifying correct retrieval with different page sizes."
+          },
+          {
+            "id": 3,
+            "title": "Add POST Endpoint for Brief Refinement",
+            "description": "Create the POST /api/creative/briefs/{id}/refine endpoint to update a brief with refinement text, reusing cache where possible.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "details": "Implement the endpoint in prompt_parser_service/api/v1/briefs.py. Accept refinement text in the request body, validate the brief ID belongs to the user, update the brief using update_brief(), and reuse cached LLM responses if applicable. Ensure cache invalidation or updates as needed for refinements.",
+            "status": "completed",
+            "testStrategy": "Unit test the update logic with mock cache and database. Integration test to verify refinements are saved and cache is reused by checking response times and cache hits."
+          },
+          {
+            "id": 4,
+            "title": "Test Persistence and Cache Reuse",
+            "description": "Conduct comprehensive testing for brief persistence operations and cache reuse in refinements.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Run end-to-end tests covering save/load operations with sample briefs, pagination accuracy, and refinement updates. Verify cache reuse by monitoring cache hits during refinement tests. Ensure all tests pass for database integrity, user isolation, and performance.",
+            "status": "completed",
+            "testStrategy": "Use pytest for automated tests. Include load testing for pagination and cache performance. Manually verify database state after operations."
           }
         ]
       },
       {
         "id": 8,
-        "title": "Implement object selection and raycasting in Three.js",
-        "description": "Add click event handling for object selection using raycasting, highlight selected objects, and communicate selections back to Elm.",
-        "details": "In setupControls, add mouse event listener for clicks, use Raycaster to intersect meshes, send objectClicked event to Elm. Implement selectObject to attach TransformControls to the selected mesh. Update material or add outline for visual feedback.",
-        "testStrategy": "Click on rendered objects in the scene, verify selection highlights appear, TransformControls attach, and Elm receives the correct objectId via ports.",
-        "priority": "high",
-        "dependencies": [2, 3],
+        "title": "Enhance Downstream Integration",
+        "description": "Link briefs to physics scene generation and video rendering.",
+        "details": "Modify existing /api/generate to accept brief-derived prompts. Add auto-generation of physics scene from first scene prompt in ParseResponse. Ensure briefs link to scenes/videos in DB for history tracking.",
+        "testStrategy": "Integration test: Parse brief → Auto-generate scene → Verify scene creation. Test full pipeline to rendering endpoint.",
+        "priority": "medium",
+        "dependencies": [
+          4,
+          7
+        ],
         "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Add click event handling and raycasting for object detection",
-            "description": "Implement mouse click event listener in setupControls to detect clicks on the canvas, use Three.js Raycaster to intersect with meshes in the scene, and identify the selected object.",
-            "dependencies": [2, 3],
-            "details": "In the setupControls method of the PhysicsRenderer class, add an event listener for 'click' events on the renderer.domElement. Calculate mouse position normalized to [-1,1], create a Raycaster, set its origin from the camera and direction towards the mouse position, and intersect with the scene's meshes. Store the intersected object for further processing.",
+            "title": "Modify /api/generate Endpoint for Brief-Derived Prompts",
+            "description": "Update the existing /api/generate endpoint to accept and process prompts derived from creative briefs, ensuring compatibility with the new input format.",
+            "dependencies": [],
+            "details": "Locate the /api/generate endpoint in the backend code. Modify its request model to include fields for brief-derived prompts, such as brief ID and parsed scene data. Ensure the endpoint validates the input and integrates with existing generation logic without breaking current functionality. Update any related schemas or models to support this change.",
             "status": "completed",
-            "testStrategy": "Click on various objects in the rendered scene and verify that the raycaster correctly detects intersections by logging the selected object ID in the console."
+            "testStrategy": "Unit test the endpoint with mock brief-derived prompts to verify input validation and response generation."
           },
           {
             "id": 2,
-            "title": "Implement object selection with visual feedback and Elm communication",
-            "description": "Handle the selected object by highlighting it, attaching TransformControls, and sending the selection event to Elm via ports.",
-            "dependencies": [1],
-            "details": "After detecting the selected object via raycasting, implement a selectObject method that updates the object's material (e.g., change color or add an outline using a post-processing effect or emissive property), attaches TransformControls to the mesh for manipulation, and sends an 'objectClicked' event with the object ID to Elm through the defined ports. Ensure previous selections are deselected properly.",
+            "title": "Implement Auto-Generation of Physics Scene from Briefs",
+            "description": "Add functionality to automatically generate a physics scene from the first scene prompt in the ParseResponse, linking it to the brief generation process.",
+            "dependencies": [
+              1
+            ],
+            "details": "In the ParseResponse handling logic, extract the first scene prompt after brief parsing. Integrate with the physics scene generation module to auto-create a scene based on this prompt. Ensure this happens seamlessly post-parsing and before any rendering steps. Handle edge cases like missing prompts or invalid data gracefully.",
             "status": "completed",
-            "testStrategy": "Click on objects, check that visual highlights appear (e.g., outline or color change), TransformControls attach and allow dragging, and verify Elm receives the correct objectId via port messages in the debugger."
+            "testStrategy": "Integration test by submitting a brief, verifying that a physics scene is auto-generated and stored correctly."
+          },
+          {
+            "id": 3,
+            "title": "Link Briefs to Scenes/Videos in Database and Test Pipeline",
+            "description": "Ensure that creative briefs are linked to generated scenes and videos in the database for history tracking, and perform end-to-end integration testing of the entire pipeline.",
+            "dependencies": [
+              2
+            ],
+            "details": "Update the database schema or operations to associate brief IDs with scene and video records in the DB. Modify save operations in the generation and rendering endpoints to include these links. Implement history tracking queries if needed. Then, conduct full pipeline tests from brief parsing through scene generation to video rendering, verifying data flow and integrity.",
+            "status": "completed",
+            "testStrategy": "End-to-end integration test: Parse brief → Auto-generate scene → Render video → Verify DB links and history tracking. Use sample data to check for data consistency across the pipeline."
           }
         ]
       },
       {
         "id": 9,
-        "title": "Add transform controls for translate, rotate, and scale",
-        "description": "Integrate TransformControls for manipulating selected objects, handle mode switching from Elm, and sync changes back to Elm state.",
-        "details": "In PhysicsRenderer, set up TransformControls with event listeners for dragging and objectChange. Implement setTransformMode to switch between translate, rotate, scale. On change, send transformUpdate to Elm. Ensure controls detach during simulation.",
-        "testStrategy": "Select an object, press keys (G/R/S) to switch modes, drag to transform, verify real-time updates in Elm model and visual changes in Three.js.",
-        "priority": "high",
-        "dependencies": [8],
-        "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Set up TransformControls with event listeners in PhysicsRenderer",
-            "description": "Initialize TransformControls in the Three.js scene, attach it to the selected object, and add event listeners for 'dragging' and 'objectChange' to handle real-time updates.",
-            "dependencies": [],
-            "details": "In the PhysicsRenderer class, create a new TransformControls instance attached to the camera and scene. Add event listeners: on 'dragging' to prevent other interactions, and on 'objectChange' to capture transform changes. Ensure the controls are properly disposed when not in use.",
-            "status": "completed",
-            "testStrategy": "Attach controls to a selected object and verify that dragging updates the object's position/rotation/scale visually in Three.js without errors."
-          },
-          {
-            "id": 2,
-            "title": "Implement mode switching and Elm synchronization for TransformControls",
-            "description": "Add setTransformMode method to switch between translate, rotate, and scale modes based on Elm input, and send transform updates back to Elm via ports.",
-            "dependencies": [1],
-            "details": "Implement setTransformMode function that sets the controls.mode to 'translate', 'rotate', or 'scale' based on messages from Elm. On 'objectChange' event, send a transformUpdate message to Elm with the updated position, rotation, and scale. Ensure controls detach during simulation to prevent conflicts.",
-            "status": "completed",
-            "testStrategy": "Switch modes via Elm (e.g., key presses), perform transformations, and check that Elm state updates correctly and reflects in the UI or subsequent actions."
-          }
-        ]
-      },
-      {
-        "id": 10,
-        "title": "Implement simulation controls and property editing panel",
-        "description": "Add play/pause/reset buttons in Elm UI, connect to physics commands, and implement the right panel for editing object properties like mass, friction, etc.",
-        "details": "In Elm, add buttons for ToggleSimulation and ResetSimulation, update viewBottomBar and viewRightPanel. Handle UpdateObjectProperty messages to modify scene. Sync property changes to Three.js by reloading scene or updating colliders. Ensure sliders update physics properties.",
-        "testStrategy": "Edit properties in the panel (e.g., increase mass), simulate, observe different behaviors (e.g., heavier objects fall slower), and test play/pause/reset functionality with button clicks.",
-        "priority": "high",
-        "dependencies": [2, 4, 9],
-        "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Add UI buttons for simulation controls",
-            "description": "Implement play/pause/reset buttons in the Elm UI bottom bar, connecting them to ToggleSimulation and ResetSimulation messages.",
-            "dependencies": [2, 4],
-            "details": "Update the viewBottomBar function in Elm to include buttons for toggling simulation state and resetting the scene. Ensure buttons dispatch appropriate messages to the update function, and handle state changes for simulation running/paused.",
-            "status": "completed",
-            "testStrategy": "Click play/pause/reset buttons and verify simulation starts, pauses, or resets correctly, observing physics behavior in the scene."
-          },
-          {
-            "id": 2,
-            "title": "Implement property editing panel",
-            "description": "Create the right panel in Elm UI for editing object properties such as mass, friction, and other physics attributes using sliders and inputs.",
-            "dependencies": [2],
-            "details": "Update the viewRightPanel function to display editable properties for selected objects. Handle UpdateObjectProperty messages in the update function to modify the scene model. Ensure the panel only shows when an object is selected and updates dynamically.",
-            "status": "completed",
-            "testStrategy": "Select an object, adjust properties like mass via sliders, and confirm the UI reflects changes without errors."
-          },
-          {
-            "id": 3,
-            "title": "Sync property changes to physics engine",
-            "description": "Ensure changes from the property panel are synced to Three.js and Rapier physics by reloading the scene or updating colliders.",
-            "dependencies": [9, 1, 2],
-            "details": "In the Elm update function, after handling UpdateObjectProperty, use ports to send updated scene data to JavaScript. In the PhysicsRenderer, implement methods to update existing colliders or reload the scene with new properties. Handle cases where simulation is running or paused.",
-            "status": "completed",
-            "testStrategy": "Edit properties (e.g., increase mass), simulate, and observe if physics behavior changes correctly, such as objects falling at different speeds."
-          }
-        ]
-      },
-      {
-        "id": 11,
-        "title": "Add AI refinement feature",
-        "description": "Implement /api/refine endpoint in backend and UI in Elm for refining scenes with text instructions.",
-        "details": "In main.py, create refine_scene function with prompt to modify existing scene JSON. In Elm, add refine textarea and button, handle RefineScene message, update scene on response. Cache refinements if possible.",
-        "testStrategy": "Generate a scene, enter refinement text (e.g., 'make boxes red'), verify scene updates correctly, and check backend returns modified JSON without errors.",
-        "priority": "medium",
-        "dependencies": [6, 10],
-        "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Implement /api/refine endpoint in backend",
-            "description": "Create the refine_scene function in main.py that takes a prompt to modify an existing scene JSON and returns the refined scene.",
-            "dependencies": [6, 10],
-            "details": "In main.py, define a refine_scene function that accepts a scene JSON and a text prompt, uses AI to refine the scene based on the prompt, and returns the modified JSON. Ensure the endpoint handles caching of refinements if possible to optimize performance.",
-            "status": "completed",
-            "testStrategy": "Send a POST request to /api/refine with a sample scene JSON and a refinement prompt (e.g., 'make boxes red'), verify the response is a valid modified JSON without errors, and check that the scene updates correctly."
-          },
-          {
-            "id": 2,
-            "title": "Add UI elements in Elm for scene refinement",
-            "description": "Integrate a textarea and button in the Elm UI to allow users to input refinement instructions and trigger the refinement process.",
-            "dependencies": [6, 10],
-            "details": "In Elm, add a refine textarea and button to the UI, implement a RefineScene message to handle user input, send the refinement request to the backend, and update the scene state upon receiving the response. Include handling for loading states and potential errors.",
-            "status": "completed",
-            "testStrategy": "In the Elm UI, enter refinement text (e.g., 'make boxes red') in the textarea, click the refine button, verify the scene updates visually, and ensure no errors occur during the process."
-          }
-        ]
-      },
-      {
-        "id": 12,
-        "title": "Implement undo/redo system and local storage",
-        "description": "Add undo/redo functionality in Elm for scene changes and integrate IndexedDB for saving/loading scenes.",
-        "details": "In Elm, track history of scene states, implement undo/redo messages. Use ports to save/load scenes to/from localStorage or IndexedDB. Add buttons or shortcuts for undo/redo.",
-        "testStrategy": "Make changes to scene (e.g., move object, refine), use undo to revert, verify state restores, and test save/load by refreshing page and reloading scene.",
-        "priority": "medium",
-        "dependencies": [2, 11],
-        "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Implement scene history tracking in Elm model",
-            "description": "Extend the Elm model to maintain a history stack of scene states, allowing for undo and redo operations by storing previous and future states.",
-            "dependencies": [2],
-            "details": "In the Elm code, add a history field to the Model type, such as a list or stack of Scene states. Update the update function to push current state to history on scene changes (e.g., object moves, property edits). Ensure history is limited to prevent memory issues, perhaps keeping the last 50 states.",
-            "status": "completed",
-            "testStrategy": "Simulate scene changes in Elm debugger, verify history list updates correctly, and check that states are stored accurately for reversion."
-          },
-          {
-            "id": 2,
-            "title": "Add undo/redo messages and UI controls",
-            "description": "Implement Msg types for Undo and Redo, handle them in the update function to revert or advance scene states, and add buttons or keyboard shortcuts in the Elm UI.",
-            "dependencies": [1],
-            "details": "Define Undo and Redo messages in the Msg type. In the update function, on Undo, pop from history and set model to previous state; on Redo, advance forward. Add buttons to the UI (e.g., in viewBottomBar) and handle keyboard events (Ctrl+Z, Ctrl+Y). Ensure UI updates reflect current undo/redo availability.",
-            "status": "completed",
-            "testStrategy": "Click undo/redo buttons or use shortcuts after making scene changes, verify the scene reverts or advances correctly, and check that buttons disable when no history is available."
-          },
-          {
-            "id": 3,
-            "title": "Integrate IndexedDB for saving and loading scenes",
-            "description": "Use Elm ports to communicate with JavaScript for saving the current scene to IndexedDB and loading it back, ensuring persistence across sessions.",
-            "dependencies": [2, 11],
-            "details": "Set up ports in Elm for sending save/load commands. In JavaScript, implement IndexedDB operations to store scene data as JSON and retrieve it. Handle save on scene changes or user action, and load on app initialization or user request. Ensure data includes scene objects, properties, and history if needed.",
-            "status": "completed",
-            "testStrategy": "Make scene changes, trigger save, refresh the page, and verify the scene loads correctly from IndexedDB. Test loading invalid data handles errors gracefully."
-          }
-        ]
-      },
-      {
-        "id": 13,
-        "title": "Add keyboard shortcuts and UI polish",
-        "description": "Implement keyboard event handling for shortcuts (e.g., Space for play, R for rotate mode) and polish the UI with better styling, loading states, and error handling.",
-        "details": "In Elm subscriptions, add onKeyDown decoder. Handle KeyPressed messages for shortcuts. Update CSS in index.html for better appearance, add loading indicators for generation.",
-        "testStrategy": "Test shortcuts (e.g., press Space to toggle simulation, R to enter rotate mode), verify UI responsiveness, and check error messages display correctly on failures.",
-        "priority": "low",
-        "dependencies": [10, 12],
-        "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Implement Keyboard Shortcuts and UI Polish",
-            "description": "Add keyboard event handling for shortcuts like Space for play and R for rotate mode, and enhance UI with better styling, loading states, and error handling.",
-            "dependencies": [10, 12],
-            "details": "In Elm subscriptions, add an onKeyDown decoder to capture key presses. Handle KeyPressed messages to trigger actions such as toggling simulation or entering rotate mode. Update CSS in index.html for improved appearance, including better button styles and layout. Add loading indicators for scene generation processes and implement error handling to display messages on failures, ensuring the UI remains responsive.",
-            "status": "completed",
-            "testStrategy": "Test keyboard shortcuts by pressing Space to toggle simulation and R to enter rotate mode, verify UI responsiveness with loading indicators during generation, and check that error messages display correctly on failures."
-          }
-        ]
-      }
-    ],
-    "metadata": {
-      "created": "2025-11-12T21:11:39.802Z",
-      "updated": "2025-11-12T23:30:00.000Z",
-      "description": "Tasks for master context"
-    }
-  }
-}
-          {
-            "id": 2,
-            "title": "Implement update function for message handling",
-            "description": "Implement the update function to handle various Msg types, managing state transitions for text input, scene generation, object selection, transform updates, and simulation toggling.",
-            "dependencies": [
-              1
-            ],
-            "details": "In the update function, pattern match on Msg variants to update the Model accordingly, ensuring pure functions without side effects. Handle dependencies like updating scene from SceneGenerated, selecting objects via ObjectClicked, and toggling simulation state. Use Dict operations for object management and track initial states for reset.",
-            "status": "pending",
-            "testStrategy": "Simulate message dispatches in Elm debugger (e.g., send UpdateTextInput, GenerateScene) and verify model updates correctly without errors or side effects."
-          },
-          {
-            "id": 3,
-            "title": "Integrate ports for pure state management and external communication",
-            "description": "Set up ports for communication with JavaScript (e.g., for scene generation, object clicks, and simulation commands) while maintaining pure Elm state management.",
-            "dependencies": [
-              1,
-              2
-            ],
-            "details": "Define incoming and outgoing ports for messages like sceneGenerated, objectClicked, and commands to update Three.js. Ensure the update function uses Cmd for port calls and subscriptions for incoming data. Track initial scene states in Model for reset, and avoid direct side effects in update logic.",
-            "status": "pending",
-            "testStrategy": "Test port integration by triggering Elm actions (e.g., generate scene) and verifying JavaScript receives correct data; check that state remains pure by reloading and confirming no unexpected changes."
-          }
-        ]
-      },
-      {
-         "id": 3,
-         "title": "Set up Three.js renderer and basic scene rendering",
-         "description": "Initialize Three.js in the JavaScript bridge, set up the renderer, camera, controls, lights, and ground plane, and implement the loadScene method to render objects from Elm data.",
-         "details": "In index.js, create the PhysicsRenderer class with setupRenderer, setupCamera, setupControls (OrbitControls), setupLights, and setupPhysics (Rapier world). Implement loadScene to clear existing objects and add new ones using addObject, which creates Three.js meshes and Rapier bodies/colliders for Box, Sphere, Cylinder. Handle geometry creation based on object type and apply materials with visual properties.",
-         "testStrategy": "Run the app, verify Three.js renders a basic scene (e.g., ground plane), and check console for no WebGL errors. Manually test camera orbiting and ensure Rapier initializes without issues.",
-         "priority": "high",
-         "dependencies": [
-           1
-         ],
-         "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Initialize Three.js renderer and camera",
-            "description": "Set up the basic Three.js renderer and camera in the PhysicsRenderer class to enable scene rendering.",
-            "dependencies": [],
-            "details": "In index.js, within the PhysicsRenderer class, implement the setupRenderer method to create a WebGLRenderer, set its size to match the canvas container, and append it to the DOM. Implement setupCamera to create a PerspectiveCamera with appropriate field of view, aspect ratio, near and far planes, and position it suitably for the scene.",
-            "status": "pending",
-            "testStrategy": "Verify that the renderer initializes without WebGL errors and the camera is positioned correctly by checking the canvas renders a basic view."
-          },
-          {
-            "id": 2,
-            "title": "Set up OrbitControls and lighting",
-            "description": "Configure OrbitControls for camera manipulation and add basic lighting to the scene for proper object visibility.",
-            "dependencies": [
-              1
-            ],
-            "details": "Implement setupControls to initialize OrbitControls with the camera and renderer DOM element, enabling mouse-based orbiting, zooming, and panning. Implement setupLights to add ambient and directional lights to the scene, positioning them to illuminate objects effectively and include a ground plane mesh for reference.",
-            "status": "pending",
-            "testStrategy": "Test camera controls by orbiting and zooming in the rendered scene, and ensure lights illuminate objects without shadows or rendering artifacts."
-          },
-          {
-            "id": 3,
-            "title": "Implement scene loading with Rapier physics integration",
-            "description": "Develop the loadScene method to handle scene updates from Elm, integrating Three.js meshes with Rapier physics bodies and colliders.",
-            "dependencies": [
-              2
-            ],
-            "details": "Implement setupPhysics to initialize the Rapier world with gravity. Create the loadScene method to clear existing meshes and physics bodies, then use addObject to iterate through Elm-provided objects, creating Three.js geometries (BoxGeometry, SphereGeometry, CylinderGeometry) and meshes with materials based on visual properties. For each object, add corresponding Rapier rigid bodies and colliders (cuboid, ball, cylinder) linked to the meshes.",
-            "status": "pending",
-            "testStrategy": "Load a sample scene via Elm ports, verify objects render correctly with physics applied (e.g., falling under gravity), and check console for no Rapier initialization errors."
-          }
-        ]
-      },
-      {
-         "id": 4,
-         "title": "Integrate Rapier physics simulation loop",
-         "description": "Connect Rapier to the animation loop, sync Three.js meshes with physics bodies during simulation, and handle start/pause/reset commands from Elm.",
-         "details": "In the animate method, step the Rapier world when simulating, update mesh positions and rotations from body data, and send frame updates to Elm via ports. Implement startSimulation, pauseSimulation, and resetSimulation methods that detach transform controls and reload scene on reset. Ensure 60 FPS simulation with proper timestep.",
-         "testStrategy": "Trigger simulation via Elm, observe objects falling realistically under gravity, check that pause stops updates, and reset restores initial positions. Use browser dev tools to monitor FPS and ensure no performance drops.",
-         "priority": "high",
-         "dependencies": [
-           3
-         ],
-         "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Connect Rapier to the animation loop",
-            "description": "Modify the animate method to step the Rapier world during simulation, ensuring proper timestep for 60 FPS.",
-            "dependencies": [
-              3
-            ],
-            "details": "In the PhysicsRenderer class, update the animate method to call world.step() when simulation is active, using a fixed timestep like 1/60 to maintain consistent physics updates. Integrate this with the requestAnimationFrame loop to synchronize physics stepping with rendering.",
-            "status": "pending",
-            "testStrategy": "Monitor FPS in browser dev tools during simulation to ensure it stays at 60 FPS without drops."
-          },
-          {
-            "id": 2,
-            "title": "Sync Three.js meshes with physics bodies",
-            "description": "Update mesh positions and rotations from Rapier body data during each animation frame.",
-            "dependencies": [
-              1
-            ],
-            "details": "In the animate method, after stepping the world, iterate through all physics bodies, retrieve their positions and rotations, and apply them to the corresponding Three.js meshes using mesh.position.copy(body.translation()) and mesh.quaternion.copy(body.rotation()). Send frame updates to Elm via ports if needed.",
-            "status": "pending",
-            "testStrategy": "Trigger simulation and observe objects falling realistically under gravity, verifying that meshes follow physics bodies accurately."
-          },
-          {
-            "id": 3,
-            "title": "Implement start, pause, and reset simulation commands",
-            "description": "Add methods to handle startSimulation, pauseSimulation, and resetSimulation commands from Elm.",
-            "dependencies": [
-              2
-            ],
-            "details": "Implement startSimulation to begin stepping the world and detach transform controls, pauseSimulation to stop stepping, and resetSimulation to reload the scene, restore initial positions, and reattach controls. Ensure these methods are called via Elm ports and handle state transitions properly.",
-            "status": "pending",
-            "testStrategy": "Send commands from Elm to start, pause, and reset simulation, checking that pause stops updates, reset restores positions, and controls detach/reattach correctly."
-          }
-        ]
-      },
-      {
-         "id": 5,
-         "title": "Set up FastAPI backend server with CORS and basic structure",
-         "description": "Initialize the FastAPI application, configure CORS for local development, and define the basic endpoint structure including models for Vec3, Transform, PhysicsObject, Scene, etc.",
-         "details": "Create main.py with FastAPI app, add CORSMiddleware for localhost:5173. Define Pydantic models matching the JSON schema. Set up uvicorn for running the server on port 8000. Include placeholders for AI client and cache initialization. Ensure requirements.txt includes fastapi, uvicorn, pydantic.",
-         "testStrategy": "Start the server with uvicorn, verify it runs on localhost:8000, test CORS by making a request from the frontend, and check that models validate JSON correctly without errors.",
-         "priority": "high",
-         "dependencies": [],
-         "status": "completed",
-         "subtasks": [
-           {
-             "id": 1,
-             "title": "Initialize FastAPI application with CORS and define Pydantic models",
-             "description": "Set up the FastAPI app in main.py, configure CORSMiddleware for localhost:5173, and define Pydantic models for Vec3, Transform, PhysicsObject, Scene, etc., matching the JSON schema.",
-             "dependencies": [],
-             "details": "Create main.py with FastAPI instance, add CORSMiddleware allowing origins from localhost:5173. Define Pydantic BaseModel classes for Vec3, Transform, PhysicsObject, Scene, and other required models based on the provided JSON schema. Include placeholders for AI client and cache initialization. Ensure requirements.txt includes fastapi, uvicorn, and pydantic. Set up uvicorn to run the server on port 8000.",
-             "status": "completed",
-             "testStrategy": "Start the server with uvicorn and verify it runs on localhost:8000. Test CORS by making a cross-origin request from the frontend and confirm models validate JSON inputs without errors."
-           }
-         ]
-       },
-       {
-         "id": 6,
-         "title": "Integrate AI for scene generation",
-         "description": "Implement the /api/generate endpoint to use AI API for generating scenes from text prompts, including caching with LMDB.",
-         "details": "In main.py, implement generate_scene function with prompt template, call AI API, parse response as Scene, cache successful results using hashlib and lmdb. Handle errors for JSON parsing and API failures. Use environment variables for AI model configuration.",
-         "testStrategy": "Send POST requests to /api/generate with sample text (e.g., 'red box'), verify JSON response matches schema, check cache by repeating request (should be faster), and ensure invalid prompts return appropriate errors.",
-         "priority": "high",
-         "dependencies": [
-           5
-         ],
-         "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Implement /api/generate endpoint with AI API integration",
-            "description": "Create the /api/generate endpoint in main.py that accepts text prompts, uses a prompt template, calls the AI API, and parses the response into a Scene object. Handle errors for API failures and JSON parsing issues. Configure AI model settings via environment variables.",
-            "dependencies": [
-              5
-            ],
-            "details": "In main.py, define the generate_scene function that constructs a prompt template for scene generation, makes an API call to AI using the configured model (from env vars), parses the JSON response into a Scene object, and returns it. Implement error handling for invalid responses or API errors, raising appropriate exceptions. Ensure the endpoint is a POST route that accepts JSON with a 'prompt' field.",
-            "status": "pending",
-            "testStrategy": "Send POST requests to /api/generate with valid text prompts (e.g., 'red box'), verify the JSON response conforms to the Scene schema, and check that invalid prompts or API failures return proper error messages."
-          },
-          {
-            "id": 2,
-            "title": "Add LMDB caching for generated scenes",
-            "description": "Integrate LMDB caching to store successful scene generation results using hashlib for key generation, ensuring repeated requests for the same prompt are served from cache for improved performance.",
-            "dependencies": [
-              1
-            ],
-            "details": "In the generate_scene function, before calling the Claude API, compute a hash of the prompt using hashlib (e.g., SHA256), check if the result exists in an LMDB database. If cached, return the stored Scene; otherwise, proceed with API call and cache the successful result in LMDB. Handle cache misses and ensure thread-safe access if needed. Use environment variables for LMDB path configuration.",
-            "status": "pending",
-            "testStrategy": "Send identical POST requests to /api/generate, measure response times to verify caching (second request should be faster), and inspect LMDB database to confirm cached entries are stored correctly."
-          }
-        ]
-      },
-      {
-        "id": 7,
-        "title": "Add Genesis physics validation to backend",
-        "description": "Implement validate_with_genesis function and integrate it into scene generation and a separate /api/validate endpoint.",
-        "details": "Use genesis-world library to create a scene, add entities based on object types, simulate 60 frames, and check for stability. Return validation results. Integrate into generate_scene to reject invalid scenes. Ensure Genesis handles Box and Sphere types primarily.",
-        "testStrategy": "Test /api/validate with valid and invalid scenes (e.g., overlapping objects), verify it detects issues like instability, and ensure generate_scene fails gracefully on validation errors.",
+        "title": "Update Frontend Components",
+        "description": "Integrate Elm frontend with new creative brief features.",
+        "details": "Add CreativeBriefEditor.elm for multi-modal input form and JSON display. Create BriefGallery.elm for listing and editing briefs. Implement ports for media uploads. Update workflow to auto-populate physics scene inputs and add 'Generate Video from Brief' button.",
+        "testStrategy": "Manual UI testing: Submit prompts, view briefs, refine, and trigger scene generation. Ensure Elm ports handle uploads correctly.",
         "priority": "medium",
         "dependencies": [
-          5,
-          6
+          4,
+          7
         ],
-        "status": "pending",
+        "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Implement validate_with_genesis function using Genesis library",
-            "description": "Create the validate_with_genesis function that uses genesis-world to build a scene, add Box and Sphere entities, simulate 60 frames, and check for stability.",
-            "dependencies": [
-              5,
-              6
-            ],
-            "details": "In the backend, import genesis-world, define validate_with_genesis(scene_data) that parses object types, creates a Genesis scene, adds rigid bodies for Boxes and Spheres with appropriate properties, runs a 60-frame simulation, and evaluates stability by checking for excessive movement or collisions. Return a validation result object indicating pass/fail with details.",
-            "status": "pending",
-            "testStrategy": "Unit test the function with mock scene data containing stable and unstable configurations, verifying it correctly identifies stability issues like overlapping objects falling apart."
+            "title": "Develop CreativeBriefEditor.elm Component",
+            "description": "Create the CreativeBriefEditor.elm component for a multi-modal input form that handles text, images, and videos, with JSON display functionality.",
+            "dependencies": [],
+            "details": "Implement the Elm component with form fields for text prompts, image/video URLs, platform, and category. Add JSON preview and validation logic. Ensure integration with existing Elm architecture.",
+            "status": "completed",
+            "testStrategy": null
           },
           {
             "id": 2,
-            "title": "Integrate Genesis validation into scene generation and API endpoint",
-            "description": "Integrate the validate_with_genesis function into generate_scene to reject invalid scenes and expose it via a new /api/validate endpoint.",
+            "title": "Develop BriefGallery.elm Component",
+            "description": "Build the BriefGallery.elm component for listing, viewing, and editing creative briefs.",
+            "dependencies": [],
+            "details": "Create a gallery view that fetches and displays user briefs from the backend. Include edit functionality to modify briefs and save changes via API calls. Handle UI states for loading and errors.",
+            "status": "completed",
+            "testStrategy": null
+          },
+          {
+            "id": 3,
+            "title": "Implement Ports for Media Uploads",
+            "description": "Add Elm ports to handle media file uploads for images and videos in the creative brief editor.",
             "dependencies": [
               1
             ],
-            "details": "Modify generate_scene to call validate_with_genesis after scene creation and reject if validation fails, raising an appropriate error. Create a new Flask route /api/validate that accepts scene data via POST, calls validate_with_genesis, and returns the validation results as JSON. Ensure error handling for unsupported object types beyond Box and Sphere.",
+            "details": "Define incoming and outgoing ports in Elm for communicating with JavaScript to manage file uploads. Implement JavaScript side to handle file selection, validation, and sending to backend. Ensure secure handling of media data.",
             "status": "pending",
-            "testStrategy": "Test generate_scene by attempting to generate invalid scenes (e.g., unstable stacks) and confirm rejection. Hit /api/validate with valid/invalid JSON payloads and verify correct pass/fail responses, including error messages for unsupported types."
-          }
-        ]
-      },
-      {
-         "id": 8,
-         "title": "Implement object selection and raycasting in Three.js",
-         "description": "Add click event handling for object selection using raycasting, highlight selected objects, and communicate selections back to Elm.",
-         "details": "In setupControls, add mouse event listener for clicks, use Raycaster to intersect meshes, send objectClicked event to Elm. Implement selectObject to attach TransformControls to the selected mesh. Update material or add outline for visual feedback.",
-         "testStrategy": "Click on rendered objects in the scene, verify selection highlights appear, TransformControls attach, and Elm receives the correct objectId via ports.",
-         "priority": "high",
-         "dependencies": [
-           2,
-           3
-         ],
-         "status": "completed",
-        "subtasks": [
+            "testStrategy": null
+          },
           {
-            "id": 1,
-            "title": "Add click event handling and raycasting for object detection",
-            "description": "Implement mouse click event listener in setupControls to detect clicks on the canvas, use Three.js Raycaster to intersect with meshes in the scene, and identify the selected object.",
+            "id": 4,
+            "title": "Update Workflow and Add Generate Button with Testing",
+            "description": "Modify the frontend workflow to auto-populate physics scene inputs from briefs and add a 'Generate Video from Brief' button, followed by manual UI testing.",
             "dependencies": [
+              1,
               2,
               3
             ],
-            "details": "In the setupControls method of the PhysicsRenderer class, add an event listener for 'click' events on the renderer.domElement. Calculate mouse position normalized to [-1,1], create a Raycaster, set its origin from the camera and direction towards the mouse position, and intersect with the scene's meshes. Store the intersected object for further processing.",
+            "details": "Integrate logic to pull data from briefs into scene inputs automatically. Add the button to trigger video generation. Perform manual testing by submitting prompts, viewing and refining briefs, and ensuring ports handle uploads and scene generation correctly.",
             "status": "pending",
-            "testStrategy": "Click on various objects in the rendered scene and verify that the raycaster correctly detects intersections by logging the selected object ID in the console."
-          },
-          {
-            "id": 2,
-            "title": "Implement object selection with visual feedback and Elm communication",
-            "description": "Handle the selected object by highlighting it, attaching TransformControls, and sending the selection event to Elm via ports.",
-            "dependencies": [
-              1
-            ],
-            "details": "After detecting the selected object via raycasting, implement a selectObject method that updates the object's material (e.g., change color or add an outline using a post-processing effect or emissive property), attaches TransformControls to the mesh for manipulation, and sends an 'objectClicked' event with the object ID to Elm through the defined ports. Ensure previous selections are deselected properly.",
-            "status": "pending",
-            "testStrategy": "Click on objects, check that visual highlights appear (e.g., outline or color change), TransformControls attach and allow dragging, and verify Elm receives the correct objectId via port messages in the debugger."
-          }
-        ]
-      },
-      {
-         "id": 9,
-         "title": "Add transform controls for translate, rotate, and scale",
-         "description": "Integrate TransformControls for manipulating selected objects, handle mode switching from Elm, and sync changes back to Elm state.",
-         "details": "In PhysicsRenderer, set up TransformControls with event listeners for dragging and objectChange. Implement setTransformMode to switch between translate, rotate, scale. On change, send transformUpdate to Elm. Ensure controls detach during simulation.",
-         "testStrategy": "Select an object, press keys (G/R/S) to switch modes, drag to transform, verify real-time updates in Elm model and visual changes in Three.js.",
-         "priority": "high",
-         "dependencies": [
-           8
-         ],
-         "status": "completed",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Set up TransformControls with event listeners in PhysicsRenderer",
-            "description": "Initialize TransformControls in the Three.js scene, attach it to the selected object, and add event listeners for 'dragging' and 'objectChange' to handle real-time updates.",
-            "dependencies": [],
-            "details": "In the PhysicsRenderer class, create a new TransformControls instance attached to the camera and scene. Add event listeners: on 'dragging' to prevent other interactions, and on 'objectChange' to capture transform changes. Ensure the controls are properly disposed when not in use.",
-            "status": "pending",
-            "testStrategy": "Attach controls to a selected object and verify that dragging updates the object's position/rotation/scale visually in Three.js without errors."
-          },
-          {
-            "id": 2,
-            "title": "Implement mode switching and Elm synchronization for TransformControls",
-            "description": "Add setTransformMode method to switch between translate, rotate, and scale modes based on Elm input, and send transform updates back to Elm via ports.",
-            "dependencies": [
-              1
-            ],
-            "details": "Implement setTransformMode function that sets the controls.mode to 'translate', 'rotate', or 'scale' based on messages from Elm. On 'objectChange' event, send a transformUpdate message to Elm with the updated position, rotation, and scale. Ensure controls detach during simulation to prevent conflicts.",
-            "status": "pending",
-            "testStrategy": "Switch modes via Elm (e.g., key presses), perform transformations, and check that Elm state updates correctly and reflects in the UI or subsequent actions."
+            "testStrategy": "Manual UI testing: Submit various prompts, view and edit briefs in the gallery, verify auto-population of scene inputs, and test the 'Generate Video from Brief' button to ensure proper workflow and port functionality."
           }
         ]
       },
       {
         "id": 10,
-        "title": "Implement simulation controls and property editing panel",
-        "description": "Add play/pause/reset buttons in Elm UI, connect to physics commands, and implement the right panel for editing object properties like mass, friction, etc.",
-        "details": "In Elm, add buttons for ToggleSimulation and ResetSimulation, update viewBottomBar and viewRightPanel. Handle UpdateObjectProperty messages to modify scene. Sync property changes to Three.js by reloading scene or updating colliders. Ensure sliders update physics properties.",
-        "testStrategy": "Edit properties in the panel (e.g., increase mass), simulate, observe different behaviors (e.g., heavier objects fall slower), and test play/pause/reset functionality with button clicks.",
-        "priority": "high",
+        "title": "Add Logging and Testing",
+        "description": "Implement observability and comprehensive testing for the integration.",
+        "details": "Add structured logging with Structlog. Write unit and integration tests for all new endpoints and functions (aim for 100% coverage). Clean up old promptparser files post-testing.",
+        "testStrategy": "Run test suite to achieve 100% coverage. Validate performance targets (<15s generation, <50ms DB queries).",
+        "priority": "low",
         "dependencies": [
+          1,
           2,
+          3,
           4,
+          5,
+          6,
+          7,
+          8,
           9
         ],
-        "status": "pending",
+        "status": "completed",
         "subtasks": [
           {
             "id": 1,
-            "title": "Add UI buttons for simulation controls",
-            "description": "Implement play/pause/reset buttons in the Elm UI bottom bar, connecting them to ToggleSimulation and ResetSimulation messages.",
-            "dependencies": [
-              2,
-              4
-            ],
-            "details": "Update the viewBottomBar function in Elm to include buttons for toggling simulation state and resetting the scene. Ensure buttons dispatch appropriate messages to the update function, and handle state changes for simulation running/paused.",
-            "status": "pending",
-            "testStrategy": "Click play/pause/reset buttons and verify simulation starts, pauses, or resets correctly, observing physics behavior in the scene."
+            "title": "Add Structured Logging with Structlog",
+            "description": "Implement structured logging using Structlog to replace any existing logging mechanisms with consistent, machine-readable logs across the service.",
+            "dependencies": [],
+            "details": "Install Structlog, configure it in the application startup, update all logging statements in endpoints, services, and utilities to use Structlog with appropriate log levels, context, and JSON formatting for better observability.",
+            "status": "completed",
+            "testStrategy": "Review log outputs in development and test environments to ensure structured format and completeness of logged events."
           },
           {
             "id": 2,
-            "title": "Implement property editing panel",
-            "description": "Create the right panel in Elm UI for editing object properties such as mass, friction, and other physics attributes using sliders and inputs.",
-            "dependencies": [
-              2
-            ],
-            "details": "Update the viewRightPanel function to display editable properties for selected objects. Handle UpdateObjectProperty messages in the update function to modify the scene model. Ensure the panel only shows when an object is selected and updates dynamically.",
-            "status": "pending",
-            "testStrategy": "Select an object, adjust properties like mass via sliders, and confirm the UI reflects changes without errors."
-          },
-          {
-            "id": 3,
-            "title": "Sync property changes to physics engine",
-            "description": "Ensure changes from the property panel are synced to Three.js and Rapier physics by reloading the scene or updating colliders.",
-            "dependencies": [
-              9,
-              1,
-              2
-            ],
-            "details": "In the Elm update function, after handling UpdateObjectProperty, use ports to send updated scene data to JavaScript. In the PhysicsRenderer, implement methods to update existing colliders or reload the scene with new properties. Handle cases where simulation is running or paused.",
-            "status": "pending",
-            "testStrategy": "Edit properties (e.g., increase mass), simulate, and observe if physics behavior changes correctly, such as objects falling at different speeds."
-          }
-        ]
-      },
-      {
-        "id": 11,
-        "title": "Add AI refinement feature",
-        "description": "Implement /api/refine endpoint in backend and UI in Elm for refining scenes with text instructions.",
-        "details": "In main.py, create refine_scene function with prompt to modify existing scene JSON. In Elm, add refine textarea and button, handle RefineScene message, update scene on response. Cache refinements if possible.",
-        "testStrategy": "Generate a scene, enter refinement text (e.g., 'make boxes red'), verify scene updates correctly, and check backend returns modified JSON without errors.",
-        "priority": "medium",
-        "dependencies": [
-          6,
-          10
-        ],
-        "status": "pending",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Implement /api/refine endpoint in backend",
-            "description": "Create the refine_scene function in main.py that takes a prompt to modify an existing scene JSON and returns the refined scene.",
-            "dependencies": [
-              6,
-              10
-            ],
-            "details": "In main.py, define a refine_scene function that accepts a scene JSON and a text prompt, uses AI to refine the scene based on the prompt, and returns the modified JSON. Ensure the endpoint handles caching of refinements if possible to optimize performance.",
-            "status": "pending",
-            "testStrategy": "Send a POST request to /api/refine with a sample scene JSON and a refinement prompt (e.g., 'make boxes red'), verify the response is a valid modified JSON without errors, and check that the scene updates correctly."
-          },
-          {
-            "id": 2,
-            "title": "Add UI elements in Elm for scene refinement",
-            "description": "Integrate a textarea and button in the Elm UI to allow users to input refinement instructions and trigger the refinement process.",
-            "dependencies": [
-              6,
-              10
-            ],
-            "details": "In Elm, add a refine textarea and button to the UI, implement a RefineScene message to handle user input, send the refinement request to the backend, and update the scene state upon receiving the response. Include handling for loading states and potential errors.",
-            "status": "pending",
-            "testStrategy": "In the Elm UI, enter refinement text (e.g., 'make boxes red') in the textarea, click the refine button, verify the scene updates visually, and ensure no errors occur during the process."
-          }
-        ]
-      },
-      {
-        "id": 12,
-        "title": "Implement undo/redo system and local storage",
-        "description": "Add undo/redo functionality in Elm for scene changes and integrate IndexedDB for saving/loading scenes.",
-        "details": "In Elm, track history of scene states, implement undo/redo messages. Use ports to save/load scenes to/from localStorage or IndexedDB. Add buttons or shortcuts for undo/redo.",
-        "testStrategy": "Make changes to scene (e.g., move object, refine), use undo to revert, verify state restores, and test save/load by refreshing page and reloading scene.",
-        "priority": "medium",
-        "dependencies": [
-          2,
-          11
-        ],
-        "status": "pending",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Implement scene history tracking in Elm model",
-            "description": "Extend the Elm model to maintain a history stack of scene states, allowing for undo and redo operations by storing previous and future states.",
-            "dependencies": [
-              2
-            ],
-            "details": "In the Elm code, add a history field to the Model type, such as a list or stack of Scene states. Update the update function to push current state to history on scene changes (e.g., object moves, property edits). Ensure history is limited to prevent memory issues, perhaps keeping the last 50 states.",
-            "status": "pending",
-            "testStrategy": "Simulate scene changes in Elm debugger, verify history list updates correctly, and check that states are stored accurately for reversion."
-          },
-          {
-            "id": 2,
-            "title": "Add undo/redo messages and UI controls",
-            "description": "Implement Msg types for Undo and Redo, handle them in the update function to revert or advance scene states, and add buttons or keyboard shortcuts in the Elm UI.",
+            "title": "Write Comprehensive Unit Tests",
+            "description": "Develop unit tests for all new functions, classes, and utilities introduced in the integration, focusing on isolated testing of individual components.",
             "dependencies": [
               1
             ],
-            "details": "Define Undo and Redo messages in the Msg type. In the update function, on Undo, pop from history and set model to previous state; on Redo, advance forward. Add buttons to the UI (e.g., in viewBottomBar) and handle keyboard events (Ctrl+Z, Ctrl+Y). Ensure UI updates reflect current undo/redo availability.",
-            "status": "pending",
-            "testStrategy": "Click undo/redo buttons or use shortcuts after making scene changes, verify the scene reverts or advances correctly, and check that buttons disable when no history is available."
+            "details": "Create unit test files using pytest for modules in services/, API endpoints, configuration, caching, and LLM registry. Mock external dependencies like SQLite and LLM APIs to test logic independently. Aim for high coverage on core logic.",
+            "status": "completed",
+            "testStrategy": "Run unit tests with pytest-cov to measure coverage and ensure all branches are tested, fixing any gaps identified."
           },
           {
             "id": 3,
-            "title": "Integrate IndexedDB for saving and loading scenes",
-            "description": "Use Elm ports to communicate with JavaScript for saving the current scene to IndexedDB and loading it back, ensuring persistence across sessions.",
+            "title": "Write Integration Tests",
+            "description": "Develop integration tests to validate end-to-end functionality, including API endpoints, database interactions, caching, and LLM integrations.",
             "dependencies": [
-              2,
-              11
+              2
             ],
-            "details": "Set up ports in Elm for sending save/load commands. In JavaScript, implement IndexedDB operations to store scene data as JSON and retrieve it. Handle save on scene changes or user action, and load on app initialization or user request. Ensure data includes scene objects, properties, and history if needed.",
-            "status": "pending",
-            "testStrategy": "Make scene changes, trigger save, refresh the page, and verify the scene loads correctly from IndexedDB. Test loading invalid data handles errors gracefully."
-          }
-        ]
-      },
-      {
-        "id": 13,
-        "title": "Add keyboard shortcuts and UI polish",
-        "description": "Implement keyboard event handling for shortcuts (e.g., Space for play, R for rotate mode) and polish the UI with better styling, loading states, and error handling.",
-        "details": "In Elm subscriptions, add onKeyDown decoder. Handle KeyPressed messages for shortcuts. Update CSS in index.html for better appearance, add loading indicators for generation.",
-        "testStrategy": "Test shortcuts (e.g., press Space to toggle simulation, R to enter rotate mode), verify UI responsiveness, and check error messages display correctly on failures.",
-        "priority": "low",
-        "dependencies": [
-          10,
-          12
-        ],
-        "status": "pending",
-        "subtasks": [
+            "details": "Write integration tests using pytest and test client for FastAPI endpoints like /api/creative/parse and /api/creative/briefs. Include tests for rate limiting, cache hit rates, and brief persistence/retrieval. Use real or mocked external services where appropriate.",
+            "status": "completed",
+            "testStrategy": "Execute integration tests in a test environment with actual SQLite and database to verify full workflows and performance metrics."
+          },
           {
-            "id": 1,
-            "title": "Implement Keyboard Shortcuts and UI Polish",
-            "description": "Add keyboard event handling for shortcuts like Space for play and R for rotate mode, and enhance UI with better styling, loading states, and error handling.",
+            "id": 4,
+            "title": "Achieve Coverage Goals and Cleanup",
+            "description": "Ensure 100% test coverage and perform cleanup of old files.",
             "dependencies": [
-              10,
-              12
+              3
             ],
-            "details": "In Elm subscriptions, add an onKeyDown decoder to capture key presses. Handle KeyPressed messages to trigger actions such as toggling simulation or entering rotate mode. Update CSS in index.html for improved appearance, including better button styles and layout. Add loading indicators for scene generation processes and implement error handling to display messages on failures, ensuring the UI remains responsive.",
-            "status": "pending",
-            "testStrategy": "Test keyboard shortcuts by pressing Space to toggle simulation and R to enter rotate mode, verify UI responsiveness with loading indicators during generation, and check that error messages display correctly on failures."
+            "details": "Run full test suite to achieve 100% coverage using tools like pytest-cov. After validation, remove old promptparser files and update documentation.",
+            "status": "completed",
+            "testStrategy": "Monitor application logs via Structlog outputs, validate against performance targets, and confirm cleanup without breaking functionality."
           }
         ]
       }
     ],
     "metadata": {
-       "created": "2025-11-12T21:11:39.802Z",
-       "updated": "2025-11-12T23:30:00.000Z",
-       "description": "Tasks for master context"
-     }
+      "created": "2025-11-15T21:14:16.544Z",
+      "updated": "2025-11-15T21:14:16.545Z",
+      "description": "Tasks for promptparser context"
+    }
   }
 }
