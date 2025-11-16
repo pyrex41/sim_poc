@@ -1820,40 +1820,19 @@ async def api_list_videos(
     """
     List generated videos from the database. Requires authentication.
 
-    Also retries downloading videos < 1 hour old that don't have local files yet.
+    Automatically retries fetching videos stuck in 'processing' status when gallery refreshes.
     """
-    from .database import list_videos, mark_download_attempted, mark_download_failed
+    from .database import list_videos
     from datetime import datetime, timedelta
 
     videos = list_videos(limit=limit, offset=offset, model_id=model_id, collection=collection)
 
-    # Check for videos that need retry downloading
-    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-
+    # Auto-retry any videos in 'processing' status on gallery refresh
     for video in videos:
-        # Skip if video already has a local file
-        video_url = video.get("video_url", "")
-        if video_url and video_url.startswith("/data/videos/"):
+        if video.get("status") != "processing":
             continue
 
-        # Check if video is less than 1 hour old
-        created_at_str = video.get("created_at")
-        if not created_at_str:
-            continue
-
-        try:
-            created_at = datetime.fromisoformat(created_at_str.replace("Z", "+00:00"))
-        except:
-            # Try without timezone
-            try:
-                created_at = datetime.strptime(created_at_str, "%Y-%m-%d %H:%M:%S")
-            except:
-                continue
-
-        if created_at < one_hour_ago:
-            continue  # Too old, Replicate URL would be expired
-
-        # Check if there's a Replicate URL in metadata we can retry
+        # Get metadata
         metadata = video.get("metadata", {})
         if isinstance(metadata, str):
             try:
@@ -1862,40 +1841,75 @@ async def api_list_videos(
             except:
                 metadata = {}
 
-        original_url = metadata.get("original_url")
-        if not original_url:
+        prediction_url = metadata.get("prediction_url")
+        replicate_id = metadata.get("replicate_id")
+
+        if not prediction_url and not replicate_id:
             continue
 
-        # Retry download in background
+        # Construct prediction URL if we only have ID
+        if not prediction_url and replicate_id:
+            prediction_url = f"https://api.replicate.com/v1/predictions/{replicate_id}"
+
         video_id = video["id"]
 
-        def retry_download():
-            # Check if already attempted to prevent race condition
-            if not mark_download_attempted(video_id):
-                print(f"Video {video_id} download already attempted, skipping retry")
+        # Auto-retry in background
+        def auto_retry_task(vid_id, pred_url):
+            import requests
+
+            api_key = settings.REPLICATE_API_KEY
+            if not api_key:
                 return
 
-            print(f"Retrying download for video {video_id} (less than 1 hour old)")
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+
             try:
-                db_url = download_and_save_video(original_url, video_id)
+                # Check prediction status
+                response = requests.get(pred_url, headers=headers, timeout=10)
+                response.raise_for_status()
+                pred_data = response.json()
 
-                # Update metadata to preserve replicate_id
-                new_metadata = metadata.copy()
-                new_metadata["retry_download"] = True
+                status = pred_data.get("status")
 
-                update_video_status(
-                    video_id=video_id,
-                    status="completed",
-                    video_url=db_url,
-                    metadata=new_metadata
-                )
-                print(f"Video {video_id} successfully downloaded on retry")
+                if status == "succeeded":
+                    output = pred_data.get("output", [])
+                    if isinstance(output, str):
+                        output = [output]
+
+                    video_url = output[0] if output else ""
+
+                    if video_url:
+                        # Download and save
+                        db_url = download_and_save_video(video_url, vid_id)
+                        update_video_status(
+                            video_id=vid_id,
+                            status="completed",
+                            video_url=db_url,
+                            metadata={
+                                "replicate_id": pred_data.get("id"),
+                                "prediction_url": pred_url,
+                                "original_url": video_url,
+                                "auto_retried": True
+                            }
+                        )
+                        print(f"Auto-retry: Video {vid_id} completed")
+                elif status in ["failed", "canceled"]:
+                    error = pred_data.get("error", "Unknown error")
+                    update_video_status(
+                        video_id=vid_id,
+                        status=status,
+                        metadata={"error": error, "replicate_id": pred_data.get("id"), "auto_retried": True}
+                    )
+                    print(f"Auto-retry: Video {vid_id} {status}")
+                # If still processing, leave as-is
+
             except Exception as e:
-                error_msg = f"Retry download failed: {str(e)}"
-                print(f"Video {video_id}: {error_msg}")
-                mark_download_failed(video_id, error_msg)
+                print(f"Auto-retry error for video {vid_id}: {e}")
 
-        background_tasks.add_task(retry_download)
+        background_tasks.add_task(auto_retry_task, video_id, prediction_url)
 
     return {"videos": videos}
 
@@ -2478,14 +2492,104 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
 
 @app.get("/api/images")
 async def api_get_images(
+    background_tasks: BackgroundTasks,
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     model_id: Optional[str] = None,
     collection: Optional[str] = None,
     current_user: Dict = Depends(verify_auth)
 ):
-    """Get generated images. Requires authentication."""
+    """
+    Get generated images. Requires authentication.
+
+    Automatically retries fetching images stuck in 'processing' status when gallery refreshes.
+    """
     images = list_images(limit=limit, offset=offset, model_id=model_id, collection=collection)
+
+    # Auto-retry any images in 'processing' status on gallery refresh
+    for image in images:
+        if image.get("status") != "processing":
+            continue
+
+        # Get metadata
+        metadata = image.get("metadata", {})
+        if isinstance(metadata, str):
+            try:
+                import json
+                metadata = json.loads(metadata)
+            except:
+                metadata = {}
+
+        prediction_url = metadata.get("prediction_url")
+        replicate_id = metadata.get("replicate_id")
+
+        if not prediction_url and not replicate_id:
+            continue
+
+        # Construct prediction URL if we only have ID
+        if not prediction_url and replicate_id:
+            prediction_url = f"https://api.replicate.com/v1/predictions/{replicate_id}"
+
+        image_id = image["id"]
+
+        # Auto-retry in background
+        def auto_retry_image_task(img_id, pred_url):
+            import requests
+
+            api_key = settings.REPLICATE_API_KEY
+            if not api_key:
+                return
+
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+
+            try:
+                # Check prediction status
+                response = requests.get(pred_url, headers=headers, timeout=10)
+                response.raise_for_status()
+                pred_data = response.json()
+
+                status = pred_data.get("status")
+
+                if status == "succeeded":
+                    output = pred_data.get("output", [])
+                    if isinstance(output, str):
+                        output = [output]
+
+                    image_url = output[0] if output else ""
+
+                    if image_url:
+                        # Download and save
+                        db_url = download_and_save_image(image_url, img_id)
+                        update_image_status(
+                            image_id=img_id,
+                            status="completed",
+                            image_url=db_url,
+                            metadata={
+                                "replicate_id": pred_data.get("id"),
+                                "prediction_url": pred_url,
+                                "original_url": image_url,
+                                "auto_retried": True
+                            }
+                        )
+                        print(f"Auto-retry: Image {img_id} completed")
+                elif status in ["failed", "canceled"]:
+                    error = pred_data.get("error", "Unknown error")
+                    update_image_status(
+                        image_id=img_id,
+                        status=status,
+                        metadata={"error": error, "replicate_id": pred_data.get("id"), "auto_retried": True}
+                    )
+                    print(f"Auto-retry: Image {img_id} {status}")
+                # If still processing, leave as-is
+
+            except Exception as e:
+                print(f"Auto-retry error for image {img_id}: {e}")
+
+        background_tasks.add_task(auto_retry_image_task, image_id, prediction_url)
+
     return {"images": images}
 
 @app.get("/api/images/{image_id}")
