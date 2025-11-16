@@ -4065,6 +4065,234 @@ app.include_router(briefs_api.router, prefix="/api/creative", tags=["creative"])
 app.include_router(clients_campaigns_router, prefix="/api", tags=["Core Entities"])
 
 # ============================================
+# Video/Image Retry Endpoints
+# ============================================
+
+@app.post("/api/videos/{video_id}/retry")
+async def retry_video_processing(
+    video_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Retry fetching a video from Replicate that may have failed webhook processing.
+    Checks the Replicate prediction status and downloads the video if ready.
+    """
+    from .database import get_video_by_id
+
+    video = get_video_by_id(video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    # Get replicate prediction URL from metadata
+    metadata = video.get("metadata", {})
+    prediction_url = metadata.get("prediction_url")
+    replicate_id = metadata.get("replicate_id")
+
+    if not prediction_url and not replicate_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Video has no Replicate prediction URL or ID in metadata"
+        )
+
+    # Construct prediction URL if we only have ID
+    if not prediction_url and replicate_id:
+        prediction_url = f"https://api.replicate.com/v1/predictions/{replicate_id}"
+
+    # Check current status
+    if video["status"] == "completed":
+        return {
+            "message": "Video already completed",
+            "video_id": video_id,
+            "status": "completed"
+        }
+
+    # Retry the download in background
+    def retry_task():
+        import requests
+
+        api_key = settings.REPLICATE_API_KEY
+        if not api_key:
+            print(f"Cannot retry video {video_id}: No Replicate API key")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            # Check prediction status
+            response = requests.get(prediction_url, headers=headers)
+            response.raise_for_status()
+            pred_data = response.json()
+
+            status = pred_data.get("status")
+
+            if status == "succeeded":
+                output = pred_data.get("output", [])
+                if isinstance(output, str):
+                    output = [output]
+
+                video_url = output[0] if output else ""
+
+                if video_url:
+                    # Try to download
+                    db_url = download_and_save_video(video_url, video_id)
+                    update_video_status(
+                        video_id=video_id,
+                        status="completed",
+                        video_url=db_url,
+                        metadata={
+                            "replicate_id": pred_data.get("id"),
+                            "prediction_url": prediction_url,
+                            "original_url": video_url,
+                            "retried": True
+                        }
+                    )
+                    print(f"Video {video_id} retry successful")
+                else:
+                    update_video_status(
+                        video_id=video_id,
+                        status="failed",
+                        metadata={"error": "No video URL in response", "retried": True}
+                    )
+            elif status in ["failed", "canceled"]:
+                error = pred_data.get("error", "Unknown error")
+                update_video_status(
+                    video_id=video_id,
+                    status=status,
+                    metadata={"error": error, "replicate_id": pred_data.get("id"), "retried": True}
+                )
+            elif status == "processing":
+                # Still processing, don't change status
+                print(f"Video {video_id} still processing on Replicate")
+
+        except Exception as e:
+            print(f"Error retrying video {video_id}: {e}")
+            import traceback
+            traceback.print_exc()
+
+    background_tasks.add_task(retry_task)
+
+    return {
+        "message": "Retry initiated",
+        "video_id": video_id,
+        "prediction_url": prediction_url
+    }
+
+@app.post("/api/videos/retry-all-stuck")
+async def retry_all_stuck_videos(
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(get_current_admin_user)
+):
+    """
+    Admin endpoint: Retry all videos stuck in 'processing' status.
+    Useful for recovering from webhook failures.
+    """
+    from .database import get_db
+
+    # Find all videos stuck in processing
+    stuck_videos = []
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, metadata FROM generated_videos
+            WHERE status = 'processing'
+            AND (json_extract(metadata, '$.prediction_url') IS NOT NULL
+                 OR json_extract(metadata, '$.replicate_id') IS NOT NULL)
+            """
+        ).fetchall()
+
+        for row in rows:
+            stuck_videos.append({
+                "id": row["id"],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
+            })
+
+    if not stuck_videos:
+        return {
+            "message": "No stuck videos found",
+            "count": 0
+        }
+
+    # Retry each one
+    def retry_all_task():
+        import requests
+
+        api_key = settings.REPLICATE_API_KEY
+        if not api_key:
+            print("Cannot retry videos: No Replicate API key")
+            return
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        for video in stuck_videos:
+            video_id = video["id"]
+            metadata = video["metadata"]
+
+            prediction_url = metadata.get("prediction_url")
+            replicate_id = metadata.get("replicate_id")
+
+            if not prediction_url and replicate_id:
+                prediction_url = f"https://api.replicate.com/v1/predictions/{replicate_id}"
+
+            if not prediction_url:
+                print(f"Skipping video {video_id}: no prediction URL")
+                continue
+
+            try:
+                response = requests.get(prediction_url, headers=headers)
+                response.raise_for_status()
+                pred_data = response.json()
+
+                status = pred_data.get("status")
+
+                if status == "succeeded":
+                    output = pred_data.get("output", [])
+                    if isinstance(output, str):
+                        output = [output]
+
+                    video_url = output[0] if output else ""
+
+                    if video_url:
+                        db_url = download_and_save_video(video_url, video_id)
+                        update_video_status(
+                            video_id=video_id,
+                            status="completed",
+                            video_url=db_url,
+                            metadata={
+                                "replicate_id": pred_data.get("id"),
+                                "prediction_url": prediction_url,
+                                "original_url": video_url,
+                                "bulk_retried": True
+                            }
+                        )
+                        print(f"Bulk retry: Video {video_id} completed")
+                elif status in ["failed", "canceled"]:
+                    error = pred_data.get("error", "Unknown error")
+                    update_video_status(
+                        video_id=video_id,
+                        status=status,
+                        metadata={"error": error, "replicate_id": pred_data.get("id"), "bulk_retried": True}
+                    )
+                    print(f"Bulk retry: Video {video_id} {status}")
+
+            except Exception as e:
+                print(f"Error bulk retrying video {video_id}: {e}")
+
+    background_tasks.add_task(retry_all_task)
+
+    return {
+        "message": f"Retry initiated for {len(stuck_videos)} stuck videos",
+        "count": len(stuck_videos),
+        "video_ids": [v["id"] for v in stuck_videos]
+    }
+
+# ============================================
 # Database Administration Endpoints
 # ============================================
 
