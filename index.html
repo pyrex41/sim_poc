@@ -918,44 +918,52 @@
             });
             observer.observe(document.body, { childList: true, subtree: true });
 
-        // Set up Elm ports
-        app.ports.sendSceneToThreeJs.subscribe((sceneData) => {
-            console.log('Received scene data from Elm:', sceneData);
-            if (renderer) {
-                renderer.loadScene(sceneData);
-            }
-        });
-
-        app.ports.sendSelectionToThreeJs.subscribe((objectId) => {
-            console.log('Selected object:', objectId);
-            if (renderer) {
-                renderer.selectObject(objectId);
-            }
-        });
-
-        app.ports.sendSimulationCommand.subscribe((command) => {
-            console.log('Simulation command:', command);
-            if (renderer) {
-                switch (command) {
-                    case 'start':
-                        renderer.startSimulation();
-                        break;
-                    case 'pause':
-                        renderer.pauseSimulation();
-                        break;
-                    case 'reset':
-                        renderer.resetSimulation();
-                        break;
+        // Set up Elm ports (with existence checks)
+        if (app.ports.sendSceneToThreeJs) {
+            app.ports.sendSceneToThreeJs.subscribe((sceneData) => {
+                console.log('Received scene data from Elm:', sceneData);
+                if (renderer) {
+                    renderer.loadScene(sceneData);
                 }
-            }
-        });
+            });
+        }
 
-        app.ports.sendTransformModeToThreeJs.subscribe((mode) => {
-            console.log('Transform mode:', mode);
-            if (renderer) {
-                renderer.setTransformMode(mode);
-            }
-        });
+        if (app.ports.sendSelectionToThreeJs) {
+            app.ports.sendSelectionToThreeJs.subscribe((objectId) => {
+                console.log('Selected object:', objectId);
+                if (renderer) {
+                    renderer.selectObject(objectId);
+                }
+            });
+        }
+
+        if (app.ports.sendSimulationCommand) {
+            app.ports.sendSimulationCommand.subscribe((command) => {
+                console.log('Simulation command:', command);
+                if (renderer) {
+                    switch (command) {
+                        case 'start':
+                            renderer.startSimulation();
+                            break;
+                        case 'pause':
+                            renderer.pauseSimulation();
+                            break;
+                        case 'reset':
+                            renderer.resetSimulation();
+                            break;
+                    }
+                }
+            });
+        }
+
+        if (app.ports.sendTransformModeToThreeJs) {
+            app.ports.sendTransformModeToThreeJs.subscribe((mode) => {
+                console.log('Transform mode:', mode);
+                if (renderer) {
+                    renderer.setTransformMode(mode);
+                }
+            });
+        }
 
         // IndexedDB for scene storage
         const DB_NAME = 'PhysicsSimulatorDB';

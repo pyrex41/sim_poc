@@ -13,9 +13,11 @@ class Settings(BaseSettings):
     PORT: int = Field(8080, ge=1, le=65535)
     OPENAI_API_KEY: str | None = None
     ANTHROPIC_API_KEY: str | None = None
+    OPENROUTER_API_KEY: str | None = None
     REDIS_URL: str = "redis://localhost:6379/0"
     RATE_LIMIT_PER_MINUTE: int = Field(60, ge=1)
     USE_MOCK_LLM: bool = False
+    DEFAULT_LLM_PROVIDER: str = Field("openrouter", description="Default LLM provider")
 
     model_config = SettingsConfigDict(
         env_file=".env",
