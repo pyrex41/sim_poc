@@ -222,7 +222,8 @@ def create_asset(
     duration: Optional[int] = None,
     thumbnail_url: Optional[str] = None,
     waveform_url: Optional[str] = None,
-    page_count: Optional[int] = None
+    page_count: Optional[int] = None,
+    asset_id: Optional[str] = None
 ) -> str:
     """Create a new asset in the consolidated assets table.
 
@@ -242,11 +243,13 @@ def create_asset(
         thumbnail_url: For videos and documents
         waveform_url: For audio
         page_count: For documents
+        asset_id: Optional pre-generated asset ID (if None, generates new UUID)
 
     Returns:
         Asset ID (UUID string)
     """
-    asset_id = str(uuid.uuid4())
+    if asset_id is None:
+        asset_id = str(uuid.uuid4())
 
     with get_db() as conn:
         conn.execute(
