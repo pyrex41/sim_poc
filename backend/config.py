@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Storage settings
     VIDEO_STORAGE_PATH: str = "./DATA/videos"
 
+    # Upscaler settings
+    UPSCALER_MODEL: str = "philz1337x/clarity-upscaler"  # Configurable Replicate upscaler model
+
     # Prompt parser settings (from prompt_parser_service)
     APP_ENV: Literal["development", "staging", "production"] = "development"
     LOG_LEVEL: str = "INFO"
