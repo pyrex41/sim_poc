@@ -204,7 +204,26 @@ def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str)
     logger.warning(f"Unrecognized content type for validation: {claimed_type}")
     return False
 
-app = FastAPI(title="Physics Simulator API", version="1.0.0")
+openapi_tags = [
+    {
+        "name": "Core Entities",
+        "description": "Client and campaign creation (decoupled from assets)."
+    },
+    {
+        "name": "Asset Management",
+        "description": "Upload and retrieve assets with client/campaign association."
+    },
+    {
+        "name": "clients-campaigns",
+        "description": "Legacy client and campaign management endpoints."
+    },
+    {
+        "name": "creative",
+        "description": "Creative brief parsing and management."
+    }
+]
+
+app = FastAPI(title="Physics Simulator API", version="1.0.0", openapi_tags=openapi_tags)
 
 # CORS middleware (for development)
 app.add_middleware(
@@ -2708,7 +2727,7 @@ async def upload_image(
 # V2 Asset Upload Endpoints
 # ============================================================================
 
-@app.post("/api/v2/upload-asset")
+@app.post("/api/v2/upload-asset", tags=["Asset Management"])
 @limiter.limit("10/minute")
 async def upload_asset_v2(
     request: Request,
@@ -2882,7 +2901,7 @@ async def upload_asset_v2(
 
     return created_asset
 
-@app.get("/api/v2/assets/{asset_id}")
+@app.get("/api/v2/assets/{asset_id}", tags=["Asset Management"])
 async def get_asset_v2(
     asset_id: str,
     current_user: Dict = Depends(verify_auth)
@@ -2942,7 +2961,7 @@ async def get_asset_v2(
     )
 
 
-@app.get("/api/v2/assets/{asset_id}/thumbnail")
+@app.get("/api/v2/assets/{asset_id}/thumbnail", tags=["Asset Management"])
 async def get_asset_thumbnail_v2(
     asset_id: str,
     current_user: Dict = Depends(verify_auth)
@@ -2996,7 +3015,7 @@ async def get_asset_thumbnail_v2(
         filename=f"{asset['name']}_thumbnail.jpg"
     )
 
-@app.delete("/api/v2/assets/{asset_id}")
+@app.delete("/api/v2/assets/{asset_id}", tags=["Asset Management"])
 async def delete_asset_v2(
     asset_id: str,
     current_user: Dict = Depends(verify_auth)
@@ -3070,7 +3089,7 @@ async def delete_asset_v2(
         "message": f"Asset {asset_id} deleted successfully"
     }
 
-@app.get("/api/v2/assets")
+@app.get("/api/v2/assets", tags=["Asset Management"])
 async def list_assets_v2(
     current_user: Dict = Depends(verify_auth),
     clientId: Optional[str] = Query(None),
@@ -4039,7 +4058,7 @@ app.include_router(parse_api.router, prefix="/api/creative", tags=["creative"])
 app.include_router(briefs_api.router, prefix="/api/creative", tags=["creative"])
 
 # Include clients and campaigns router (for ad-video-gen frontend)
-app.include_router(clients_campaigns_router, prefix="/api", tags=["clients-campaigns"])
+app.include_router(clients_campaigns_router, prefix="/api", tags=["Core Entities"])
 
 # ============================================================================
 # Frontend Serving (catch-all route - must be last)
