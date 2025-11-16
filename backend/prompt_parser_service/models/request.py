@@ -11,11 +11,11 @@ from urllib.parse import urlparse
 
 
 class PromptInput(BaseModel):
-    text: str | None = Field(None, max_length=5000)
-    image_url: str | None = None
-    image_base64: str | None = None
-    video_url: str | None = None
-    video_base64: str | None = None
+    text: Optional[str] = Field(None, max_length=5000)
+    image_url: Optional[str] = None
+    image_base64: Optional[str] = None
+    video_url: Optional[str] = None
+    video_base64: Optional[str] = None
 
     @field_validator('image_url', 'video_url', mode='before')
     @classmethod
@@ -106,7 +106,7 @@ class PromptInput(BaseModel):
 
 
 class ParseOptions(BaseModel):
-    llm_provider: str | None = None
+    llm_provider: Optional[str] = None
     include_cost_estimate: bool = False
     cost_fallback_enabled: bool = True
 

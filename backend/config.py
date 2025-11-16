@@ -1,7 +1,7 @@
 """Centralized configuration management for the entire backend."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,10 +15,10 @@ class Settings(BaseSettings):
     BASE_URL: str = "http://localhost:8000"  # Set to ngrok URL for local dev, or deployed URL for production
 
     # AI/ML settings
-    REPLICATE_API_KEY: str | None = None
-    OPENAI_API_KEY: str | None = None
-    ANTHROPIC_API_KEY: str | None = None
-    OPENROUTER_API_KEY: str | None = None
+    REPLICATE_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
+    ANTHROPIC_API_KEY: Optional[str] = None
+    OPENROUTER_API_KEY: Optional[str] = None
 
     # Storage settings
     VIDEO_STORAGE_PATH: str = "./DATA/videos"
