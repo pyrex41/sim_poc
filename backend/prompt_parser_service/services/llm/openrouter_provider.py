@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional
 
 from openai import AsyncOpenAI
 import structlog
@@ -36,7 +36,7 @@ class OpenRouterProvider(LLMProvider):
         self,
         prompt: str,
         *,
-        system_prompt: str | None = None,
+        system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         response_format: dict[str, Any] | None = None,
     ) -> str:

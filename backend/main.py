@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Response, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Response, UploadFile, File, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -2862,7 +2862,8 @@ async def upload_asset_v2(
             duration=metadata.get('duration'),
             thumbnail_url=thumbnail_url,
             waveform_url=None,  # TODO: Implement waveform generation for audio
-            page_count=metadata.get('pageCount')
+            page_count=metadata.get('pageCount'),
+            asset_id=asset_id  # Pass the pre-generated asset_id so file and DB match
         )
     except Exception as e:
         # Clean up file if database save fails

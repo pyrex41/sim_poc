@@ -1,7 +1,7 @@
 """Parse endpoint."""
 
 import json
-from typing import Any, Tuple, List, Dict
+from typing import Any, Tuple, List, Dict, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -84,7 +84,7 @@ async def process_parse_request(
         provider_order.append((name, provider))
 
     creative_direction = None
-    provider_used_name: str | None = None
+    provider_used_name: Optional[str] = None
     last_error: Exception | None = None
     tried = []
     for provider_name, provider in provider_order:

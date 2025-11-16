@@ -1,7 +1,7 @@
 """Application configuration."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Optional, Union
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,9 +11,9 @@ class Settings(BaseSettings):
     APP_ENV: Literal["development", "staging", "production"] = "development"
     LOG_LEVEL: str = "INFO"
     PORT: int = Field(8080, ge=1, le=65535)
-    OPENAI_API_KEY: str | None = None
-    ANTHROPIC_API_KEY: str | None = None
-    OPENROUTER_API_KEY: str | None = None
+    OPENAI_API_KEY: Optional[str] = None
+    ANTHROPIC_API_KEY: Optional[str] = None
+    OPENROUTER_API_KEY: Optional[str] = None
     REDIS_URL: str = "redis://localhost:6379/0"
     RATE_LIMIT_PER_MINUTE: int = Field(60, ge=1)
     USE_MOCK_LLM: bool = False
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     @field_validator("RATE_LIMIT_PER_MINUTE", mode="before")
     @classmethod
-    def _clean_rate_limit(cls, value: int | str | None) -> int | None:
+    def _clean_rate_limit(cls, value: Union[int, str, None]) -> Optional[int]:
         if isinstance(value, str):
             value = value.strip()
             if value == "":
