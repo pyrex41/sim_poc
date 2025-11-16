@@ -104,6 +104,63 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Add v2 workflow columns for video generation
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN progress TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN storyboard_data TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN approved BOOLEAN DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN approved_at TIMESTAMP")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN estimated_cost REAL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN actual_cost REAL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN error_message TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Add download tracking columns
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN download_count INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN refinement_count INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN client_id TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         # Add image data column for generated_images
         try:
             conn.execute("ALTER TABLE generated_images ADD COLUMN image_data BLOB")
@@ -258,6 +315,30 @@ def init_db():
             conn.execute("ALTER TABLE creative_briefs ADD COLUMN video_data BLOB")
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # Uploaded assets table for v2 API
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS uploaded_assets (
+                asset_id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_assets_user
+            ON uploaded_assets(user_id)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_assets_uploaded
+            ON uploaded_assets(uploaded_at DESC)
+        """)
 
         conn.commit()
 
@@ -1196,6 +1277,684 @@ def get_brief_count(user_id: int) -> int:
             (user_id,)
         ).fetchone()
         return row["count"] if row else 0
+
+# Video generation job helper functions (for v2 API)
+def update_job_progress(job_id: int, progress: dict) -> bool:
+    """
+    Update the progress JSON field for a job.
+    The updated_at timestamp is automatically updated by the trigger.
+
+    Args:
+        job_id: The video job ID
+        progress: Dictionary containing progress information
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE generated_videos SET progress = ? WHERE id = ?",
+                (json.dumps(progress), job_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error updating job progress for job {job_id}: {e}")
+        return False
+
+def get_job(job_id: int) -> Optional[Dict[str, Any]]:
+    """
+    Retrieve a complete job record by ID.
+
+    Args:
+        job_id: The video job ID
+
+    Returns:
+        Dictionary with all job fields, or None if not found
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT * FROM generated_videos WHERE id = ?",
+                (job_id,)
+            ).fetchone()
+
+            if row:
+                # Helper function to safely get column value
+                def safe_get(key, default=None):
+                    try:
+                        return row[key]
+                    except (KeyError, IndexError):
+                        return default
+
+                return {
+                    "id": row["id"],
+                    "prompt": row["prompt"],
+                    "video_url": row["video_url"],
+                    "model_id": row["model_id"],
+                    "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "collection": row["collection"],
+                    "brief_id": safe_get("brief_id"),
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                    "download_attempted": bool(safe_get("download_attempted", 0)),
+                    "download_retries": safe_get("download_retries", 0),
+                    "download_error": safe_get("download_error"),
+                    "progress": json.loads(safe_get("progress")) if safe_get("progress") else {},
+                    "storyboard_data": json.loads(safe_get("storyboard_data")) if safe_get("storyboard_data") else None,
+                    "approved": bool(safe_get("approved", 0)),
+                    "approved_at": safe_get("approved_at"),
+                    "estimated_cost": safe_get("estimated_cost", 0.0),
+                    "actual_cost": safe_get("actual_cost", 0.0),
+                    "error_message": safe_get("error_message"),
+                    "updated_at": safe_get("updated_at")
+                }
+    except Exception as e:
+        print(f"Error retrieving job {job_id}: {e}")
+        import traceback
+        traceback.print_exc()
+    return None
+
+def increment_retry_count(job_id: int) -> int:
+    """
+    Increment the retry_count (download_retries) for a failed job.
+
+    Args:
+        job_id: The video job ID
+
+    Returns:
+        The new retry count value
+    """
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE generated_videos SET download_retries = download_retries + 1 WHERE id = ?",
+                (job_id,)
+            )
+            conn.commit()
+
+            row = conn.execute(
+                "SELECT download_retries FROM generated_videos WHERE id = ?",
+                (job_id,)
+            ).fetchone()
+
+            return row["download_retries"] if row else 0
+    except Exception as e:
+        print(f"Error incrementing retry count for job {job_id}: {e}")
+        return 0
+
+def mark_job_failed(job_id: int, error_message: str) -> bool:
+    """
+    Mark a job as failed with an error message.
+    The updated_at timestamp is automatically updated by the trigger.
+
+    Args:
+        job_id: The video job ID
+        error_message: Description of the error
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE generated_videos
+                SET status = 'failed', error_message = ?
+                WHERE id = ?
+                """,
+                (error_message, job_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error marking job {job_id} as failed: {e}")
+        return False
+
+def get_jobs_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Get jobs with a specific status, ordered by most recently updated.
+
+    Args:
+        status: The status to filter by ('pending', 'processing', 'completed', 'failed', etc.)
+        limit: Maximum number of records to return (default 50)
+
+    Returns:
+        List of job dictionaries
+    """
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM generated_videos
+                WHERE status = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (status, limit)
+            ).fetchall()
+
+            result = []
+            for row in rows:
+                # Helper function to safely get column value
+                def safe_get(key, default=None):
+                    try:
+                        return row[key]
+                    except (KeyError, IndexError):
+                        return default
+
+                result.append({
+                    "id": row["id"],
+                    "prompt": row["prompt"],
+                    "video_url": row["video_url"],
+                    "model_id": row["model_id"],
+                    "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "collection": row["collection"],
+                    "brief_id": safe_get("brief_id"),
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                    "download_attempted": bool(safe_get("download_attempted", 0)),
+                    "download_retries": safe_get("download_retries", 0),
+                    "download_error": safe_get("download_error"),
+                    "progress": json.loads(safe_get("progress")) if safe_get("progress") else {},
+                    "storyboard_data": json.loads(safe_get("storyboard_data")) if safe_get("storyboard_data") else None,
+                    "approved": bool(safe_get("approved", 0)),
+                    "approved_at": safe_get("approved_at"),
+                    "estimated_cost": safe_get("estimated_cost", 0.0),
+                    "actual_cost": safe_get("actual_cost", 0.0),
+                    "error_message": safe_get("error_message"),
+                    "updated_at": safe_get("updated_at")
+                })
+            return result
+    except Exception as e:
+        print(f"Error retrieving jobs by status '{status}': {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+def approve_storyboard(job_id: int) -> bool:
+    """
+    Mark a job's storyboard as approved.
+    Sets approved=True and approved_at=CURRENT_TIMESTAMP.
+
+    Args:
+        job_id: The video job ID
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE generated_videos
+                SET approved = 1, approved_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (job_id,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error approving storyboard for job {job_id}: {e}")
+        return False
+
+def create_video_job(
+    prompt: str,
+    model_id: str,
+    parameters: dict,
+    estimated_cost: float,
+    client_id: Optional[str] = None,
+    status: str = "pending"
+) -> int:
+    """
+    Create a new video generation job for the v2 workflow.
+
+    Args:
+        prompt: User's video concept prompt
+        model_id: Model identifier being used
+        parameters: Generation parameters
+        estimated_cost: Estimated cost in USD
+        client_id: Optional client identifier
+        status: Initial status (default: 'pending')
+
+    Returns:
+        The newly created job ID
+    """
+    try:
+        with get_db() as conn:
+            # Initialize progress as empty dict
+            progress = json.dumps({
+                "current_stage": status,
+                "scenes_total": 0,
+                "scenes_completed": 0,
+                "current_scene": None,
+                "estimated_completion_seconds": None,
+                "message": "Job created, waiting to start"
+            })
+
+            cursor = conn.execute(
+                """
+                INSERT INTO generated_videos
+                (prompt, video_url, model_id, parameters, status, estimated_cost, progress, client_id)
+                VALUES (?, '', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    prompt,
+                    model_id,
+                    json.dumps(parameters),
+                    status,
+                    estimated_cost,
+                    progress,
+                    client_id
+                )
+            )
+            conn.commit()
+            return cursor.lastrowid or 0
+    except Exception as e:
+        print(f"Error creating video job: {e}")
+        import traceback
+        traceback.print_exc()
+        return 0
+
+def update_storyboard_data(job_id: int, storyboard_data: List[Dict[str, Any]]) -> bool:
+    """
+    Update the storyboard_data field for a job.
+
+    Args:
+        job_id: The video job ID
+        storyboard_data: List of storyboard entries
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE generated_videos SET storyboard_data = ?, status = 'storyboard_ready' WHERE id = ?",
+                (json.dumps(storyboard_data), job_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error updating storyboard data for job {job_id}: {e}")
+        return False
+
+def get_jobs_by_client(client_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Get jobs for a specific client, optionally filtered by status.
+
+    Args:
+        client_id: The client identifier
+        status: Optional status filter
+        limit: Maximum number of records to return
+
+    Returns:
+        List of job dictionaries
+    """
+    try:
+        with get_db() as conn:
+            if status:
+                query = """
+                    SELECT * FROM generated_videos
+                    WHERE client_id = ? AND status = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (client_id, status, limit)
+            else:
+                query = """
+                    SELECT * FROM generated_videos
+                    WHERE client_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (client_id, limit)
+
+            rows = conn.execute(query, params).fetchall()
+
+            result = []
+            for row in rows:
+                def safe_get(key, default=None):
+                    try:
+                        return row[key]
+                    except (KeyError, IndexError):
+                        return default
+
+                result.append({
+                    "id": row["id"],
+                    "prompt": row["prompt"],
+                    "video_url": row["video_url"],
+                    "model_id": row["model_id"],
+                    "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "client_id": safe_get("client_id"),
+                    "progress": json.loads(safe_get("progress")) if safe_get("progress") else {},
+                    "storyboard_data": json.loads(safe_get("storyboard_data")) if safe_get("storyboard_data") else None,
+                    "approved": bool(safe_get("approved", 0)),
+                    "approved_at": safe_get("approved_at"),
+                    "estimated_cost": safe_get("estimated_cost", 0.0),
+                    "actual_cost": safe_get("actual_cost", 0.0),
+                    "error_message": safe_get("error_message"),
+                    "updated_at": safe_get("updated_at")
+                })
+            return result
+    except Exception as e:
+        print(f"Error retrieving jobs for client {client_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+# Asset management functions
+def save_uploaded_asset(
+    asset_id: str,
+    user_id: int,
+    filename: str,
+    file_path: str,
+    file_type: str,
+    size_bytes: int
+) -> str:
+    """Save an uploaded asset to the database."""
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO uploaded_assets (asset_id, user_id, filename, file_path, file_type, size_bytes)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (asset_id, user_id, filename, file_path, file_type, size_bytes)
+        )
+        conn.commit()
+        return asset_id
+
+def get_asset_by_id(asset_id: str) -> Optional[Dict[str, Any]]:
+    """Retrieve a specific asset by ID."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM uploaded_assets WHERE asset_id = ?",
+            (asset_id,)
+        ).fetchone()
+
+        if row:
+            return {
+                "asset_id": row["asset_id"],
+                "user_id": row["user_id"],
+                "filename": row["filename"],
+                "file_path": row["file_path"],
+                "file_type": row["file_type"],
+                "size_bytes": row["size_bytes"],
+                "uploaded_at": row["uploaded_at"]
+            }
+    return None
+
+def list_user_assets(user_id: int, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    """List all assets for a user with pagination."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM uploaded_assets
+            WHERE user_id = ?
+            ORDER BY uploaded_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (user_id, limit, offset)
+        ).fetchall()
+
+        return [
+            {
+                "asset_id": row["asset_id"],
+                "filename": row["filename"],
+                "file_type": row["file_type"],
+                "size_bytes": row["size_bytes"],
+                "uploaded_at": row["uploaded_at"]
+            }
+            for row in rows
+        ]
+
+def delete_asset(asset_id: str, user_id: int) -> bool:
+    """Delete an asset by ID (only if it belongs to the user)."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM uploaded_assets WHERE asset_id = ? AND user_id = ?",
+            (asset_id, user_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+# Video Export and Refinement functions
+def increment_download_count(job_id: int) -> bool:
+    """
+    Increment the download count for a video job.
+
+    Args:
+        job_id: The video job ID
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE generated_videos SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?",
+                (job_id,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error incrementing download count for job {job_id}: {e}")
+        return False
+
+def get_download_count(job_id: int) -> int:
+    """
+    Get the download count for a video job.
+
+    Args:
+        job_id: The video job ID
+
+    Returns:
+        Download count (0 if not found or error)
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(download_count, 0) as count FROM generated_videos WHERE id = ?",
+                (job_id,)
+            ).fetchone()
+            return row["count"] if row else 0
+    except Exception as e:
+        print(f"Error getting download count for job {job_id}: {e}")
+        return 0
+
+def refine_scene_in_storyboard(
+    job_id: int,
+    scene_number: int,
+    new_image_url: Optional[str] = None,
+    new_description: Optional[str] = None,
+    new_image_prompt: Optional[str] = None
+) -> bool:
+    """
+    Refine a specific scene in the storyboard by updating its data.
+
+    Args:
+        job_id: The video job ID
+        scene_number: Scene number to refine (1-indexed)
+        new_image_url: New image URL (if regenerated)
+        new_description: New scene description
+        new_image_prompt: New image generation prompt
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        job = get_job(job_id)
+        if not job:
+            print(f"Job {job_id} not found")
+            return False
+
+        storyboard_data = job.get("storyboard_data")
+        if not storyboard_data:
+            print(f"No storyboard data for job {job_id}")
+            return False
+
+        # Find the scene to update
+        scene_found = False
+        for entry in storyboard_data:
+            scene = entry.get("scene", {})
+            if scene.get("scene_number") == scene_number:
+                scene_found = True
+
+                # Update scene data
+                if new_image_url:
+                    entry["image_url"] = new_image_url
+                    entry["generation_status"] = "completed"
+
+                if new_description:
+                    scene["description"] = new_description
+
+                if new_image_prompt:
+                    scene["image_prompt"] = new_image_prompt
+
+                break
+
+        if not scene_found:
+            print(f"Scene {scene_number} not found in job {job_id}")
+            return False
+
+        # Update database with modified storyboard and reset approval
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE generated_videos
+                SET storyboard_data = ?,
+                    approved = 0,
+                    approved_at = NULL,
+                    refinement_count = COALESCE(refinement_count, 0) + 1
+                WHERE id = ?
+                """,
+                (json.dumps(storyboard_data), job_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    except Exception as e:
+        print(f"Error refining scene {scene_number} in job {job_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def reorder_storyboard_scenes(job_id: int, scene_order: List[int]) -> bool:
+    """
+    Reorder scenes in the storyboard.
+
+    Args:
+        job_id: The video job ID
+        scene_order: New order of scene numbers (e.g., [1, 3, 2, 4])
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        job = get_job(job_id)
+        if not job:
+            print(f"Job {job_id} not found")
+            return False
+
+        storyboard_data = job.get("storyboard_data")
+        if not storyboard_data:
+            print(f"No storyboard data for job {job_id}")
+            return False
+
+        # Validate scene_order
+        current_scene_numbers = [entry.get("scene", {}).get("scene_number") for entry in storyboard_data]
+        if sorted(scene_order) != sorted(current_scene_numbers):
+            print(f"Invalid scene order: {scene_order} vs {current_scene_numbers}")
+            return False
+
+        # Create a mapping of old scene numbers to entries
+        scene_map = {
+            entry.get("scene", {}).get("scene_number"): entry
+            for entry in storyboard_data
+        }
+
+        # Reorder based on new order
+        reordered_storyboard = []
+        for new_position, old_scene_number in enumerate(scene_order, start=1):
+            entry = scene_map[old_scene_number]
+            # Update scene number to match new position
+            entry["scene"]["scene_number"] = new_position
+            reordered_storyboard.append(entry)
+
+        # Update database with reordered storyboard and reset approval
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE generated_videos
+                SET storyboard_data = ?,
+                    approved = 0,
+                    approved_at = NULL
+                WHERE id = ?
+                """,
+                (json.dumps(reordered_storyboard), job_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    except Exception as e:
+        print(f"Error reordering scenes in job {job_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def get_refinement_count(job_id: int) -> int:
+    """
+    Get the refinement count for a job.
+
+    Args:
+        job_id: The video job ID
+
+    Returns:
+        Refinement count (0 if not found or error)
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(refinement_count, 0) as count FROM generated_videos WHERE id = ?",
+                (job_id,)
+            ).fetchone()
+            return row["count"] if row else 0
+    except Exception as e:
+        print(f"Error getting refinement count for job {job_id}: {e}")
+        return 0
+
+def increment_estimated_cost(job_id: int, additional_cost: float) -> bool:
+    """
+    Increment the estimated cost for a job (used when refining scenes).
+
+    Args:
+        job_id: The video job ID
+        additional_cost: Additional cost to add
+
+    Returns:
+        True on success, False on failure
+    """
+    try:
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE generated_videos
+                SET estimated_cost = COALESCE(estimated_cost, 0.0) + ?
+                WHERE id = ?
+                """,
+                (additional_cost, job_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error incrementing estimated cost for job {job_id}: {e}")
+        return False
 
 # Initialize database on import
 init_db()

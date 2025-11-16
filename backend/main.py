@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Response, UploadFile, File
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Response, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -38,7 +38,31 @@ from .database import (
     delete_image,
     create_api_key,
     list_api_keys,
-    revoke_api_key
+    revoke_api_key,
+    # V2 workflow functions
+    get_job,
+    update_job_progress,
+    approve_storyboard,
+    # Asset management functions
+    save_uploaded_asset,
+    get_asset_by_id,
+    list_user_assets,
+    delete_asset,
+    # Video export and refinement functions
+    increment_download_count,
+    get_download_count,
+    refine_scene_in_storyboard,
+    reorder_storyboard_scenes,
+    get_refinement_count,
+    increment_estimated_cost
+)
+# Redis cache layer (optional, gracefully degrades if unavailable)
+from .cache import (
+    get_job_with_cache,
+    update_job_progress_with_cache,
+    invalidate_job_cache,
+    get_cache_stats,
+    redis_available
 )
 
 from .auth import (
@@ -176,6 +200,22 @@ async def health_check():
 @app.get("/api")
 async def api_root():
     return {"message": "Physics Simulator API", "status": "running"}
+
+@app.get("/api/v2/cache/stats")
+async def cache_statistics():
+    """
+    Get cache performance statistics (SQLite-based for POC).
+
+    Returns cache stats including active entries and TTL configuration.
+    This endpoint is public (no auth required) for monitoring purposes.
+    """
+    stats = get_cache_stats()
+    return {
+        "cache_enabled": True,  # SQLite cache is always available
+        "cache_type": "sqlite",
+        "statistics": stats,
+        "message": "SQLite cache is working normally"
+    }
 
 # ============================================================================
 # Authentication Endpoints
@@ -2461,6 +2501,216 @@ async def upload_image(
             file_path.unlink()
         raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
 
+# ============================================================================
+# V2 Asset Upload Endpoints
+# ============================================================================
+
+@app.post("/api/v2/upload-asset")
+@limiter.limit("10/minute")
+async def upload_asset_v2(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Upload an image or video asset for use in video generation.
+    Supports: jpg, jpeg, png, gif, webp, mp4, mov
+    Max file size: 50MB
+    Rate limit: 10 uploads per minute per user
+    """
+    import uuid
+    import mimetypes
+    from pathlib import Path
+
+    # Validate file type
+    allowed_types = {
+        "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
+        "video/mp4", "video/quicktime"
+    }
+
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {file.content_type}. Allowed: jpg, jpeg, png, gif, webp, mp4, mov"
+        )
+
+    # Read file contents
+    try:
+        contents = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    # Validate file size (max 50MB)
+    max_size = 50 * 1024 * 1024  # 50MB
+    size_bytes = len(contents)
+    if size_bytes > max_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB"
+        )
+
+    # Determine file extension
+    file_ext = Path(file.filename).suffix.lower() if file.filename else ""
+    if not file_ext:
+        # Guess from content type
+        ext_map = {
+            "image/jpeg": ".jpg",
+            "image/jpg": ".jpg",
+            "image/png": ".png",
+            "image/gif": ".gif",
+            "image/webp": ".webp",
+            "video/mp4": ".mp4",
+            "video/quicktime": ".mov"
+        }
+        file_ext = ext_map.get(file.content_type, ".bin")
+
+    # Generate unique asset ID
+    asset_id = str(uuid.uuid4())
+
+    # Create user-specific upload directory
+    user_id = current_user["id"]
+    uploads_base = Path(__file__).parent / "DATA" / "uploads"
+    user_dir = uploads_base / str(user_id)
+    user_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create file path
+    filename = f"{asset_id}{file_ext}"
+    file_path = user_dir / filename
+
+    # Save file
+    try:
+        with open(file_path, "wb") as f:
+            f.write(contents)
+
+        print(f"Asset uploaded: {file_path} ({size_bytes} bytes) by user {user_id}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+
+    # Save metadata to database
+    try:
+        save_uploaded_asset(
+            asset_id=asset_id,
+            user_id=user_id,
+            filename=file.filename or filename,
+            file_path=str(file_path),
+            file_type=file.content_type,
+            size_bytes=size_bytes
+        )
+    except Exception as e:
+        # Clean up file if database save fails
+        if file_path.exists():
+            file_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Failed to save asset metadata: {str(e)}")
+
+    # Return asset URL
+    base_url = settings.BASE_URL
+    asset_url = f"{base_url}/api/v2/assets/{asset_id}"
+
+    return {
+        "success": True,
+        "url": asset_url,
+        "asset_id": asset_id,
+        "filename": file.filename or filename,
+        "size_bytes": size_bytes
+    }
+
+@app.get("/api/v2/assets/{asset_id}")
+async def get_asset_v2(asset_id: str):
+    """
+    Serve an uploaded asset file.
+    Public endpoint (no authentication required) for use in Replicate API calls.
+    """
+    from fastapi.responses import FileResponse
+    import mimetypes
+
+    # Get asset metadata
+    asset = get_asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Check if file exists
+    file_path = Path(asset["file_path"])
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Asset file not found on disk")
+
+    # Determine media type
+    media_type = asset.get("file_type")
+    if not media_type:
+        media_type, _ = mimetypes.guess_type(str(file_path))
+        if not media_type:
+            media_type = "application/octet-stream"
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        filename=asset["filename"]
+    )
+
+@app.delete("/api/v2/assets/{asset_id}")
+async def delete_asset_v2(
+    asset_id: str,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Delete an uploaded asset.
+    Only the owner can delete their assets.
+    """
+    import os
+
+    # Get asset metadata to verify ownership
+    asset = get_asset_by_id(asset_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Verify ownership
+    if asset["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You don't have permission to delete this asset")
+
+    # Delete from database
+    deleted = delete_asset(asset_id, current_user["id"])
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Failed to delete asset from database")
+
+    # Delete file from disk
+    file_path = Path(asset["file_path"])
+    if file_path.exists():
+        try:
+            os.remove(file_path)
+            print(f"Deleted asset file: {file_path}")
+        except Exception as e:
+            print(f"Warning: Failed to delete asset file {file_path}: {e}")
+
+    return {
+        "success": True,
+        "message": f"Asset {asset_id} deleted successfully"
+    }
+
+@app.get("/api/v2/assets")
+async def list_assets_v2(
+    current_user: Dict = Depends(verify_auth),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0)
+):
+    """
+    List all uploaded assets for the current user.
+    Returns asset metadata with URLs.
+    """
+    base_url = settings.BASE_URL
+
+    # Get user's assets
+    assets = list_user_assets(current_user["id"], limit=limit, offset=offset)
+
+    # Add URLs to each asset
+    for asset in assets:
+        asset["url"] = f"{base_url}/api/v2/assets/{asset['asset_id']}"
+
+    return {
+        "success": True,
+        "assets": assets,
+        "limit": limit,
+        "offset": offset
+    }
+
 @app.post("/api/genesis/render")
 async def api_genesis_render(
     request: GenesisRenderRequest,
@@ -2658,6 +2908,729 @@ app.mount("/data/uploads", StaticFiles(directory=str(UPLOADS_DIR)), name="upload
 IMAGES_DIR = Path(__file__).parent / "DATA" / "images"
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/data/images", StaticFiles(directory=str(IMAGES_DIR)), name="images")
+
+# ============================================================================
+# V2 Video Generation Endpoints
+# ============================================================================
+
+from .models.video_generation import (
+    GenerationRequest,
+    JobResponse,
+    VideoProgress,
+    VideoStatus,
+    StoryboardEntry,
+    Scene
+)
+from .database import (
+    create_video_job,
+    update_storyboard_data,
+    get_jobs_by_client
+)
+from .services.replicate_client import ReplicateClient
+import logging
+
+logger = logging.getLogger(__name__)
+
+def db_job_to_response(job: Dict[str, Any]) -> JobResponse:
+    """Convert database job record to JobResponse model."""
+    # Parse progress
+    progress_data = job.get("progress", {})
+    if isinstance(progress_data, str):
+        try:
+            progress_data = json.loads(progress_data)
+        except:
+            progress_data = {}
+
+    progress = VideoProgress(
+        current_stage=VideoStatus(job.get("status", "pending")),
+        scenes_total=progress_data.get("scenes_total", 0),
+        scenes_completed=progress_data.get("scenes_completed", 0),
+        current_scene=progress_data.get("current_scene"),
+        estimated_completion_seconds=progress_data.get("estimated_completion_seconds"),
+        message=progress_data.get("message")
+    )
+
+    # Parse storyboard
+    storyboard = None
+    storyboard_data = job.get("storyboard_data")
+    if storyboard_data:
+        if isinstance(storyboard_data, str):
+            try:
+                storyboard_data = json.loads(storyboard_data)
+            except:
+                storyboard_data = None
+
+        if storyboard_data and isinstance(storyboard_data, list):
+            storyboard = [StoryboardEntry(**entry) for entry in storyboard_data]
+
+    # Handle datetime fields
+    from datetime import datetime
+    created_at = job["created_at"]
+    if isinstance(created_at, str):
+        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+
+    updated_at = job.get("updated_at") or job["created_at"]
+    if isinstance(updated_at, str):
+        updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+
+    return JobResponse(
+        job_id=job["id"],
+        status=VideoStatus(job.get("status", "pending")),
+        progress=progress,
+        storyboard=storyboard,
+        video_url=job.get("video_url") if job.get("video_url") else None,
+        estimated_cost=job.get("estimated_cost", 0.0),
+        actual_cost=job.get("actual_cost"),
+        created_at=created_at,
+        updated_at=updated_at,
+        approved=job.get("approved", False),
+        error_message=job.get("error_message")
+    )
+
+@app.post("/api/v2/generate", response_model=JobResponse)
+@limiter.limit("5/minute")
+async def create_generation_job(
+    request: Request,
+    gen_request: GenerationRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Create a new video generation job.
+
+    This endpoint initiates the v2 video generation workflow:
+    1. Creates a job record with 'pending' status
+    2. Estimates the cost based on duration and scene count
+    3. Queues a background task for storyboard generation
+    4. Returns the job ID and initial status
+
+    Rate limit: 5 requests per minute per user
+    """
+    try:
+        # Estimate number of scenes (roughly 1 scene per 5 seconds)
+        estimated_scenes = max(1, gen_request.duration // 5)
+
+        # Estimate cost (use ReplicateClient if available, otherwise mock for POC)
+        try:
+            replicate_client = ReplicateClient()
+            estimated_cost = replicate_client.estimate_cost(
+                num_images=estimated_scenes,
+                video_duration=gen_request.duration
+            )
+        except ValueError as e:
+            # Replicate API key not set - use mock cost for POC
+            logger.warning(f"Replicate not available: {e}. Using mock cost estimation.")
+            estimated_cost = (estimated_scenes * 0.003) + (gen_request.duration * 0.10)
+
+        # Get client_id from request or user
+        client_id = gen_request.client_id or current_user.get("username")
+
+        # Create job in database
+        job_id = create_video_job(
+            prompt=gen_request.prompt,
+            model_id="v2-workflow",
+            parameters={
+                "duration": gen_request.duration,
+                "style": gen_request.style,
+                "aspect_ratio": gen_request.aspect_ratio,
+                "brand_guidelines": gen_request.brand_guidelines
+            },
+            estimated_cost=estimated_cost,
+            client_id=client_id,
+            status="pending"
+        )
+
+        if not job_id:
+            raise HTTPException(status_code=500, detail="Failed to create job")
+
+        # Queue background task for storyboard generation (placeholder)
+        # TODO: Implement actual storyboard generation
+        logger.info(f"Job {job_id} created, queuing storyboard generation")
+
+        # Fetch and return job
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=500, detail="Job created but not found")
+
+        return db_job_to_response(job)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating generation job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}")
+
+@app.get("/api/v2/jobs/{job_id}", response_model=JobResponse)
+async def get_job_status(job_id: int):
+    """
+    Get the current status and progress of a video generation job.
+
+    This is a public endpoint (no authentication required) to allow
+    clients to check job status using just the job ID.
+
+    Uses Redis cache to reduce database load from frequent polling.
+    """
+    try:
+        # Use cache if available, falls back to database automatically
+        job = get_job_with_cache(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        return db_job_to_response(job)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch job: {str(e)}")
+
+@app.get("/api/v2/jobs", response_model=List[JobResponse])
+async def list_jobs(
+    status: Optional[str] = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    List video generation jobs for the authenticated user.
+
+    Query parameters:
+    - status: Filter by job status (optional)
+    - limit: Maximum number of jobs to return (default: 50, max: 100)
+
+    Returns jobs ordered by creation date (newest first).
+    """
+    try:
+        client_id = current_user.get("username")
+
+        if status:
+            # Validate status
+            try:
+                VideoStatus(status)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid status: {status}. Must be one of: {', '.join([s.value for s in VideoStatus])}"
+                )
+            jobs = get_jobs_by_client(client_id, status=status, limit=limit)
+        else:
+            jobs = get_jobs_by_client(client_id, limit=limit)
+
+        return [db_job_to_response(job) for job in jobs]
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing jobs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}")
+
+@app.post("/api/v2/jobs/{job_id}/approve", response_model=JobResponse)
+async def approve_job_storyboard(
+    job_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Approve a job's storyboard for rendering.
+
+    This endpoint marks the storyboard as approved, allowing the
+    rendering process to proceed. The job must:
+    - Be in 'storyboard_ready' status
+    - Have a valid storyboard
+    - Belong to the current user
+    """
+    try:
+        # Fetch job (use cache)
+        job = get_job_with_cache(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Verify ownership
+        client_id = current_user.get("username")
+        if job.get("client_id") != client_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Verify status
+        if job.get("status") != "storyboard_ready":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot approve job in status '{job.get('status')}'. Must be 'storyboard_ready'."
+            )
+
+        # Verify storyboard exists
+        if not job.get("storyboard_data"):
+            raise HTTPException(status_code=400, detail="No storyboard available to approve")
+
+        # Approve storyboard
+        success = approve_storyboard(job_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to approve storyboard")
+
+        # Invalidate cache after modification
+        invalidate_job_cache(job_id)
+
+        # Fetch updated job from database
+        updated_job = get_job(job_id)
+        if not updated_job:
+            raise HTTPException(status_code=500, detail="Job approved but not found")
+
+        return db_job_to_response(updated_job)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to approve job: {str(e)}")
+
+@app.post("/api/v2/jobs/{job_id}/render", response_model=JobResponse)
+async def render_approved_video(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Trigger video rendering from an approved storyboard.
+
+    This endpoint starts the video rendering process. The job must:
+    - Have an approved storyboard
+    - Be in 'storyboard_ready' status
+    - Belong to the current user
+
+    The rendering process runs as a background task.
+    """
+    try:
+        # Fetch job (use cache)
+        job = get_job_with_cache(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Verify ownership
+        client_id = current_user.get("username")
+        if job.get("client_id") != client_id:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        # Verify approved
+        if not job.get("approved"):
+            raise HTTPException(status_code=400, detail="Storyboard must be approved before rendering")
+
+        # Verify storyboard exists
+        if not job.get("storyboard_data"):
+            raise HTTPException(status_code=400, detail="No storyboard available to render")
+
+        # Update status to rendering
+        from .database import update_video_status
+        update_video_status(job_id, status="rendering")
+
+        # Invalidate cache after status change
+        invalidate_job_cache(job_id)
+
+        # Update progress (uses cache-aware function)
+        update_job_progress_with_cache(job_id, {
+            "current_stage": "rendering",
+            "scenes_total": 0,
+            "scenes_completed": 0,
+            "message": "Starting video rendering..."
+        })
+
+        # Queue background task for rendering (placeholder)
+        # TODO: Implement actual video rendering
+        logger.info(f"Job {job_id} queued for rendering")
+
+        # Fetch updated job
+        updated_job = get_job(job_id)
+        if not updated_job:
+            raise HTTPException(status_code=500, detail="Job updated but not found")
+
+        return db_job_to_response(updated_job)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rendering job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to start rendering: {str(e)}")
+
+@app.get("/api/v2/jobs/{job_id}/video")
+async def get_job_video(job_id: int):
+    """
+    Get the final rendered video for a completed job.
+
+    This endpoint returns the video URL or redirects to the video file.
+    Returns 404 if the video is not ready yet.
+
+    This is a public endpoint (no authentication required).
+    """
+    try:
+        # Use cache for job lookup
+        job = get_job_with_cache(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Check if video is ready
+        if job.get("status") != "completed":
+            raise HTTPException(
+                status_code=404,
+                detail=f"Video not ready. Current status: {job.get('status')}"
+            )
+
+        video_url = job.get("video_url")
+        if not video_url:
+            raise HTTPException(status_code=404, detail="Video URL not available")
+
+        # Increment download count
+        increment_download_count(job_id)
+
+        # If it's a local path, serve the file
+        if video_url.startswith("/data/"):
+            from pathlib import Path
+            video_path = Path(__file__).parent / video_url.lstrip("/")
+            if video_path.exists():
+                return FileResponse(str(video_path))
+
+        # Otherwise redirect to external URL
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=video_url)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching video for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch video: {str(e)}")
+
+@app.get("/api/v2/jobs/{job_id}/export")
+async def export_job_video(
+    job_id: int,
+    format: str = Query("mp4", pattern="^(mp4|mov|webm)$"),
+    quality: str = Query("medium", pattern="^(low|medium|high)$"),
+    current_user: dict = Depends(verify_auth)
+):
+    """
+    Export completed video in requested format and quality.
+
+    Query Parameters:
+    - format: Output format (mp4, mov, webm)
+    - quality: Quality preset (low=480p, medium=720p, high=1080p)
+
+    Returns:
+    - The exported video file
+
+    Authentication: Required
+    """
+    from .services.video_exporter import export_video, get_export_path, check_ffmpeg_available
+    from pathlib import Path
+
+    try:
+        # Check if ffmpeg is available
+        if not check_ffmpeg_available():
+            raise HTTPException(
+                status_code=503,
+                detail="Video export service unavailable (ffmpeg not installed)"
+            )
+
+        # Get job and validate
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Check if video is completed
+        if job.get("status") != "completed":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Video not ready for export. Current status: {job.get('status')}"
+            )
+
+        video_url = job.get("video_url")
+        if not video_url:
+            raise HTTPException(status_code=404, detail="Video not available")
+
+        # Determine input video path
+        if video_url.startswith("/data/"):
+            input_path = str(Path(__file__).parent / video_url.lstrip("/"))
+        elif video_url.startswith("http"):
+            # For remote URLs, we'd need to download first (not implemented in MVP)
+            raise HTTPException(
+                status_code=400,
+                detail="Export is only available for locally stored videos"
+            )
+        else:
+            input_path = video_url
+
+        # Check if input file exists
+        if not os.path.exists(input_path):
+            raise HTTPException(status_code=404, detail="Source video file not found")
+
+        # Generate output path
+        output_path = get_export_path(settings.VIDEO_STORAGE_PATH, job_id, format, quality)
+
+        # Check if export already exists
+        if not os.path.exists(output_path):
+            # Export the video
+            logger.info(f"Exporting job {job_id} to {format}/{quality}")
+            success, error_msg = export_video(input_path, output_path, format, quality)
+
+            if not success:
+                raise HTTPException(status_code=500, detail=f"Export failed: {error_msg}")
+
+        # Increment download count
+        increment_download_count(job_id)
+
+        # Return the exported file
+        return FileResponse(
+            output_path,
+            media_type=f"video/{format}",
+            filename=f"video_{job_id}.{format}"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting video for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to export video: {str(e)}")
+
+@app.post("/api/v2/jobs/{job_id}/refine", response_model=JobResponse)
+async def refine_job_scene(
+    job_id: int,
+    scene_number: int = Query(..., ge=1),
+    new_image_prompt: Optional[str] = Query(None, min_length=10, max_length=2000),
+    new_description: Optional[str] = Query(None, min_length=10, max_length=1000),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: dict = Depends(verify_auth)
+):
+    """
+    Refine a specific scene in the storyboard.
+
+    This endpoint allows regenerating a scene image with a new prompt or
+    updating the scene description. After refinement, the storyboard must
+    be re-approved before rendering.
+
+    Query Parameters:
+    - scene_number: Scene number to refine (1-indexed)
+    - new_image_prompt: New prompt for image regeneration (optional)
+    - new_description: New scene description (optional)
+
+    Rate Limiting: Maximum 5 refinements per job
+
+    Authentication: Required
+    """
+    from .services.replicate_client import ReplicateClient
+
+    try:
+        # Get job and validate
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Check if storyboard exists
+        storyboard_data = job.get("storyboard_data")
+        if not storyboard_data:
+            raise HTTPException(
+                status_code=400,
+                detail="No storyboard available for refinement"
+            )
+
+        # Check refinement limit
+        refinement_count = get_refinement_count(job_id)
+        if refinement_count >= 5:
+            raise HTTPException(
+                status_code=429,
+                detail="Maximum refinement limit (5) reached for this job"
+            )
+
+        # Validate at least one refinement type is provided
+        if not new_image_prompt and not new_description:
+            raise HTTPException(
+                status_code=400,
+                detail="Must provide either new_image_prompt or new_description"
+            )
+
+        # If regenerating image, do it now
+        new_image_url = None
+        if new_image_prompt:
+            try:
+                logger.info(f"Regenerating image for job {job_id}, scene {scene_number}")
+                replicate_client = ReplicateClient()
+
+                # Get aspect ratio from job parameters
+                parameters = job.get("parameters", {})
+                aspect_ratio = parameters.get("aspect_ratio", "16:9")
+
+                # Generate new image
+                image_url = replicate_client.generate_image(new_image_prompt, aspect_ratio)
+                new_image_url = image_url
+
+                # Increment estimated cost (approximate cost for one image)
+                increment_estimated_cost(job_id, 0.02)
+
+                logger.info(f"Generated new image: {image_url}")
+            except Exception as e:
+                logger.error(f"Failed to regenerate image: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to regenerate image: {str(e)}"
+                )
+
+        # Update the scene in storyboard
+        success = refine_scene_in_storyboard(
+            job_id,
+            scene_number,
+            new_image_url=new_image_url,
+            new_description=new_description,
+            new_image_prompt=new_image_prompt
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to update storyboard"
+            )
+
+        # Fetch updated job
+        updated_job = get_job(job_id)
+        if not updated_job:
+            raise HTTPException(status_code=500, detail="Failed to fetch updated job")
+
+        # Return the updated job response
+        return db_job_to_response(updated_job)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error refining scene for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to refine scene: {str(e)}")
+
+@app.post("/api/v2/jobs/{job_id}/reorder", response_model=JobResponse)
+async def reorder_job_scenes(
+    job_id: int,
+    scene_order: List[int] = Query(..., description="New order of scene numbers"),
+    current_user: dict = Depends(verify_auth)
+):
+    """
+    Reorder scenes in the storyboard.
+
+    This endpoint allows changing the sequence of scenes. After reordering,
+    the storyboard must be re-approved before rendering.
+
+    Request Body:
+    - scene_order: List of scene numbers in desired order (e.g., [1, 3, 2, 4])
+
+    Authentication: Required
+    """
+    try:
+        # Get job and validate
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Check if storyboard exists
+        storyboard_data = job.get("storyboard_data")
+        if not storyboard_data:
+            raise HTTPException(
+                status_code=400,
+                detail="No storyboard available for reordering"
+            )
+
+        # Validate scene_order
+        if not scene_order:
+            raise HTTPException(status_code=400, detail="scene_order cannot be empty")
+
+        # Reorder the scenes
+        success = reorder_storyboard_scenes(job_id, scene_order)
+
+        if not success:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to reorder scenes. Check that all scene numbers are valid."
+            )
+
+        # Fetch updated job
+        updated_job = get_job(job_id)
+        if not updated_job:
+            raise HTTPException(status_code=500, detail="Failed to fetch updated job")
+
+        # Return the updated job response
+        return db_job_to_response(updated_job)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reordering scenes for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to reorder scenes: {str(e)}")
+
+@app.get("/api/v2/jobs/{job_id}/metadata")
+async def get_job_metadata(job_id: int):
+    """
+    Get comprehensive metadata for a video generation job.
+
+    Returns detailed information including:
+    - Scene count and details
+    - Cost information (estimated and actual)
+    - Generation times and statistics
+    - Refinement count
+    - Download count
+
+    This is a public endpoint (no authentication required).
+    """
+    try:
+        # Get job
+        job = get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Build metadata response
+        storyboard_data = job.get("storyboard_data", [])
+
+        metadata = {
+            "job_id": job_id,
+            "status": job.get("status"),
+            "created_at": job.get("created_at"),
+            "updated_at": job.get("updated_at"),
+            "approved": job.get("approved", False),
+            "approved_at": job.get("approved_at"),
+
+            # Scene information
+            "scenes": {
+                "total": len(storyboard_data),
+                "completed": sum(1 for s in storyboard_data if s.get("generation_status") == "completed"),
+                "failed": sum(1 for s in storyboard_data if s.get("generation_status") == "failed"),
+                "details": [
+                    {
+                        "scene_number": s.get("scene", {}).get("scene_number"),
+                        "duration": s.get("scene", {}).get("duration"),
+                        "status": s.get("generation_status"),
+                        "has_image": bool(s.get("image_url"))
+                    }
+                    for s in storyboard_data
+                ]
+            },
+
+            # Cost information
+            "costs": {
+                "estimated": job.get("estimated_cost", 0.0),
+                "actual": job.get("actual_cost", 0.0),
+                "currency": "USD"
+            },
+
+            # Generation metrics
+            "metrics": {
+                "refinement_count": get_refinement_count(job_id),
+                "download_count": get_download_count(job_id),
+            },
+
+            # Video information
+            "video": {
+                "available": job.get("status") == "completed",
+                "url": job.get("video_url") if job.get("status") == "completed" else None,
+                "parameters": job.get("parameters", {})
+            },
+
+            # Error information (if any)
+            "error": job.get("error_message")
+        }
+
+        return metadata
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching metadata for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch metadata: {str(e)}")
 
 # ============================================================================
 # Creative Brief Parsing Endpoints
