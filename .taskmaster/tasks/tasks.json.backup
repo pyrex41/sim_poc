@@ -5,7 +5,7 @@
         "id": 1,
         "title": "Extend Database Schema for Video Generation Jobs",
         "description": "Add new columns to the generated_videos table to support progress tracking, video data storage, and cost estimation as specified in the PRD.",
-        "details": "In database.py, execute ALTER TABLE statements to add new columns: progress (TEXT/JSON), video_url (TEXT), storyboard_data (TEXT/JSON), approved (BOOLEAN), estimated_cost (REAL), actual_cost (REAL), retry_count (INTEGER), error_message (TEXT), updated_at (TIMESTAMP). Implement helper functions. Add indexes. Direct SQL on deploy - no Alembic.",
+        "details": "In database.py, execute ALTER TABLE statements to add 'progress' (JSON), 'video_data' (BLOB), and 'estimated_cost' (REAL) columns. Implement helper functions like update_job_progress and get_job to handle JSON serialization and retrieval. Ensure indexes on status and campaign_id for efficient querying. Use SQLite-compatible syntax and handle migrations safely.",
         "testStrategy": "Unit tests for database functions: insert a job, update progress, retrieve and verify JSON parsing. Integration test: run migrations on a test DB and confirm schema changes.",
         "priority": "high",
         "dependencies": [],
@@ -16,7 +16,7 @@
             "title": "Perform Schema Migration for New Columns",
             "description": "Execute ALTER TABLE statements in database.py to add 'progress' (JSON), 'video_data' (BLOB), and 'estimated_cost' (REAL) columns to the generated_videos table using SQLite-compatible syntax.",
             "dependencies": [],
-            "details": "Write SQL migration script migrations/001_v2_video_generation.sql with IF NOT EXISTS clauses. Include: ALTER TABLE for new columns, CREATE INDEX statements, CREATE TRIGGER for updated_at auto-update.",
+            "details": "In the database.py file, write and execute ALTER TABLE generated_videos ADD COLUMN progress JSON; ALTER TABLE generated_videos ADD COLUMN video_data BLOB; ALTER TABLE generated_videos ADD COLUMN estimated_cost REAL; Ensure the migration is handled safely to avoid data loss or corruption.",
             "status": "pending",
             "testStrategy": "Unit tests to verify column additions by checking schema after migration on a test database."
           },
@@ -24,9 +24,7 @@
             "id": 2,
             "title": "Implement Helper Functions for Job Management",
             "description": "Create helper functions like update_job_progress and get_job in database.py to handle JSON serialization, retrieval, and job data management.",
-            "dependencies": [
-              1
-            ],
+            "dependencies": [],
             "details": "Implement update_job_progress(job_id, progress_data) to serialize progress_data as JSON and update the progress column. Implement get_job(job_id) to retrieve job data and deserialize the progress JSON. Ensure proper error handling for JSON operations and database queries.",
             "status": "pending",
             "testStrategy": "Unit tests for each function: insert a job, update progress with sample JSON, retrieve and verify correct parsing and data integrity."
@@ -35,10 +33,7 @@
             "id": 3,
             "title": "Add Indexes and Conduct Testing",
             "description": "Ensure indexes on status and campaign_id columns for efficient querying, and perform comprehensive testing of the schema changes.",
-            "dependencies": [
-              1,
-              2
-            ],
+            "dependencies": [],
             "details": "Execute CREATE INDEX statements for status and campaign_id on the generated_videos table. Run unit tests for database functions and integration tests to confirm schema changes, including inserting jobs, updating progress, and querying with indexes.",
             "status": "pending",
             "testStrategy": "Integration tests: Run migrations on a test DB, insert sample data, update progress, retrieve jobs, and verify query performance with indexes; ensure no regressions in existing functionality."
@@ -239,18 +234,6 @@
             "details": "Use the requests library to make a POST call to 'https://api.replicate.com/v1/predictions' with the API key from REPLICATE_API_KEY. Specify version 'skyreels-2' and inputs including image URLs and duration. Handle asynchronous calls by polling for completion, implement error handling for API failures, and return the video URL upon success. Support multiple image URLs for variations if needed, and ensure the function is private.",
             "status": "pending",
             "testStrategy": "Unit tests with mocked Replicate API responses to verify correct payload with image URLs and duration, polling for async completion, error handling, and successful return of video URL."
-          },
-          {
-            "id": 3,
-            "title": "Implement Replicate Polling and Status Handling",
-            "description": "Add async polling logic to wait for Replicate prediction completion with timeout handling",
-            "dependencies": [
-              1,
-              2
-            ],
-            "details": "Poll Replicate /predictions/{id} endpoint every 2s until status is succeeded/failed. Handle statuses: starting, processing, succeeded, failed, canceled. Implement timeout: 120s for images, 600s for videos. Use exponential backoff on errors (2s, 4s, 8s). Return final output URL or raise timeout exception.",
-            "status": "pending",
-            "testStrategy": "Unit tests with mocked Replicate responses for each status type. Test timeout handling after 120s. Verify exponential backoff on transient errors."
           }
         ]
       },
@@ -359,20 +342,6 @@
             "details": "In background_tasks.py, within generate_video_ai, call update_job_progress at key stages (e.g., starting generation, exporting). After generating videos and exports, save video_data (URLs, formats) to the job in the database. Finally, set status to 'completed'. Ensure atomic operations for data consistency.",
             "status": "pending",
             "testStrategy": "Unit tests to mock DB operations and progress updates, verifying correct status changes. Integration tests to simulate full flow and check final job state."
-          },
-          {
-            "id": 5,
-            "title": "Add Error Handling and Retry Logic for Video Rendering",
-            "description": "Implement retry with exponential backoff for failed video renders",
-            "dependencies": [
-              1,
-              2,
-              3,
-              4
-            ],
-            "details": "Wrap generate_video_ai in try/except. Retry failed renders 2x with exponential backoff (30s, 90s). Handle errors: expired image URLs (refetch), Replicate timeout (mark failed), network errors (retry). Increment retry_count in DB. Log all failures with full context (job_id, error, attempt).",
-            "status": "pending",
-            "testStrategy": "Unit tests: simulate API failures, verify retry count increments, test max retries reached. Integration: force timeout, verify job marked as failed with error_message populated."
           }
         ]
       },
@@ -407,18 +376,6 @@
             "details": "Create utility functions in utils/cost_estimator.py that take inputs such as video duration, platform, and other relevant factors to compute estimated costs. Ensure the logic aligns with Replicate API pricing or similar models. Integrate this into the JobResponse or endpoint responses as needed.",
             "status": "pending",
             "testStrategy": "Unit tests: mock input parameters, verify cost calculations are accurate and handle edge cases like invalid durations or platforms."
-          },
-          {
-            "id": 3,
-            "title": "Implement Redis Caching for Job Polling",
-            "description": "Cache job responses to reduce DB load during frequent polling",
-            "dependencies": [
-              1,
-              2
-            ],
-            "details": "Install redis-py. Cache JobResponse in Redis with key 'job:{job_id}' and TTL=30s. On job update (progress change), invalidate cache using DEL. Implement cache-aside pattern: check cache first, fallback to DB on miss, populate cache on read. Handle Redis unavailability gracefully (log warning, use DB).",
-            "status": "pending",
-            "testStrategy": "Integration tests: poll job twice, verify second call hits cache (no DB query). Update job progress, verify cache invalidated. Test Redis down scenario - should fallback to DB."
           }
         ]
       },
@@ -495,8 +452,6 @@
             "dependencies": [
               3,
               4,
-              6,
-              7,
               8,
               9
             ],
@@ -541,187 +496,12 @@
             "testStrategy": "E2E: Use Playwright to automate browser interactions, verifying frontend updates and downloads. Load: Use k6 to script concurrent API requests, asserting performance metrics like latency and throughput."
           }
         ]
-      },
-      {
-        "id": 11,
-        "title": "Implement Asset Upload Endpoint",
-        "description": "Create /api/v2/upload-asset endpoint for user-uploaded images and videos",
-        "details": "Accept multipart/form-data uploads. Validate file types (jpg, png, mp4, mov, gif) and size (max 50MB). Store in VIDEO_STORAGE_PATH/uploads/{client_id}/{asset_id}.{ext}. Generate unique asset IDs (UUID). Return asset URL and metadata. Implement rate limiting (10/min/user). No ClamAV for MVP - add in production.",
-        "testStrategy": "Integration tests: upload valid files (image, video), verify file saved to disk and URL returned. Test invalid MIME type returns 400. Test file >50MB returns 413. Test concurrent uploads from same user. Verify rate limiting works.",
-        "priority": "high",
-        "dependencies": [
-          1,
-          2,
-          3
-        ],
-        "status": "pending",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Create Upload Endpoint with Validation",
-            "description": "Implement POST /api/v2/upload-asset with file type and size validation",
-            "dependencies": [],
-            "details": "Use FastAPI UploadFile. Validate Content-Type header matches allowed types. Check file.size < 50MB before reading. Generate UUID for asset_id. Use dependency injection for auth (verify_auth). Return JSON: {asset_id, url, file_type, size_bytes, uploaded_at}.",
-            "status": "pending",
-            "testStrategy": "Integration tests with TestClient: upload 10MB image (success), upload 60MB video (fail 413), upload .exe file (fail 400), upload without auth (fail 401)."
-          },
-          {
-            "id": 2,
-            "title": "Implement File Storage Service",
-            "description": "Create service to save uploaded files to disk with proper organization by client_id",
-            "dependencies": [
-              1
-            ],
-            "details": "Create function save_uploaded_file(file: UploadFile, client_id: str) -> str. Create directory VIDEO_STORAGE_PATH/uploads/{client_id}/ if not exists. Write file in chunks (1MB) to handle large files. Set file permissions 0644. Handle disk full error (OSError) - return 507 Insufficient Storage. Return relative path.",
-            "status": "pending",
-            "testStrategy": "Unit tests: mock filesystem, verify directory creation, verify chunked write. Test disk full raises proper error. Integration: upload file, verify exists on disk at correct path."
-          },
-          {
-            "id": 3,
-            "title": "Add Asset URL Generation and Retrieval",
-            "description": "Generate URLs for uploaded assets and implement GET endpoint for serving files",
-            "dependencies": [
-              2
-            ],
-            "details": "URL format: /api/v2/assets/{asset_id}. Implement GET endpoint that reads file from disk, returns FileResponse with correct Content-Type. Add caching headers (Cache-Control: public, max-age=86400). Verify client owns asset before serving (check client_id from JWT matches upload client_id).",
-            "status": "pending",
-            "testStrategy": "Integration: upload asset, GET URL, verify file downloads correctly. Test cross-client access blocked (403). Test non-existent asset returns 404."
-          }
-        ]
-      },
-      {
-        "id": 12,
-        "title": "Implement Storyboard Approval Workflow",
-        "description": "Add approval state management and validation before video rendering",
-        "details": "Create POST /api/v2/jobs/{id}/approve endpoint. Update job.approved=true and add approved_at timestamp. Modify /render endpoint to validate approved=true before queueing video generation. Return 403 Forbidden if render called without approval. Log approval events for analytics (track approval rate metric).",
-        "testStrategy": "Integration tests: generate storyboard \u2192 approve \u2192 render (success). Test render without approval returns 403. Test approving non-existent job returns 404. Test approving job not in 'storyboard_complete' status returns 400.",
-        "priority": "high",
-        "dependencies": [
-          3,
-          6
-        ],
-        "status": "pending",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Create Approval Endpoint",
-            "description": "Implement POST /api/v2/jobs/{id}/approve endpoint with validation",
-            "dependencies": [],
-            "details": "Validate job exists and user owns it (campaign_id/client_id). Check job.status == 'storyboard_complete', return 400 if not. Set job.approved = true, job.approved_at = utcnow() in DB. Log event: {event: 'storyboard_approved', job_id, user_id, timestamp}. Return updated JobResponse.",
-            "status": "pending",
-            "testStrategy": "Integration: Create job in storyboard_complete status, approve it, verify DB updated. Test approving job in 'generating_storyboard' status returns 400. Test approving already-approved job is idempotent."
-          },
-          {
-            "id": 2,
-            "title": "Add Approval Validation to Render Endpoint",
-            "description": "Modify POST /jobs/{id}/render to check approval before rendering",
-            "dependencies": [
-              1
-            ],
-            "details": "In render endpoint, after ownership check, add: if not job.approved: raise HTTPException(403, 'Storyboard must be approved before rendering'). Only queue background task if approved. Add test coverage for this check.",
-            "status": "pending",
-            "testStrategy": "Integration: Try to render unapproved job, verify 403 response. Approve job, then render, verify success (202 response, background task queued)."
-          }
-        ]
-      },
-      {
-        "id": 13,
-        "title": "Deployment and Infrastructure Setup",
-        "description": "Containerize application and deploy to Fly.io with proper configuration",
-        "details": "Create Dockerfile (multi-stage: build + runtime), docker-compose.yml for local dev. Create fly.toml for Fly.io deployment. Configure persistent volumes for VIDEO_STORAGE_PATH (/data/videos). Set up secrets: REPLICATE_API_KEY, JWT_SECRET. Run SQL migrations on startup. Configure health check endpoint (/health). Set resource limits: 1GB RAM, 1 CPU.",
-        "testStrategy": "Build Docker image locally, run with docker-compose, test E2E flow. Deploy to Fly.io staging, verify health check passes, test file persistence across restarts (upload file, restart app, file still exists), verify secrets not in logs.",
-        "priority": "medium",
-        "dependencies": [
-          10,
-          11,
-          12
-        ],
-        "status": "pending",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Create Dockerfile and Docker Compose",
-            "description": "Build production-ready Docker image with all dependencies",
-            "dependencies": [],
-            "details": "Multi-stage Dockerfile: stage 1 (build - install deps, build frontend), stage 2 (runtime - copy artifacts, install FFmpeg). Install: python3.11, ffmpeg, redis-cli. COPY backend/, COPY frontend/build/. EXPOSE 8000. CMD run migrations then start FastAPI. Create docker-compose.yml: services for backend, redis, with volume mounts.",
-            "status": "pending",
-            "testStrategy": "docker build -t video-gen ., docker run locally, curl health endpoint. docker-compose up, test full API flow with Redis caching working."
-          },
-          {
-            "id": 2,
-            "title": "Configure Fly.io Deployment",
-            "description": "Set up Fly.io app configuration with volumes and resource limits",
-            "dependencies": [
-              1
-            ],
-            "details": "Create fly.toml: app name, region, vm size (shared-cpu-1x, 1GB RAM). Configure volume: [mounts] source='video_storage', destination='/data/videos'. Health check: [[services.http_checks]] path='/health'. Deploy with: fly deploy. Create staging app for testing.",
-            "status": "pending",
-            "testStrategy": "fly deploy to staging. fly ssh console, verify /data/videos mount exists. Test health check: fly curl /health. Upload test video, restart app (fly restart), verify video still accessible."
-          },
-          {
-            "id": 3,
-            "title": "Initialize Production Database and Secrets",
-            "description": "Run SQL migrations and configure environment variables securely",
-            "dependencies": [
-              2
-            ],
-            "details": "Set secrets: fly secrets set REPLICATE_API_KEY=... JWT_SECRET=... VIDEO_STORAGE_PATH=/data/videos. Create startup script (entrypoint.sh) that runs migrations/001_v2_video_generation.sql before starting app. Verify secrets not logged (test log output). Set up DB backup cron (daily sqlite .backup command to volume).",
-            "status": "pending",
-            "testStrategy": "fly secrets list (values hidden). fly logs (verify no secrets printed). fly ssh console, check DB schema applied (sqlite3 app.db '.schema generated_videos'). Trigger backup cron, verify backup file created."
-          }
-        ]
-      },
-      {
-        "id": 14,
-        "title": "Implement Monitoring and Logging Infrastructure",
-        "description": "Set up Prometheus metrics, Structlog logging, and alerting",
-        "details": "Install prometheus_client, structlog. Define metrics: video_gen_duration_seconds (histogram), job_failures_total (counter), cost_actual_dollars (counter), replicate_api_errors_total (counter). Configure Structlog for JSON output. Expose /metrics endpoint. Set up alerts: failure rate >5%, p95 duration >600s, daily cost >$100. For MVP: log-based monitoring (parse JSON logs), Grafana optional for v2.1.",
-        "testStrategy": "Generate test jobs (success + failures). Scrape /metrics, verify histogram buckets populated. Check logs are valid JSON with job_id, event, duration_ms fields. Simulate high failure rate, verify alert would trigger (test threshold logic).",
-        "priority": "medium",
-        "dependencies": [
-          3,
-          6,
-          7
-        ],
-        "status": "pending",
-        "subtasks": [
-          {
-            "id": 1,
-            "title": "Set Up Prometheus Metrics",
-            "description": "Integrate prometheus_client and define key metrics with labels",
-            "dependencies": [],
-            "details": "Install prometheus_client. Create metrics in utils/metrics.py: VIDEO_GEN_DURATION (Histogram, buckets=[30,60,120,300,600]), JOB_FAILURES (Counter, labels=['reason']), COST_TOTAL (Counter), REPLICATE_ERRORS (Counter, labels=['model']). Instrument code: time generation, increment counters on failures. Expose /metrics endpoint (prometheus_client.make_asgi_app()).",
-            "status": "pending",
-            "testStrategy": "Start app, curl /metrics, verify HELP and TYPE lines present. Generate job, check VIDEO_GEN_DURATION_bucket incremented. Cause failure, check JOB_FAILURES{reason='timeout'} incremented."
-          },
-          {
-            "id": 2,
-            "title": "Configure Structured Logging with Structlog",
-            "description": "Replace logging with Structlog for JSON output with context",
-            "dependencies": [],
-            "details": "Install structlog. Configure processors: [add_log_level, add_timestamp, JSONRenderer()]. Create logger = structlog.get_logger(). Use logger.info('event_name', job_id=123, duration_ms=500). Set log level from env var (LOG_LEVEL=INFO). Log key events: job_created, storyboard_started, scene_generated, video_rendered, job_failed.",
-            "status": "pending",
-            "testStrategy": "Generate job, grep logs for JSON. Verify each log has timestamp, level, event fields. Test different log levels (DEBUG shows scene prompts, INFO shows lifecycle). Parse logs with jq to verify valid JSON."
-          },
-          {
-            "id": 3,
-            "title": "Implement Alert Threshold Logic",
-            "description": "Add monitoring for alert conditions and logging when thresholds exceeded",
-            "dependencies": [
-              1,
-              2
-            ],
-            "details": "Create utils/alerts.py. Track rolling window metrics (last 100 jobs): failure_rate, p95_duration, daily_cost. Check thresholds: if failure_rate > 0.05: logger.critical('HIGH_FAILURE_RATE', rate=failure_rate). If daily_cost > 100: logger.critical('COST_ALERT', amount=daily_cost). For MVP: critical logs trigger alerts (grep logs for CRITICAL). Future: integrate PagerDuty.",
-            "status": "pending",
-            "testStrategy": "Simulate 10 jobs with 6 failures, verify HIGH_FAILURE_RATE log emitted. Simulate $150 spend, verify COST_ALERT log. Test p95 duration calculation with sample data."
-          }
-        ]
       }
     ],
     "metadata": {
       "created": "2025-11-16T03:03:02.696Z",
-      "updated": "2025-11-16T03:19:45.813146Z",
-      "description": "Tasks for mvp context - Enhanced with new tasks and fixed dependencies"
+      "updated": "2025-11-16T03:03:02.696Z",
+      "description": "Tasks for mvp context"
     }
   }
 }
