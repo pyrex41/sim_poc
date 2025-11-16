@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     ANTHROPIC_API_KEY: str | None = None
 
+    # Storage settings
+    VIDEO_STORAGE_PATH: str = "./DATA/videos"
+
     # Prompt parser settings (from prompt_parser_service)
     APP_ENV: Literal["development", "staging", "production"] = "development"
     LOG_LEVEL: str = "INFO"
