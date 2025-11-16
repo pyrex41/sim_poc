@@ -33,6 +33,17 @@ type alias Model =
     , briefId : Maybe String
     , autoScenePrompt : String
     , navigationKey : Nav.Key
+    , imageModels : List ImageModel
+    , selectedImageModel : Maybe String
+    , loadingImageModels : Bool
+    , generatingImages : Bool
+    }
+
+
+type alias ImageModel =
+    { name : String
+    , owner : String
+    , description : String
     }
 
 
@@ -93,7 +104,7 @@ init key =
       , videoUrl = ""
       , platform = "tiktok"
       , category = "luxury"
-      , llmProvider = "openai"
+      , llmProvider = "openrouter"
       , isLoading = False
       , error = Nothing
       , response = Nothing
@@ -101,8 +112,12 @@ init key =
       , briefId = Nothing
       , autoScenePrompt = ""
       , navigationKey = key
+      , imageModels = []
+      , selectedImageModel = Nothing
+      , loadingImageModels = True
+      , generatingImages = False
       }
-    , Cmd.none
+    , fetchImageModels
     )
 
 
@@ -130,6 +145,11 @@ type Msg
     | RefineBrief
     | GotRefine (Result Http.Error CreativeBriefResponse)
     | NavigateTo Route
+    | FetchImageModels
+    | ImageModelsFetched (Result Http.Error (List ImageModel))
+    | SelectImageModel String
+    | GenerateImages
+    | ImagesGenerated (Result Http.Error (List Int))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -275,6 +295,56 @@ update msg model =
         NavigateTo route ->
             ( model, Nav.pushUrl model.navigationKey (Route.toHref route) )
 
+        FetchImageModels ->
+            ( { model | loadingImageModels = True }, fetchImageModels )
+
+        ImageModelsFetched result ->
+            case result of
+                Ok models ->
+                    ( { model
+                        | imageModels = models
+                        , loadingImageModels = False
+                        , selectedImageModel = List.head models |> Maybe.map (\m -> m.owner ++ "/" ++ m.name)
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model
+                        | loadingImageModels = False
+                        , error = Just ("Failed to load image models: " ++ httpErrorToString error)
+                      }
+                    , Cmd.none
+                    )
+
+        SelectImageModel modelName ->
+            ( { model | selectedImageModel = Just modelName }, Cmd.none )
+
+        GenerateImages ->
+            case (model.briefId, model.selectedImageModel) of
+                (Just briefId, Just modelName) ->
+                    ( { model | generatingImages = True, error = Nothing }
+                    , generateImagesFromBrief briefId modelName
+                    )
+
+                _ ->
+                    ( { model | error = Just "Missing brief ID or image model" }, Cmd.none )
+
+        ImagesGenerated result ->
+            case result of
+                Ok imageIds ->
+                    ( { model | generatingImages = False }
+                    , Nav.pushUrl model.navigationKey "/images"
+                    )
+
+                Err error ->
+                    ( { model
+                        | generatingImages = False
+                        , error = Just ("Failed to generate images: " ++ httpErrorToString error)
+                      }
+                    , Cmd.none
+                    )
+
 
 -- HTTP
 
@@ -418,8 +488,9 @@ view model =
                             ]
                         , div []
                             [ label [ style "display" "block", style "margin-bottom" "5px" ] [ text "LLM Provider" ]
-                            , select [ onInput UpdateLLMProvider ]
-                                [ option [ value "openai" ] [ text "OpenAI (GPT-4o)" ]
+                            , select [ onInput UpdateLLMProvider, value model.llmProvider ]
+                                [ option [ value "openrouter" ] [ text "OpenRouter (GPT-5-nano)" ]
+                                , option [ value "openai" ] [ text "OpenAI (GPT-4o)" ]
                                 , option [ value "claude" ] [ text "Claude" ]
                                 ]
                             ]
@@ -461,6 +532,44 @@ view model =
                                     ]
                             , button [ onClick GenerateVideo, style "background-color" "#9C27B0", style "color" "white", style "padding" "10px 16px", style "border" "none", style "border-radius" "4px", style "margin-top" "10px" ] [ text "Generate Video from Brief" ]
                             , button [ onClick RefineBrief, style "background-color" "#f44336", style "color" "white", style "padding" "10px 16px", style "border" "none", style "border-radius" "4px", style "margin-left" "10px" ] [ text "Refine Brief" ]
+                            , div [ style "margin-top" "20px", style "padding" "15px", style "background" "#f0f8ff", style "border-radius" "4px" ]
+                                [ h4 [] [ text "Generate Images from Brief" ]
+                                , if model.loadingImageModels then
+                                    p [] [ text "Loading image models..." ]
+                                  else
+                                    div []
+                                        [ div [ style "margin-bottom" "10px" ]
+                                            [ label [ style "display" "block", style "margin-bottom" "5px" ] [ text "Select Image Model:" ]
+                                            , select
+                                                [ onInput SelectImageModel
+                                                , style "width" "100%"
+                                                , style "padding" "8px"
+                                                , style "border" "1px solid #ccc"
+                                                , style "border-radius" "4px"
+                                                , disabled model.generatingImages
+                                                ]
+                                                (List.map viewImageModelOption model.imageModels)
+                                            ]
+                                        , button
+                                            [ onClick GenerateImages
+                                            , style "background-color" "#FF5722"
+                                            , style "color" "white"
+                                            , style "padding" "10px 16px"
+                                            , style "border" "none"
+                                            , style "border-radius" "4px"
+                                            , disabled (model.generatingImages || List.isEmpty model.imageModels)
+                                            ]
+                                            [ if model.generatingImages then
+                                                text "Generating Images..."
+                                              else
+                                                text "Generate Images from All Scenes"
+                                            ]
+                                        , if List.isEmpty model.imageModels && not model.loadingImageModels then
+                                            p [ style "color" "#999", style "margin-top" "10px" ] [ text "No image models available" ]
+                                          else
+                                            text ""
+                                        ]
+                                ]
                             ]
 
                     Nothing ->
@@ -607,6 +716,13 @@ viewScene scene =
             ]
         ]
 
+
+viewImageModelOption : ImageModel -> Html Msg
+viewImageModelOption model =
+    option [ value (model.owner ++ "/" ++ model.name) ]
+        [ text (model.owner ++ "/" ++ model.name)
+        ]
+
 -- DECODERS FOR RESPONSES
 
 decodeUploadResponse : Decode.Decoder UploadResponse
@@ -626,7 +742,11 @@ decodeSceneResponse =
 decodeVideoResponse : Decode.Decoder VideoResponse
 decodeVideoResponse =
     Decode.map2 VideoResponse
-        (Decode.field "videoId" Decode.string)
+        (Decode.oneOf
+            [ Decode.field "videoId" Decode.string
+            , Decode.field "video_id" (Decode.map String.fromInt Decode.int)
+            ]
+        )
         (Decode.field "status" Decode.string)
 
 
@@ -675,11 +795,13 @@ generateVideo briefId =
     let
         body =
             Encode.object
-                [ ( "briefId", Encode.string briefId )
+                [ ( "model_id", Encode.string "stability-ai/stable-video-diffusion" )
+                , ( "input", Encode.object [ ( "prompt", Encode.string "Generate video from creative brief" ) ] )
+                , ( "brief_id", Encode.string briefId )
                 ]
     in
     Http.post
-        { url = "/api/genesis/render"
+        { url = "/api/run-video-model"
         , body = Http.jsonBody body
         , expect = Http.expectJson GotVideo decodeVideoResponse
         }
@@ -697,6 +819,43 @@ refineBrief briefId refinementText =
         { url = "/api/creative/briefs/" ++ briefId ++ "/refine"
         , body = Http.jsonBody body
         , expect = Http.expectJson GotRefine decodeBriefResponse
+        }
+
+
+fetchImageModels : Cmd Msg
+fetchImageModels =
+    Http.get
+        { url = "/api/image-models?collection=text-to-image"
+        , expect = Http.expectJson ImageModelsFetched decodeImageModelsList
+        }
+
+
+decodeImageModelsList : Decode.Decoder (List ImageModel)
+decodeImageModelsList =
+    Decode.field "models" (Decode.list decodeImageModel)
+
+
+decodeImageModel : Decode.Decoder ImageModel
+decodeImageModel =
+    Decode.map3 ImageModel
+        (Decode.field "name" Decode.string)
+        (Decode.field "owner" Decode.string)
+        (Decode.field "description" (Decode.nullable Decode.string) |> Decode.map (Maybe.withDefault ""))
+
+
+generateImagesFromBrief : String -> String -> Cmd Msg
+generateImagesFromBrief briefId modelName =
+    let
+        body =
+            Encode.object
+                [ ( "briefId", Encode.string briefId )
+                , ( "modelName", Encode.string modelName )
+                ]
+    in
+    Http.post
+        { url = "/api/generate-images-from-brief"
+        , body = Http.jsonBody body
+        , expect = Http.expectJson ImagesGenerated (Decode.field "imageIds" (Decode.list Decode.int))
         }
 
 
