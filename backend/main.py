@@ -2235,10 +2235,9 @@ async def api_get_image(
 
 @app.get("/api/images/{image_id}/data")
 async def api_get_image_data(
-    image_id: int,
-    current_user: Dict = Depends(verify_auth)
+    image_id: int
 ):
-    """Get the binary image data from database. Requires authentication."""
+    """Get the binary image data from database. Public endpoint for external services."""
     from .database import get_db
 
     with get_db() as conn:
@@ -2256,10 +2255,9 @@ async def api_get_image_data(
 
 @app.get("/api/images/{image_id}/thumbnail")
 async def api_get_image_thumbnail(
-    image_id: int,
-    current_user: Dict = Depends(verify_auth)
+    image_id: int
 ):
-    """Get a thumbnail (400px width) of the image for gallery display. Requires authentication."""
+    """Get a thumbnail (400px width) of the image for gallery display. Public endpoint."""
     from .database import get_db
     from PIL import Image
     import io
@@ -2294,10 +2292,9 @@ async def api_get_image_thumbnail(
 
 @app.get("/api/videos/{video_id}/data")
 async def api_get_video_data(
-    video_id: int,
-    current_user: Dict = Depends(verify_auth)
+    video_id: int
 ):
-    """Get the binary video data from database. Requires authentication."""
+    """Get the binary video data from database. Public endpoint for external services."""
     from .database import get_db
 
     with get_db() as conn:
