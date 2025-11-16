@@ -38,6 +38,10 @@ COPY backend/ ./backend/
 # Copy built frontend from builder stage
 COPY --from=frontend-builder /app/dist ./static
 
+# Copy entrypoint script
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Install dependencies with uv (creates .venv)
 RUN uv sync --no-cache
 
@@ -49,5 +53,5 @@ ENV DATA=/data
 ENV PORT=8080
 EXPOSE 8080
 
-# Run the application using uv's virtual environment
-CMD ["/app/.venv/bin/uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Use entrypoint script to run migrations then start server
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
