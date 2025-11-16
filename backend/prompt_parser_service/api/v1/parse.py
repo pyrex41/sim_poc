@@ -162,6 +162,11 @@ async def parse_prompt(
     except ContentSafetyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # Determine primary LLM provider
+    settings = get_settings()
+    default_provider = "mock" if settings.USE_MOCK_LLM else settings.DEFAULT_LLM_PROVIDER
+    primary_name = parse_request.options.llm_provider or default_provider
+
     # Attempt full processing first
     try:
         response = await process_parse_request(parse_request, cache, llm_providers, bypass_cache=bypass_cache, model_name=primary_name)
@@ -187,41 +192,13 @@ async def parse_prompt(
             logger.error(f"Failed to save brief to database: {db_error}")
             # Don't fail the request if DB save fails, just log it
 
-        # Optionally auto-generate physics scene from first scene prompt
-        auto_scene = None
-        if response.scenes and len(response.scenes) > 0 and response.scenes[0].visual and response.scenes[0].visual.generation_prompt:
-            try:
-                from main import generate_scene, save_generated_scene
-                first_scene_prompt = response.scenes[0].visual.generation_prompt
-                logger.info(f"Auto-generating physics scene from brief {brief_id}")
+        # NOTE: Physics scene auto-generation is disabled here
+        # Physics scenes should be generated separately via the /api/physics/generate endpoint
+        # This keeps the creative brief generation focused on prompt parsing and brief creation
+        # The generation_prompt in scenes can be used later for physics simulation generation
 
-                scene = generate_scene(first_scene_prompt)
-                scene_dict = scene.dict()
-
-                # Save scene linked to brief
-                scene_id = save_generated_scene(
-                    prompt=first_scene_prompt,
-                    scene_data=scene_dict,
-                    model="claude-3.5-sonnet",
-                    metadata={
-                        "source": "brief_auto_generate",
-                        "user_id": current_user["id"],
-                        "brief_id": brief_id
-                    }
-                )
-
-                scene_dict["_id"] = scene_id
-                scene_dict["_brief_id"] = brief_id
-                auto_scene = scene_dict
-                logger.info(f"Auto-generated scene {scene_id} for brief {brief_id}")
-
-            except Exception as scene_error:
-                logger.warning(f"Failed to auto-generate scene for brief {brief_id}: {scene_error}")
-                # Don't fail the request if auto-generation fails
-
-        # Auto-generated scene is already logged and saved to database
-        # The frontend can retrieve it via the briefs API if needed
-
+        # Add brief_id to response
+        response.briefId = brief_id
         return response
 
     except Exception as e:
@@ -243,6 +220,7 @@ async def parse_prompt(
                 response = await process_parse_request(text_only_request, cache, llm_providers, bypass_cache, primary_name)
 
                 # Save fallback brief to database
+                brief_id = None
                 try:
                     brief_id = str(uuid.uuid4())
                     save_creative_brief(
@@ -258,6 +236,8 @@ async def parse_prompt(
                 except Exception as db_error:
                     logger.error(f"Failed to save fallback brief to database: {db_error}")
 
+                # Add brief_id to response
+                response.briefId = brief_id
                 return response
 
             except Exception as fallback_error:
