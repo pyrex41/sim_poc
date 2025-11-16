@@ -120,9 +120,31 @@ def init_db():
             ON generated_scenes(model)
         """)
 
+        # Add brief_id column to generated_scenes if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE generated_scenes ADD COLUMN brief_id TEXT REFERENCES creative_briefs(id)")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_scenes_brief
+            ON generated_scenes(brief_id)
+        """)
+
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_videos_created_at
             ON generated_videos(created_at DESC)
+        """)
+
+        # Add brief_id column to generated_videos if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN brief_id TEXT REFERENCES creative_briefs(id)")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_videos_brief
+            ON generated_videos(brief_id)
         """)
 
         conn.execute("""
@@ -186,6 +208,57 @@ def init_db():
             ON generated_images(model_id)
         """)
 
+        # Add brief_id column to generated_images if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE generated_images ADD COLUMN brief_id TEXT REFERENCES creative_briefs(id)")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_images_brief
+            ON generated_images(brief_id)
+        """)
+
+        # Creative briefs table for prompt parser integration
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS creative_briefs (
+                id TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                prompt_text TEXT,
+                image_url TEXT,
+                video_url TEXT,
+                image_data BLOB,
+                video_data BLOB,
+                creative_direction TEXT NOT NULL,
+                scenes TEXT NOT NULL,
+                confidence_score REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_briefs_user
+            ON creative_briefs(user_id)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_briefs_created
+            ON creative_briefs(created_at DESC)
+        """)
+
+        # Add BLOB columns if table exists (for existing DB)
+        try:
+            conn.execute("ALTER TABLE creative_briefs ADD COLUMN image_data BLOB")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE creative_briefs ADD COLUMN video_data BLOB")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         conn.commit()
 
 @contextmanager
@@ -202,24 +275,26 @@ def save_generated_scene(
     prompt: str,
     scene_data: dict,
     model: str,
-    metadata: Optional[dict] = None
+    metadata: Optional[dict] = None,
+    brief_id: Optional[str] = None
 ) -> int:
     """Save a generated scene to the database."""
     with get_db() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO generated_scenes (prompt, scene_data, model, metadata)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO generated_scenes (prompt, scene_data, model, metadata, brief_id)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 prompt,
                 json.dumps(scene_data),
                 model,
-                json.dumps(metadata) if metadata else None
+                json.dumps(metadata) if metadata else None,
+                brief_id
             )
         )
         conn.commit()
-        return cursor.lastrowid
+        return cursor.lastrowid or 0
 
 def get_scene_by_id(scene_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve a specific scene by ID."""
@@ -309,14 +384,15 @@ def save_generated_video(
     parameters: dict,
     collection: Optional[str] = None,
     metadata: Optional[dict] = None,
-    status: str = "completed"
+    status: str = "completed",
+    brief_id: Optional[str] = None
 ) -> int:
     """Save a generated video to the database."""
     with get_db() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO generated_videos (prompt, video_url, model_id, parameters, collection, metadata, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO generated_videos (prompt, video_url, model_id, parameters, collection, metadata, status, brief_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 prompt,
@@ -325,11 +401,12 @@ def save_generated_video(
                 json.dumps(parameters),
                 collection,
                 json.dumps(metadata) if metadata else None,
-                status
+                status,
+                brief_id
             )
         )
         conn.commit()
-        return cursor.lastrowid
+        return cursor.lastrowid or 0
 
 def update_video_status(
     video_id: int,
@@ -426,6 +503,7 @@ def get_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
                 "status": row["status"],
                 "created_at": row["created_at"],
                 "collection": row["collection"],
+                "brief_id": row["brief_id"],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else None
             }
     return None
@@ -434,7 +512,8 @@ def list_videos(
     limit: int = 50,
     offset: int = 0,
     model_id: Optional[str] = None,
-    collection: Optional[str] = None
+    collection: Optional[str] = None,
+    brief_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """List generated videos with pagination and optional filters."""
     query = "SELECT * FROM generated_videos WHERE 1=1"
@@ -464,6 +543,7 @@ def list_videos(
                 "status": row["status"],
                 "created_at": row["created_at"],
                 "collection": row["collection"],
+                "brief_id": row["brief_id"],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else None
             }
             for row in rows
@@ -606,14 +686,15 @@ def save_generated_image(
     parameters: dict,
     collection: Optional[str] = None,
     metadata: Optional[dict] = None,
-    status: str = "completed"
+    status: str = "completed",
+    brief_id: Optional[str] = None
 ) -> int:
     """Save a generated image to the database."""
     with get_db() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO generated_images (prompt, image_url, model_id, parameters, collection, metadata, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO generated_images (prompt, image_url, model_id, parameters, collection, metadata, status, brief_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 prompt,
@@ -622,11 +703,12 @@ def save_generated_image(
                 json.dumps(parameters),
                 collection,
                 json.dumps(metadata) if metadata else None,
-                status
+                status,
+                brief_id
             )
         )
         conn.commit()
-        return cursor.lastrowid
+        return cursor.lastrowid or 0
 
 def update_image_status(
     image_id: int,
@@ -738,6 +820,7 @@ def get_image_by_id(image_id: int) -> Optional[Dict[str, Any]]:
                 "status": row["status"],
                 "created_at": row["created_at"],
                 "collection": row["collection"],
+                "brief_id": row["brief_id"],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else None
             }
     return None
@@ -746,7 +829,8 @@ def list_images(
     limit: int = 50,
     offset: int = 0,
     model_id: Optional[str] = None,
-    collection: Optional[str] = None
+    collection: Optional[str] = None,
+    brief_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """List generated images with pagination and optional filters."""
     import os
@@ -781,6 +865,7 @@ def list_images(
                 "status": row["status"],
                 "created_at": row["created_at"],
                 "collection": row["collection"],
+                "brief_id": row["brief_id"],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else None
             }
             for row in rows
@@ -934,6 +1019,183 @@ def revoke_api_key(key_id: int, user_id: int) -> bool:
         )
         conn.commit()
         return cursor.rowcount > 0
+
+# Creative Briefs CRUD functions
+def save_creative_brief(
+    brief_id: str,
+    user_id: int,
+    prompt_text: Optional[str] = None,
+    image_url: Optional[str] = None,
+    video_url: Optional[str] = None,
+    image_data: Optional[bytes] = None,
+    video_data: Optional[bytes] = None,
+    creative_direction: Optional[Dict[str, Any]] = None,
+    scenes: Optional[List[Dict[str, Any]]] = None,
+    confidence_score: Optional[float] = None
+) -> str:
+    """Save a creative brief to the database."""
+    # Serialize dict/list data to JSON strings
+    cd_json = json.dumps(creative_direction) if creative_direction else None
+    scenes_json = json.dumps(scenes) if scenes else None
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO creative_briefs
+            (id, user_id, prompt_text, image_url, video_url, image_data, video_data, creative_direction, scenes, confidence_score, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (brief_id, user_id, prompt_text, image_url, video_url, image_data, video_data, cd_json, scenes_json, confidence_score)
+        )
+        conn.commit()
+        return brief_id
+
+def get_creative_brief(brief_id: str, user_id: int) -> Optional[Dict[str, Any]]:
+    """Get a specific creative brief by ID for a user."""
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT id, user_id, prompt_text, image_url, video_url, image_data, video_data,
+                   creative_direction, scenes, confidence_score,
+                   created_at, updated_at
+            FROM creative_briefs
+            WHERE id = ? AND user_id = ?
+            """,
+            (brief_id, user_id)
+        ).fetchone()
+
+        if row:
+            return {
+                "id": row["id"],
+                "user_id": row["user_id"],
+                "prompt_text": row["prompt_text"],
+                "image_url": row["image_url"],
+                "video_url": row["video_url"],
+                "image_data": row["image_data"],
+                "video_data": row["video_data"],
+                "creative_direction": json.loads(row["creative_direction"]) if row["creative_direction"] else None,
+                "scenes": json.loads(row["scenes"]) if row["scenes"] else None,
+                "confidence_score": row["confidence_score"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"]
+            }
+    return None
+
+def get_user_briefs(
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0
+) -> List[Dict[str, Any]]:
+    """Get all creative briefs for a user with pagination."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, user_id, prompt_text, image_url, video_url, image_data, video_data,
+                   creative_direction, scenes, confidence_score,
+                   created_at, updated_at
+            FROM creative_briefs
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (user_id, limit, offset)
+        ).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "user_id": row["user_id"],
+                "prompt_text": row["prompt_text"],
+                "image_url": row["image_url"],
+                "video_url": row["video_url"],
+                "image_data": row["image_data"],
+                "video_data": row["video_data"],
+                "creative_direction": json.loads(row["creative_direction"]) if row["creative_direction"] else None,
+                "scenes": json.loads(row["scenes"]) if row["scenes"] else None,
+                "confidence_score": row["confidence_score"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"]
+            }
+            for row in rows
+        ]
+
+def update_brief(
+    brief_id: str,
+    user_id: int,
+    prompt_text: Optional[str] = None,
+    image_url: Optional[str] = None,
+    video_url: Optional[str] = None,
+    image_data: Optional[bytes] = None,
+    video_data: Optional[bytes] = None,
+    creative_direction: Optional[Dict[str, Any]] = None,
+    scenes: Optional[List[Dict[str, Any]]] = None,
+    confidence_score: Optional[float] = None
+) -> bool:
+    """Update a creative brief."""
+    with get_db() as conn:
+        # Build dynamic update query
+        update_fields = []
+        values = []
+
+        if prompt_text is not None:
+            update_fields.append("prompt_text = ?")
+            values.append(prompt_text)
+        if image_url is not None:
+            update_fields.append("image_url = ?")
+            values.append(image_url)
+        if video_url is not None:
+            update_fields.append("video_url = ?")
+            values.append(video_url)
+        if image_data is not None:
+            update_fields.append("image_data = ?")
+            values.append(image_data)
+        if video_data is not None:
+            update_fields.append("video_data = ?")
+            values.append(video_data)
+        if creative_direction is not None:
+            update_fields.append("creative_direction = ?")
+            values.append(json.dumps(creative_direction))
+        if scenes is not None:
+            update_fields.append("scenes = ?")
+            values.append(json.dumps(scenes))
+        if confidence_score is not None:
+            update_fields.append("confidence_score = ?")
+            values.append(confidence_score)
+
+        if not update_fields:
+            return False  # Nothing to update
+
+        update_fields.append("updated_at = CURRENT_TIMESTAMP")
+        values.extend([brief_id, user_id])
+
+        query = f"""
+            UPDATE creative_briefs
+            SET {', '.join(update_fields)}
+            WHERE id = ? AND user_id = ?
+        """
+
+        cursor = conn.execute(query, values)
+        conn.commit()
+        return cursor.rowcount > 0
+
+def delete_brief(brief_id: str, user_id: int) -> bool:
+    """Delete a creative brief."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM creative_briefs WHERE id = ? AND user_id = ?",
+            (brief_id, user_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+def get_brief_count(user_id: int) -> int:
+    """Get the total count of briefs for a user."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) as count FROM creative_briefs WHERE user_id = ?",
+            (user_id,)
+        ).fetchone()
+        return row["count"] if row else 0
 
 # Initialize database on import
 init_db()

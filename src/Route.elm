@@ -13,6 +13,9 @@ type Route
     | Images
     | ImageDetail Int
     | ImageGallery
+    | Auth
+    | BriefGallery
+    | CreativeBriefEditor
 
 
 parser : Parser (Route -> a) a
@@ -27,12 +30,20 @@ parser =
         , Parser.map Images (s "images")
         , Parser.map ImageDetail (s "image" </> int)
         , Parser.map ImageGallery (s "image-gallery")
+        , Parser.map Auth (s "auth")
+        , Parser.map BriefGallery (s "briefs")
+        , Parser.map CreativeBriefEditor (s "creative")
         ]
 
 
 fromUrl : Url -> Maybe Route
 fromUrl url =
-    Parser.parse parser url
+    case Parser.parse parser url of
+        Just route ->
+            Just route
+
+        Nothing ->
+            Just Videos  -- Default to videos
 
 
 toHref : Route -> String
@@ -61,3 +72,12 @@ toHref route =
 
         ImageGallery ->
             "/image-gallery"
+
+        Auth ->
+            "/auth"
+
+        BriefGallery ->
+            "/briefs"
+
+        CreativeBriefEditor ->
+            "/creative"

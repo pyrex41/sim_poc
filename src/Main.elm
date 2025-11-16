@@ -22,6 +22,9 @@ import Image
 import ImageDetail
 import ImageGallery
 import Auth
+import CreativeBriefEditor
+import BriefGallery
+import Browser.Navigation as Nav
 
 
 -- MAIN
@@ -62,6 +65,8 @@ type alias Model =
     , imageGalleryModel : ImageGallery.Model
     , authModel : Auth.Auth
     , pendingVideoFromImage : Maybe { modelId : String, imageUrl : String }
+    , creativeBriefEditorModel : CreativeBriefEditor.Model
+    , briefGalleryModel : BriefGallery.Model
     }
 
 
@@ -152,6 +157,12 @@ init _ url key =
         ( imageGalleryModel, imageGalleryCmd ) =
             ImageGallery.init
 
+        ( creativeBriefEditorModel, creativeBriefEditorCmd ) =
+            CreativeBriefEditor.init key
+
+        ( briefGalleryModel, briefGalleryCmd ) =
+            BriefGallery.init key
+
         route =
             Route.fromUrl url
     in
@@ -174,6 +185,8 @@ init _ url key =
       , imageGalleryModel = imageGalleryModel
       , authModel = Auth.init
       , pendingVideoFromImage = Nothing
+      , creativeBriefEditorModel = creativeBriefEditorModel
+      , briefGalleryModel = briefGalleryModel
       }
     , Cmd.batch
         [ Cmd.map VideoMsg videoCmd
@@ -181,6 +194,8 @@ init _ url key =
         , Cmd.map SimulationGalleryMsg simulationGalleryCmd
         , Cmd.map ImageMsg imageCmd
         , Cmd.map ImageGalleryMsg imageGalleryCmd
+        , Cmd.map CreativeBriefEditorMsg creativeBriefEditorCmd
+        , Cmd.map BriefGalleryMsg briefGalleryCmd
         , Cmd.map AuthMsg Auth.checkAuth
         ]
     )
@@ -225,6 +240,9 @@ type Msg
     | ImageDetailMsg ImageDetail.Msg
     | ImageGalleryMsg ImageGallery.Msg
     | AuthMsg Auth.Msg
+    | CreativeBriefEditorMsg CreativeBriefEditor.Msg
+    | BriefGalleryMsg BriefGallery.Msg
+    | NavigateTo Route
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -243,34 +261,49 @@ update msg model =
 
         UrlChanged url ->
             let
-                newRoute =
-                    Route.fromUrl url
+                newRoute = Route.fromUrl url
 
-                ( videoDetailModel, videoDetailCmd ) =
+                videoDetailModel =
                     case newRoute of
                         Just (Route.VideoDetail videoId) ->
                             let
-                                ( detailModel, detailCmd ) =
-                                    VideoDetail.init videoId
+                                ( detailModel, detailCmd ) = VideoDetail.init videoId
                             in
-                            ( Just detailModel, Cmd.map VideoDetailMsg detailCmd )
+                            Just detailModel
 
                         _ ->
-                            ( Nothing, Cmd.none )
+                            Nothing
 
-                ( imageDetailModel, imageDetailCmd ) =
+                imageDetailModel =
                     case newRoute of
                         Just (Route.ImageDetail imageId) ->
                             let
-                                ( detailModel, detailCmd ) =
-                                    ImageDetail.init imageId
+                                ( detailModel, detailCmd ) = ImageDetail.init imageId
                             in
-                            ( Just detailModel, Cmd.map ImageDetailMsg detailCmd )
+                            Just detailModel
 
                         _ ->
-                            ( Nothing, Cmd.none )
+                            Nothing
 
-                -- Refresh gallery when navigating to it
+                creativeBriefEditorModel =
+                    case newRoute of
+                        Just Route.CreativeBriefEditor ->
+                            let
+                                ( editorModel, editorCmd ) = CreativeBriefEditor.init model.key
+                            in
+                            editorModel
+
+                        _ ->
+                            model.creativeBriefEditorModel
+
+                ( briefGalleryModel, briefGalleryInitCmd ) =
+                    case newRoute of
+                        Just Route.BriefGallery ->
+                            BriefGallery.init model.key
+
+                        _ ->
+                            ( model.briefGalleryModel, Cmd.none )
+
                 galleryCmd =
                     case newRoute of
                         Just Route.Gallery ->
@@ -279,7 +312,6 @@ update msg model =
                         _ ->
                             Cmd.none
 
-                -- Refresh image gallery when navigating to it
                 imageGalleryCmd =
                     case newRoute of
                         Just Route.ImageGallery ->
@@ -288,26 +320,45 @@ update msg model =
                         _ ->
                             Cmd.none
 
-                -- Pre-fill video model when navigating from image gallery
-                ( videoPrefillCmd, clearedPending ) =
+                videoPrefillCmd =
                     case ( newRoute, model.pendingVideoFromImage ) of
                         ( Just Route.Videos, Just { modelId, imageUrl } ) ->
-                            -- Image URL is already a full URL from backend (using ngrok if configured)
-                            -- Send messages to configure Video.elm with the model and image
-                            -- Use delays to ensure correct order: collection -> model -> parameter
-                            ( Cmd.batch
+                            Cmd.batch
                                 [ Task.perform (always (VideoMsg (Video.SelectCollection "image-to-video"))) (Task.succeed ())
                                 , Process.sleep 50 |> Task.andThen (\_ -> Task.succeed (VideoMsg (Video.SelectModel modelId))) |> Task.perform identity
                                 , Process.sleep 100 |> Task.andThen (\_ -> Task.succeed (VideoMsg (Video.UpdateParameter "image" imageUrl))) |> Task.perform identity
                                 ]
-                            , Nothing
-                            )
 
                         _ ->
-                            ( Cmd.none, model.pendingVideoFromImage )
+                            Cmd.none
+
+                clearedPending =
+                    case ( newRoute, model.pendingVideoFromImage ) of
+                        ( Just Route.Videos, Just _ ) ->
+                            Nothing
+
+                        _ ->
+                            model.pendingVideoFromImage
+
+                videoDetailCmd =
+                    Cmd.none
+
+                imageDetailCmd =
+                    Cmd.none
+
+                creativeBriefEditorCmd =
+                    Cmd.none
+
+                briefGalleryCmd =
+                    case newRoute of
+                        Just Route.BriefGallery ->
+                            Cmd.map BriefGalleryMsg (BriefGallery.initCmd briefGalleryModel)
+
+                        _ ->
+                            Cmd.none
             in
-            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel, pendingVideoFromImage = clearedPending }
-            , Cmd.batch [ videoDetailCmd, imageDetailCmd, galleryCmd, imageGalleryCmd, videoPrefillCmd ]
+            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel, creativeBriefEditorModel = creativeBriefEditorModel, briefGalleryModel = briefGalleryModel, pendingVideoFromImage = clearedPending }
+            , Cmd.batch [ videoDetailCmd, imageDetailCmd, creativeBriefEditorCmd, briefGalleryCmd, galleryCmd, imageGalleryCmd, videoPrefillCmd ]
             )
 
         UpdateTextInput text ->
@@ -361,6 +412,59 @@ update msg model =
                             { uiState
                                 | isGenerating = False
                                 , errorMessage = Just (Decode.errorToString error)
+                            }
+                      }
+                    , Cmd.none
+                    )
+
+        SceneGeneratedResult result ->
+            case result of
+                Ok scene ->
+                    let
+                        uiState =
+                            model.uiState
+                        modelWithHistory =
+                            saveToHistory model
+                    in
+                    ( { modelWithHistory
+                        | scene = scene
+                        , initialScene = Just scene
+                        , uiState =
+                            { uiState
+                                | isGenerating = False
+                                , textInput = ""
+                            }
+                      }
+                    , sendSceneToThreeJs (sceneEncoder scene)
+                    )
+
+                Err error ->
+                    let
+                        uiState =
+                            model.uiState
+
+                        errorMessage =
+                            case error of
+                                Http.BadUrl url ->
+                                    "Bad URL: " ++ url
+
+                                Http.Timeout ->
+                                    "Request timed out"
+
+                                Http.NetworkError ->
+                                    "Network error"
+
+                                Http.BadStatus status ->
+                                    "Server error: " ++ String.fromInt status
+
+                                Http.BadBody body ->
+                                    "Invalid response: " ++ body
+                    in
+                    ( { model
+                        | uiState =
+                            { uiState
+                                | isGenerating = False
+                                , errorMessage = Just errorMessage
                             }
                       }
                     , Cmd.none
@@ -516,224 +620,6 @@ update msg model =
             in
             ( { model | uiState = { uiState | errorMessage = Nothing } }, Cmd.none )
 
-        SceneGeneratedResult result ->
-            case result of
-                Ok scene ->
-                    let
-                        uiState =
-                            model.uiState
-                        modelWithHistory =
-                            saveToHistory model
-                    in
-                    ( { modelWithHistory
-                        | scene = scene
-                        , initialScene = Just scene
-                        , uiState =
-                            { uiState
-                                | isGenerating = False
-                                , textInput = ""
-                            }
-                      }
-                    , sendSceneToThreeJs (sceneEncoder scene)
-                    )
-
-                Err error ->
-                    let
-                        uiState =
-                            model.uiState
-
-                        errorMessage =
-                            case error of
-                                Http.BadUrl url ->
-                                    "Bad URL: " ++ url
-
-                                Http.Timeout ->
-                                    "Request timed out"
-
-                                Http.NetworkError ->
-                                    "Network error"
-
-                                Http.BadStatus status ->
-                                    "Server error: " ++ String.fromInt status
-
-                                Http.BadBody body ->
-                                    "Invalid response: " ++ body
-                    in
-                    ( { model
-                        | uiState =
-                            { uiState
-                                | isGenerating = False
-                                , errorMessage = Just errorMessage
-                            }
-                      }
-                    , Cmd.none
-                    )
-
-        UpdateRefineInput newInput ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | refineInput = newInput } }, Cmd.none )
-
-        RefineScene ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | isRefining = True, errorMessage = Nothing } }
-            , refineSceneRequest model.scene model.uiState.refineInput
-            )
-
-        SceneRefined result ->
-            case result of
-                Ok scene ->
-                    let
-                        uiState =
-                            model.uiState
-                        modelWithHistory =
-                            saveToHistory model
-                    in
-                    ( { modelWithHistory
-                        | scene = scene
-                        , uiState =
-                            { uiState
-                                | isRefining = False
-                                , refineInput = ""
-                            }
-                      }
-                    , sendSceneToThreeJs (sceneEncoder scene)
-                    )
-
-                Err error ->
-                    let
-                        uiState =
-                            model.uiState
-
-                        errorMessage =
-                            case error of
-                                Http.BadUrl url ->
-                                    "Bad URL: " ++ url
-
-                                Http.Timeout ->
-                                    "Request timed out"
-
-                                Http.NetworkError ->
-                                    "Network error"
-
-                                Http.BadStatus status ->
-                                    "Server error: " ++ String.fromInt status
-
-                                Http.BadBody body ->
-                                    "Invalid response: " ++ body
-                    in
-                    ( { model
-                        | uiState =
-                            { uiState
-                                | isRefining = False
-                                , errorMessage = Just errorMessage
-                            }
-                      }
-                    , Cmd.none
-                    )
-
-        Undo ->
-            case model.history of
-                previousScene :: restHistory ->
-                    ( { model
-                        | scene = previousScene
-                        , history = restHistory
-                        , future = model.scene :: model.future
-                      }
-                    , sendSceneToThreeJs (sceneEncoder previousScene)
-                    )
-
-                [] ->
-                    ( model, Cmd.none )
-
-        Redo ->
-            case model.future of
-                nextScene :: restFuture ->
-                    ( { model
-                        | scene = nextScene
-                        , history = model.scene :: model.history
-                        , future = restFuture
-                      }
-                    , sendSceneToThreeJs (sceneEncoder nextScene)
-                    )
-
-                [] ->
-                    ( model, Cmd.none )
-
-        SaveScene ->
-            ( model, saveSceneToStorage (sceneEncoder model.scene) )
-
-        LoadScene ->
-            ( model, loadSceneFromStorage () )
-
-        SceneLoadedFromStorage sceneValue ->
-            case Decode.decodeValue sceneDecoder sceneValue of
-                Ok loadedScene ->
-                    let
-                        modelWithHistory =
-                            saveToHistory model
-                    in
-                    ( { modelWithHistory
-                        | scene = loadedScene
-                        , initialScene = Just loadedScene
-                      }
-                    , sendSceneToThreeJs (sceneEncoder loadedScene)
-                    )
-
-                Err _ ->
-                    ( model, Cmd.none )
-
-        KeyDown key ->
-            case key of
-                "Control" ->
-                    ( { model | ctrlPressed = True }, Cmd.none )
-
-                " " ->
-                    -- Space: toggle simulation
-                    update (ToggleSimulation) model
-
-                "g" ->
-                    -- G: translate mode
-                    update (SetTransformMode Translate) model
-
-                "r" ->
-                    -- R: rotate mode
-                    update (SetTransformMode Rotate) model
-
-                "s" ->
-                    -- S: scale mode
-                    update (SetTransformMode Scale) model
-
-                "z" ->
-                    -- Ctrl+Z: undo
-                    if model.ctrlPressed then
-                        update Undo model
-                    else
-                        ( model, Cmd.none )
-
-                "y" ->
-                    -- Ctrl+Y: redo
-                    if model.ctrlPressed then
-                        update Redo model
-                    else
-                        ( model, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
-
-        KeyUp key ->
-            case key of
-                "Control" ->
-                    ( { model | ctrlPressed = False }, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
-
         SelectionChanged maybeObjectId ->
             let
                 scene =
@@ -760,6 +646,105 @@ update msg model =
               }
             , Cmd.none
             )
+
+        UpdateRefineInput text ->
+            let
+                uiState = model.uiState
+            in
+            ( { model | uiState = { uiState | refineInput = text } }, Cmd.none )
+
+        RefineScene ->
+            let
+                uiState = model.uiState
+            in
+            ( { model | uiState = { uiState | isRefining = True } }
+            , refineSceneRequest model.scene model.uiState.refineInput
+            )
+
+        SceneRefined result ->
+            case result of
+                Ok newScene ->
+                    let
+                        uiState = model.uiState
+                    in
+                    ( { model
+                        | scene = newScene
+                        , history = model.scene :: model.history
+                        , future = []
+                        , uiState = { uiState | isRefining = False }
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    let
+                        uiState = model.uiState
+
+                        errorMessage =
+                            case error of
+                                Http.BadUrl url ->
+                                    "Bad URL: " ++ url
+
+                                Http.Timeout ->
+                                    "Request timed out"
+
+                                Http.NetworkError ->
+                                    "Network error"
+
+                                Http.BadStatus status ->
+                                    "Bad status: " ++ String.fromInt status
+
+                                Http.BadBody message ->
+                                    "Bad response: " ++ message
+                    in
+                    ( { model | uiState = { uiState | isRefining = False, errorMessage = Just errorMessage } }
+                    , Cmd.none
+                    )
+
+        Undo ->
+            case model.history of
+                prevScene :: restHistory ->
+                    ( { model | scene = prevScene, history = restHistory, future = model.scene :: model.future }
+                    , Cmd.none
+                    )
+
+                [] ->
+                    ( model, Cmd.none )
+
+        Redo ->
+            case model.future of
+                nextScene :: restFuture ->
+                    ( { model | scene = nextScene, future = restFuture, history = model.scene :: model.history }
+                    , Cmd.none
+                    )
+
+                [] ->
+                    ( model, Cmd.none )
+
+        SaveScene ->
+            ( model, Cmd.none )
+
+        LoadScene ->
+            ( model, Cmd.none )
+
+        SceneLoadedFromStorage result ->
+            ( model, Cmd.none )
+
+        KeyDown key ->
+            case key of
+                "Control" ->
+                    ( { model | ctrlPressed = True }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        KeyUp key ->
+            case key of
+                "Control" ->
+                    ( { model | ctrlPressed = False }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
 
         VideoMsg videoMsg ->
             let
@@ -885,6 +870,26 @@ update msg model =
             , Cmd.batch [ Cmd.map AuthMsg authCmd, fetchCmd ]
             )
 
+        CreativeBriefEditorMsg briefMsg ->
+            let
+                ( updatedModel, cmd ) =
+                    CreativeBriefEditor.update briefMsg model.creativeBriefEditorModel
+            in
+            ( { model | creativeBriefEditorModel = updatedModel }
+            , Cmd.map CreativeBriefEditorMsg cmd
+            )
+
+        BriefGalleryMsg galleryMsg ->
+            let
+                ( updatedModel, cmd ) =
+                    BriefGallery.update galleryMsg model.briefGalleryModel
+            in
+            ( { model | briefGalleryModel = updatedModel }
+            , Cmd.map BriefGalleryMsg cmd
+            )
+
+        NavigateTo route ->
+            ( model, Nav.pushUrl model.key (Route.toHref route) )
 
 
 -- HISTORY MANAGEMENT
@@ -903,7 +908,7 @@ saveToHistory model =
 
 view : Model -> Browser.Document Msg
 view model =
-    { title = "Physics Simulator & Video Models"
+    { title = "Gauntlet Video Sim POC"
     , body =
         case model.authModel.loginState of
             Auth.Checking ->
@@ -974,7 +979,7 @@ viewMainContent model =
                             |> Html.map VideoDetailMsg
 
                     Nothing ->
-                        div [ class "loading" ] [ text "Loading..." ]
+                        div [ class "loading" ] [ text "Loading video detail..." ]
 
             Just Route.Gallery ->
                 VideoGallery.view model.galleryModel
@@ -995,11 +1000,22 @@ viewMainContent model =
                             |> Html.map ImageDetailMsg
 
                     Nothing ->
-                        div [ class "loading" ] [ text "Loading..." ]
+                        div [ class "loading" ] [ text "Loading image detail..." ]
 
             Just Route.ImageGallery ->
                 ImageGallery.view model.imageGalleryModel
                     |> Html.map ImageGalleryMsg
+
+            Just Route.Auth ->
+                Html.map AuthMsg (Auth.view model.authModel)
+
+            Just Route.BriefGallery ->
+                BriefGallery.view model.briefGalleryModel
+                    |> Html.map BriefGalleryMsg
+
+            Just Route.CreativeBriefEditor ->
+                CreativeBriefEditor.view model.creativeBriefEditorModel
+                    |> Html.map CreativeBriefEditorMsg
 
             Nothing ->
                 div [ class "app-container" ]
@@ -1044,6 +1060,21 @@ viewTabs model =
             , class (if model.route == Just Route.Physics then "active" else "")
             ]
             [ text "Physics Simulator" ]
+        , a
+            [ href "/auth"
+            , class (if model.route == Just Route.Auth then "active" else "")
+            ]
+            [ text "Auth" ]
+        , a
+            [ href "/briefs"
+            , class (if model.route == Just Route.BriefGallery then "active" else "")
+            ]
+            [ text "Brief Gallery" ]
+        , a
+            [ href "/creative"
+            , class (if model.route == Just Route.CreativeBriefEditor then "active" else "")
+            ]
+            [ text "Creative Brief Editor" ]
         ]
 
 
@@ -1306,6 +1337,22 @@ subscriptions model =
 
                 _ ->
                     Sub.none
+
+        creativeBriefEditorSub =
+            case model.route of
+                Just Route.CreativeBriefEditor ->
+                    Sub.map CreativeBriefEditorMsg (CreativeBriefEditor.subscriptions model.creativeBriefEditorModel)
+
+                _ ->
+                    Sub.none
+
+        briefGallerySub =
+            case model.route of
+                Just Route.BriefGallery ->
+                    Sub.map BriefGalleryMsg (BriefGallery.subscriptions model.briefGalleryModel)
+
+                _ ->
+                    Sub.none
     in
     Sub.batch
         [ sendSelectionToElm SelectionChanged
@@ -1318,6 +1365,8 @@ subscriptions model =
         , videoDetailSub
         , imageGallerySub
         , imageDetailSub
+        , creativeBriefEditorSub
+        , briefGallerySub
         ]
 
 
