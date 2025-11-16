@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from ...core.dependencies import get_cache_manager, get_llm_provider_registry
 from ...services.cache import CacheManager
 from ...services.llm.base import LLMProvider
-from ....database import get_user_briefs, get_creative_brief, update_brief, get_brief_count
+from ....database import get_user_briefs, get_creative_brief, update_brief, get_brief_count, delete_brief
 from ....auth import verify_auth
 
 router = APIRouter()
@@ -143,3 +143,31 @@ async def refine_creative_brief(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refine brief: {str(e)}")
+
+
+@router.delete("/briefs/{brief_id}")
+async def delete_creative_brief(
+    brief_id: str,
+    current_user: Dict[str, Any] = Depends(verify_auth),
+    cache: CacheManager = Depends(get_cache_manager),
+) -> Dict[str, bool]:
+    """
+    Delete a creative brief.
+    Requires authentication and ownership.
+    """
+    try:
+        # Delete the brief
+        success = delete_brief(brief_id, current_user["id"])
+        if not success:
+            raise HTTPException(status_code=404, detail="Brief not found or already deleted")
+
+        # Invalidate cache for this brief
+        cache_key = f"brief_{brief_id}"
+        await cache.delete(cache_key)
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete brief: {str(e)}")
