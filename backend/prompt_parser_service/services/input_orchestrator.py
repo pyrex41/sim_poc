@@ -7,7 +7,14 @@ from typing import Any, Dict, Optional
 
 from ..models.request import PromptInput
 from .image_processor import process_image_primary
-from .video_processor import process_video_input
+
+# Video processing is optional (requires cv2)
+try:
+    from .video_processor import process_video_input
+    VIDEO_PROCESSING_AVAILABLE = True
+except ImportError:
+    VIDEO_PROCESSING_AVAILABLE = False
+    process_video_input = None  # type: ignore
 
 
 @dataclass
@@ -18,7 +25,7 @@ class InputAnalysis:
 
 
 async def analyze_inputs(prompt: PromptInput) -> Optional[InputAnalysis]:
-    if prompt.video_url or prompt.video_base64:
+    if (prompt.video_url or prompt.video_base64) and VIDEO_PROCESSING_AVAILABLE:
         try:
             video_data = await process_video_input(
                 video_url=prompt.video_url,

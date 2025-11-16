@@ -627,7 +627,7 @@ async def api_generate_scene(
         # If brief_id is provided, validate ownership and use brief context
         brief_context = None
         if request.brief_id:
-            from .database import get_creative_brief
+            from database import get_creative_brief
             brief = get_creative_brief(request.brief_id, current_user["id"])
             if not brief:
                 raise HTTPException(status_code=404, detail="Brief not found or access denied")
@@ -1116,7 +1116,7 @@ def process_video_generation_background(
 
                 if video_url:
                     # Prevent race condition: check if download already attempted
-                    from .database import mark_download_attempted, mark_download_failed
+                    from database import mark_download_attempted, mark_download_failed
 
                     if not mark_download_attempted(video_id):
                         print(f"Video {video_id} download already attempted by another process, skipping")
@@ -1327,7 +1327,7 @@ async def api_run_video_model(
 
         if request.brief_id:
             try:
-                from .database import get_creative_brief
+                from database import get_creative_brief
                 brief = get_creative_brief(request.brief_id, current_user["id"])
                 if brief:
                     # Add brief context to prompt
@@ -1456,7 +1456,7 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
                 video_binary_data = f.read()
 
             # Store binary data in database
-            from .database import get_db
+            from database import get_db
             with get_db() as conn:
                 conn.execute(
                     "UPDATE generated_videos SET video_data = ? WHERE id = ?",
@@ -1506,7 +1506,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
             return {"status": "ignored"}
 
         # Find the video or image by replicate_id in metadata
-        from .database import get_db
+        from database import get_db
         video_id = None
         image_id = None
 
@@ -1549,7 +1549,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 if video_url:
                     # Download and save video in background with race condition prevention
                     def download_video_task():
-                        from .database import mark_download_attempted, mark_download_failed
+                        from database import mark_download_attempted, mark_download_failed
 
                         # Prevent race condition: check if download already attempted
                         if not mark_download_attempted(video_id):
@@ -1592,7 +1592,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 if image_url:
                     # Download and save image in background with race condition prevention
                     def download_image_task():
-                        from .database import mark_image_download_attempted, mark_image_download_failed
+                        from database import mark_image_download_attempted, mark_image_download_failed
 
                         # Prevent race condition: check if download already attempted
                         if not mark_image_download_attempted(image_id):
@@ -1647,7 +1647,7 @@ async def api_list_videos(
 
     Also retries downloading videos < 1 hour old that don't have local files yet.
     """
-    from .database import list_videos, mark_download_attempted, mark_download_failed
+    from database import list_videos, mark_download_attempted, mark_download_failed
     from datetime import datetime, timedelta
 
     videos = list_videos(limit=limit, offset=offset, model_id=model_id, collection=collection)
@@ -1859,7 +1859,7 @@ def process_image_generation_background(
 
                 if image_url:
                     # Prevent race condition: check if download already attempted
-                    from .database import mark_image_download_attempted, mark_image_download_failed
+                    from database import mark_image_download_attempted, mark_image_download_failed
 
                     if not mark_image_download_attempted(image_id):
                         print(f"Image {image_id} download already attempted by another process, skipping")
@@ -2066,7 +2066,7 @@ async def api_run_image_model(
 
         if request.brief_id:
             try:
-                from .database import get_creative_brief
+                from database import get_creative_brief
                 brief = get_creative_brief(request.brief_id, current_user["id"])
                 if brief:
                     # Add brief context to prompt
@@ -2124,7 +2124,7 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
         str: Local file path of the downloaded image
     """
     import time
-    from .database import increment_image_download_retries
+    from database import increment_image_download_retries
 
     images_dir = Path(__file__).parent / "DATA" / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -2169,7 +2169,7 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
                 raise ValueError("Downloaded image file is empty")
 
             # Store binary data in database
-            from .database import get_db
+            from database import get_db
             with get_db() as conn:
                 conn.execute(
                     "UPDATE generated_images SET image_data = ? WHERE id = ?",
@@ -2182,10 +2182,10 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
 
             print(f"Image {image_id} downloaded successfully: {file_size} bytes stored in DB")
             # Return a database URL instead of file path
-            # Use BASE_URL for full URLs
-            base_url = os.getenv("BASE_URL", "").strip()
-            if base_url:
-                return f"{base_url}/api/images/{image_id}/data"
+            # Use NGROK_URL if available for local development
+            ngrok_url = os.getenv("NGROK_URL", "").strip()
+            if ngrok_url:
+                return f"{ngrok_url}/api/images/{image_id}/data"
             else:
                 return f"/api/images/{image_id}/data"
 
@@ -2239,7 +2239,7 @@ async def api_get_image_data(
     current_user: Dict = Depends(verify_auth)
 ):
     """Get the binary image data from database. Requires authentication."""
-    from .database import get_db
+    from database import get_db
 
     with get_db() as conn:
         row = conn.execute(
@@ -2260,7 +2260,7 @@ async def api_get_image_thumbnail(
     current_user: Dict = Depends(verify_auth)
 ):
     """Get a thumbnail (400px width) of the image for gallery display. Requires authentication."""
-    from .database import get_db
+    from database import get_db
     from PIL import Image
     import io
 
@@ -2298,7 +2298,7 @@ async def api_get_video_data(
     current_user: Dict = Depends(verify_auth)
 ):
     """Get the binary video data from database. Requires authentication."""
-    from .database import get_db
+    from database import get_db
 
     with get_db() as conn:
         row = conn.execute(
@@ -2383,7 +2383,7 @@ async def api_delete_video_file(
             print(f"Deleted video file: {file_path}")
 
     # Delete database record
-    from .database import delete_video
+    from database import delete_video
     if delete_video(video_id):
         return {"success": True, "message": f"Video {video_id} deleted"}
     else:
@@ -2516,7 +2516,7 @@ async def api_genesis_render(
                 object_descriptions[obj_id] = obj.get("description")
 
         # Save to database
-        from .database import save_genesis_video
+        from database import save_genesis_video
         video_id = save_genesis_video(
             scene_data=scene_data,
             video_path=video_path,
@@ -2568,7 +2568,7 @@ async def list_genesis_videos_endpoint(
 ):
     """List Genesis-rendered videos from the database. Requires authentication."""
     try:
-        from .database import list_genesis_videos, get_genesis_video_count
+        from database import list_genesis_videos, get_genesis_video_count
 
         videos = list_genesis_videos(limit=limit, offset=offset, quality=quality)
         total = get_genesis_video_count(quality=quality)
@@ -2590,7 +2590,7 @@ async def get_genesis_video_endpoint(
 ):
     """Get a specific Genesis video by ID. Requires authentication."""
     try:
-        from .database import get_genesis_video_by_id
+        from database import get_genesis_video_by_id
 
         video = get_genesis_video_by_id(video_id)
         if not video:
@@ -2612,12 +2612,12 @@ async def delete_genesis_video_endpoint(
 ):
     """Delete a Genesis video by ID. Requires authentication."""
     try:
-        from .database import delete_genesis_video
+        from database import delete_genesis_video
         import os
         from pathlib import Path
 
         # Get video info first to delete the file
-        from .database import get_genesis_video_by_id
+        from database import get_genesis_video_by_id
         video = get_genesis_video_by_id(video_id)
 
         if not video:
