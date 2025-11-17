@@ -18,7 +18,7 @@ import os
 from datetime import datetime
 
 # Import Pydantic asset models
-from schemas.assets import (
+from .schemas.assets import (
     Asset,
     AssetDB,
     ImageAsset,

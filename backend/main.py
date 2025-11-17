@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 # Import Asset Pydantic models
-from schemas.assets import (
+from .schemas.assets import (
     Asset,
     ImageAsset,
     VideoAsset,
