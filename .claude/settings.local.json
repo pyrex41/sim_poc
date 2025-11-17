@@ -3,8 +3,7 @@
     "allow": [
       "WebFetch(domain:genesis-world.readthedocs.io)",
       "WebSearch",
-      "WebFetch(domain:github.com)",
-      "Bash(gh pr view:*)"
+      "WebFetch(domain:github.com)"
     ],
     "deny": [],
     "ask": []

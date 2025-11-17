@@ -11,8 +11,6 @@ primary_region = 'dfw'
 [env]
   DATA = '/data'
   PORT = '8080'
-  ACCESS_TOKEN_EXPIRE_MINUTES = '7200'  # 5 days
-  BASE_URL='https://gauntlet-video-server.fly.dev'
 
 [[mounts]]
   source = 'physics_data'
@@ -21,7 +19,7 @@ primary_region = 'dfw'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'suspend'
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']

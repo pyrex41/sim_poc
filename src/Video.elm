@@ -1,7 +1,6 @@
-module Video exposing (Model, Msg(..), init, update, view)
+module Video exposing (Model, Msg, init, update, view)
 
 import Browser.Dom as Dom
-import File exposing (File)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -9,7 +8,6 @@ import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
 import Task
-import Process
 
 
 -- MODEL
@@ -27,10 +25,6 @@ type alias Model =
     , requiredFields : List String
     , pollingVideoId : Maybe Int
     , videoStatus : String
-    , selectedVersion : Maybe String
-    , uploadingFile : Maybe String  -- Track which parameter key is uploading
-    , pendingParameters : List ( String, String )  -- Parameters to apply after schema loads
-    , pendingModelSelection : Maybe String  -- Model ID to select after models are fetched
     }
 
 
@@ -78,10 +72,6 @@ init =
       , requiredFields = []
       , pollingVideoId = Nothing
       , videoStatus = ""
-      , selectedVersion = Nothing
-      , uploadingFile = Nothing
-      , pendingParameters = []
-      , pendingModelSelection = Nothing
       }
     , fetchModels "text-to-video"
     )
@@ -96,17 +86,14 @@ type Msg
     | SelectCollection String
     | ModelsFetched (Result Http.Error (List VideoModel))
     | SelectModel String
-    | SchemaFetched String (Result Http.Error { schema : Decode.Value, required : List String, version : Maybe String })
+    | SchemaFetched String (Result Http.Error { schema : Decode.Value, required : List String })
     | UpdateParameter String String
     | UpdateSearch String
     | GenerateVideo
     | VideoGenerated (Result Http.Error { video_id : Int, status : String })
-    | NavigateToVideo Int
     | PollVideoStatus
     | VideoStatusFetched (Result Http.Error VideoRecord)
     | ScrollToModel (Result Dom.Error ())
-    | FileSelected String File
-    | ImageUploaded String (Result Http.Error String)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -119,70 +106,37 @@ update msg model =
             ( model, fetchModels model.selectedCollection )
 
         SelectCollection collection ->
-            -- Don't refetch if we're already on this collection
-            if model.selectedCollection == collection then
-                ( model, Cmd.none )
-            else
-                ( { model | selectedCollection = collection, selectedModel = Nothing, outputVideo = Nothing, requiredFields = [], selectedVersion = Nothing, pendingParameters = [], pendingModelSelection = Nothing }
-                , fetchModels collection
-                )
+            ( { model | selectedCollection = collection, selectedModel = Nothing, outputVideo = Nothing, requiredFields = [] }
+            , fetchModels collection
+            )
 
         ModelsFetched result ->
             case result of
                 Ok models ->
-
-                    -- If there's a pending model selection, select it now
-                    case model.pendingModelSelection of
-                        Just modelId ->
-                            let
-                                selected =
-                                    models
-                                        |> List.filter (\m -> m.id == modelId)
-                                        |> List.head
-
-
-                            in
-                            case selected of
-                                Just selectedModel ->
-                                    ( { model | models = models, error = Nothing, selectedModel = selected, pendingModelSelection = Nothing }
-                                    , fetchModelSchema selectedModel.id
-                                    )
-
-                                Nothing ->
-                                    ( { model | models = models, error = Nothing, pendingModelSelection = Nothing }, Cmd.none )
-
-                        Nothing ->
-                            ( { model | models = models, error = Nothing }, Cmd.none )
+                    ( { model | models = models, error = Nothing }, Cmd.none )
 
                 Err error ->
                     ( { model | models = demoModels, error = Just ("Failed to fetch models: " ++ httpErrorToString error) }, Cmd.none )
 
         SelectModel modelId ->
+            let
+                selected =
+                    model.models
+                        |> List.filter (\m -> m.id == modelId)
+                        |> List.head
+            in
+            case selected of
+                Just selectedModel ->
+                    ( { model | selectedModel = selected, outputVideo = Nothing, error = Nothing, parameters = [] }
+                    , fetchModelSchema selectedModel.id
+                    )
 
-            -- If models haven't loaded yet, store as pending
-            if List.isEmpty model.models then
-                ( { model | pendingModelSelection = Just modelId }, Cmd.none )
-            else
-                let
-                    selected =
-                        model.models
-                            |> List.filter (\m -> m.id == modelId)
-                            |> List.head
-
-
-                in
-                case selected of
-                    Just selectedModel ->
-                        ( { model | selectedModel = selected, outputVideo = Nothing, error = Nothing, parameters = [] }
-                        , fetchModelSchema selectedModel.id
-                        )
-
-                    Nothing ->
-                        ( model, Cmd.none )
+                Nothing ->
+                    ( model, Cmd.none )
 
         SchemaFetched modelId result ->
             case result of
-                Ok { schema, required, version } ->
+                Ok { schema, required } ->
                     let
                         params =
                             case Decode.decodeValue (Decode.keyValuePairs Decode.value) schema of
@@ -191,57 +145,23 @@ update msg model =
 
                                 Err _ ->
                                     [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ]
-
-                        -- Apply pending parameters to the loaded schema
-                        paramsWithPending =
-                            List.foldl
-                                (\( key, value ) accParams -> updateParameterInList key value accParams)
-                                params
-                                model.pendingParameters
                     in
-                    ( { model | parameters = paramsWithPending, requiredFields = required, selectedVersion = version, pendingParameters = [] }
-                    , Task.attempt ScrollToModel
-                        (Process.sleep 100
-                            |> Task.andThen (\_ -> Dom.getElement "selected-model-section")
-                            |> Task.andThen (\info -> Dom.setViewport 0 info.element.y)
-                        )
+                    ( { model | parameters = params, requiredFields = required }
+                    , Task.attempt ScrollToModel (Dom.getElement "selected-model-section" |> Task.andThen (\info -> Dom.setViewport 0 info.element.y))
                     )
 
                 Err _ ->
                     -- Fallback to default prompt parameter
-                    let
-                        defaultParams =
-                            [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ]
-
-                        -- Apply pending parameters even to fallback
-                        paramsWithPending =
-                            List.foldl
-                                (\( key, value ) accParams -> updateParameterInList key value accParams)
-                                defaultParams
-                                model.pendingParameters
-                    in
-                    ( { model | parameters = paramsWithPending, requiredFields = [ "prompt" ], selectedVersion = Nothing, pendingParameters = [] }
-                    , Task.attempt ScrollToModel
-                        (Process.sleep 100
-                            |> Task.andThen (\_ -> Dom.getElement "selected-model-section")
-                            |> Task.andThen (\info -> Dom.setViewport 0 info.element.y)
-                        )
+                    ( { model | parameters = [ Parameter "prompt" "" "string" Nothing Nothing Nothing Nothing Nothing Nothing ], requiredFields = [ "prompt" ] }
+                    , Task.attempt ScrollToModel (Dom.getElement "selected-model-section" |> Task.andThen (\info -> Dom.setViewport 0 info.element.y))
                     )
 
         UpdateParameter key value ->
-            -- If parameters haven't loaded yet (schema not fetched), store in pendingParameters
-            if List.isEmpty model.parameters then
-                let
-                    updatedPending =
-                        ( key, value ) :: List.filter (\( k, _ ) -> k /= key) model.pendingParameters
-                in
-                ( { model | pendingParameters = updatedPending }, Cmd.none )
-            else
-                let
-                    updatedParams =
-                        updateParameterInList key value model.parameters
-                in
-                ( { model | parameters = updatedParams }, Cmd.none )
+            let
+                updatedParams =
+                    updateParameterInList key value model.parameters
+            in
+            ( { model | parameters = updatedParams }, Cmd.none )
 
         UpdateSearch query ->
             ( { model | searchQuery = query }, Cmd.none )
@@ -250,7 +170,7 @@ update msg model =
             case model.selectedModel of
                 Just selectedModel ->
                     ( { model | isGenerating = True, error = Nothing }
-                    , generateVideo selectedModel.id model.parameters model.selectedCollection model.selectedVersion
+                    , generateVideo selectedModel.id model.parameters model.selectedCollection
                     )
 
                 Nothing ->
@@ -265,15 +185,11 @@ update msg model =
                         , videoStatus = response.status
                         , error = Nothing
                       }
-                    , Task.perform (\_ -> NavigateToVideo response.video_id) (Task.succeed ())
+                    , Cmd.none
                     )
 
                 Err error ->
                     ( { model | isGenerating = False, error = Just (httpErrorToString error) }, Cmd.none )
-
-        NavigateToVideo _ ->
-            -- This is handled in Main.elm for navigation
-            ( model, Cmd.none )
 
         ScrollToModel _ ->
             ( model, Cmd.none )
@@ -298,34 +214,6 @@ update msg model =
 
                 Err error ->
                     ( { model | error = Just (httpErrorToString error) }, Cmd.none )
-
-        FileSelected paramKey file ->
-            ( { model | uploadingFile = Just paramKey }
-            , uploadImage paramKey file
-            )
-
-        ImageUploaded paramKey result ->
-            case result of
-                Ok imageUrl ->
-                    let
-                        updatedParams =
-                            updateParameterInList paramKey imageUrl model.parameters
-                    in
-                    ( { model
-                        | uploadingFile = Nothing
-                        , parameters = updatedParams
-                        , error = Nothing
-                      }
-                    , Cmd.none
-                    )
-
-                Err error ->
-                    ( { model
-                        | uploadingFile = Nothing
-                        , error = Just ("Upload failed: " ++ httpErrorToString error)
-                      }
-                    , Cmd.none
-                    )
 
 
 -- HELPER FUNCTIONS
@@ -458,7 +346,7 @@ view model =
                     [ h2 [] [ text selected.name ]
                     , p [] [ text selected.description ]
                     , div [ class "parameters-form-grid" ]
-                        (List.map (viewParameter model) model.parameters)
+                        (List.map (viewParameter model.isGenerating model.requiredFields) model.parameters)
                     , button
                         [ onClick GenerateVideo
                         , disabled (hasEmptyRequiredParameters model.parameters model.requiredFields || model.isGenerating)
@@ -496,14 +384,11 @@ viewModelOption model =
         ]
 
 
-viewParameter : Model -> Parameter -> Html Msg
-viewParameter model param =
+viewParameter : Bool -> List String -> Parameter -> Html Msg
+viewParameter isDisabled requiredFields param =
     let
-        isDisabled =
-            model.isGenerating
-
         isRequired =
-            List.member param.key model.requiredFields
+            List.member param.key requiredFields
 
         labelText =
             formatParameterName param.key ++ (if isRequired then " *" else "")
@@ -548,9 +433,6 @@ viewParameter model param =
 
         isImageField =
             param.format == Just "uri" || String.contains "image" (String.toLower param.key)
-
-        isUploading =
-            model.uploadingFile == Just param.key
     in
     div [ class "parameter-field" ]
         [ label [ class "parameter-label" ]
@@ -579,22 +461,17 @@ viewParameter model param =
                         [ input
                             [ type_ "file"
                             , Html.Attributes.accept "image/*"
-                            , disabled (isDisabled || isUploading)
+                            , disabled isDisabled
                             , class "parameter-file-input"
                             , Html.Attributes.id ("file-" ++ param.key)
-                            , on "change" (fileDecoder param.key)
                             ]
                             []
-                        , if isUploading then
-                            div [ class "upload-status" ] [ text "Uploading..." ]
-                          else
-                            text ""
                         , input
                             [ type_ "text"
                             , placeholder "Or enter image URL..."
                             , Html.Attributes.value param.value
                             , onInput (UpdateParameter param.key)
-                            , disabled (isDisabled || isUploading)
+                            , disabled isDisabled
                             , class "parameter-input"
                             ]
                             []
@@ -650,12 +527,6 @@ hasEmptyRequiredParameters params requiredFields =
         params
 
 
-fileDecoder : String -> Decode.Decoder Msg
-fileDecoder paramKey =
-    Decode.at [ "target", "files", "0" ] File.decoder
-        |> Decode.map (FileSelected paramKey)
-
-
 -- HTTP
 
 
@@ -692,20 +563,19 @@ fetchModelSchema modelId =
             }
 
 
-schemaResponseDecoder : Decode.Decoder { schema : Decode.Value, required : List String, version : Maybe String }
+schemaResponseDecoder : Decode.Decoder { schema : Decode.Value, required : List String }
 schemaResponseDecoder =
-    Decode.map3 (\s r v -> { schema = s, required = r, version = v })
+    Decode.map2 (\s r -> { schema = s, required = r })
         (Decode.field "input_schema" Decode.value)
         (Decode.oneOf
             [ Decode.field "required" (Decode.list Decode.string)
             , Decode.succeed []
             ]
         )
-        (Decode.maybe (Decode.field "version" Decode.string))
 
 
-generateVideo : String -> List Parameter -> String -> Maybe String -> Cmd Msg
-generateVideo modelId parameters collection maybeVersion =
+generateVideo : String -> List Parameter -> String -> Cmd Msg
+generateVideo modelId parameters collection =
     let
         encodeParameterValue : Parameter -> Maybe ( String, Encode.Value )
         encodeParameterValue param =
@@ -745,25 +615,17 @@ generateVideo modelId parameters collection maybeVersion =
 
         inputObject =
             Encode.object (List.filterMap encodeParameterValue parameters)
-
-        -- Build request object with optional version field
-        requestFields =
-            [ ( "model_id", Encode.string modelId )
-            , ( "input", inputObject )
-            , ( "collection", Encode.string collection )
-            ]
-                ++ (case maybeVersion of
-                        Just version ->
-                            [ ( "version", Encode.string version ) ]
-
-                        Nothing ->
-                            []
-                   )
     in
-    -- Cookies are sent automatically, no need for Authorization header
     Http.post
         { url = "/api/run-video-model"
-        , body = Http.jsonBody (Encode.object requestFields)
+        , body =
+            Http.jsonBody
+                (Encode.object
+                    [ ( "model_id", Encode.string modelId )
+                    , ( "input", inputObject )
+                    , ( "collection", Encode.string collection )
+                    ]
+                )
         , expect = Http.expectJson VideoGenerated videoResponseDecoder
         }
 
@@ -772,20 +634,6 @@ videoResponseDecoder =
     Decode.map2 (\id s -> { video_id = id, status = s })
         (Decode.field "video_id" Decode.int)
         (Decode.field "status" Decode.string)
-
-
-uploadImage : String -> File -> Cmd Msg
-uploadImage paramKey file =
-    Http.post
-        { url = "/api/upload-image"
-        , body = Http.multipartBody [ Http.filePart "file" file ]
-        , expect = Http.expectJson (ImageUploaded paramKey) uploadResponseDecoder
-        }
-
-
-uploadResponseDecoder : Decode.Decoder String
-uploadResponseDecoder =
-    Decode.field "url" Decode.string
 
 
 videoModelDecoder : Decode.Decoder VideoModel

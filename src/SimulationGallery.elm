@@ -1,4 +1,4 @@
-module SimulationGallery exposing (Model, Msg(..), init, update, view, subscriptions, fetchVideos)
+module SimulationGallery exposing (Model, Msg, init, update, view, subscriptions)
 
 import Dict
 import Html exposing (..)
@@ -74,11 +74,7 @@ update msg model =
         VideosFetched result ->
             case result of
                 Ok videos ->
-                    -- Only update if videos actually changed
-                    if videos == model.videos then
-                        ( { model | loading = False }, Cmd.none )
-                    else
-                        ( { model | videos = videos, loading = False, error = Nothing }, Cmd.none )
+                    ( { model | videos = videos, loading = False, error = Nothing }, Cmd.none )
 
                 Err error ->
                     ( { model | loading = False, error = Just (httpErrorToString error) }, Cmd.none )
@@ -93,8 +89,7 @@ update msg model =
             ( { model | showRawData = not model.showRawData }, Cmd.none )
 
         Tick _ ->
-            -- Don't set loading=True on background refresh to prevent flicker
-            ( model, fetchVideos )
+            ( { model | loading = True }, fetchVideos )
 
 
 -- VIEW
@@ -281,7 +276,6 @@ videoUrlFromPath path =
 
 fetchVideos : Cmd Msg
 fetchVideos =
-    -- Cookies are sent automatically, no need for Authorization header
     Http.get
         { url = "/api/genesis/videos?limit=50"
         , expect = Http.expectJson VideosFetched (Decode.field "videos" (Decode.list videoDecoder))
