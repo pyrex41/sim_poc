@@ -16,7 +16,6 @@ from pathlib import Path
 import genesis as gs
 from llm_interpreter import get_interpreter
 from scene_converter import SceneConverter
-from environment_interpreter import interpret_scene_context
 
 
 class RenderQuality:
@@ -66,7 +65,6 @@ class GenesisRenderer:
         self.converter = None
         self.llm_interpreter = get_interpreter()
         self.using_raytracer = False  # Track which renderer we're using
-        self.environment_params = None  # Store interpreted environment parameters
 
     def _get_quality_preset(self, quality: str) -> Dict:
         """Get quality preset by name"""
@@ -84,7 +82,7 @@ class GenesisRenderer:
         fps: int = 60,
         resolution: Tuple[int, int] = (1920, 1080),
         camera_config: Optional[Dict] = None,
-        scene_context: Optional[Dict] = None
+        scene_context: Optional[str] = None
     ) -> str:
         """
         Render a complete scene to video
@@ -95,7 +93,7 @@ class GenesisRenderer:
             fps: Frames per second
             resolution: (width, height) tuple
             camera_config: Optional camera position/settings
-            scene_context: Optional SceneContext dict with environment, narrative, lighting
+            scene_context: Optional overall scene description for LLM context
 
         Returns:
             Path to rendered video file
@@ -104,27 +102,15 @@ class GenesisRenderer:
         print(f"🎬 Starting Genesis render (Quality: {self.quality['description']})")
         start_time = time.time()
 
-        # Step 1: Interpret scene context into rendering parameters
-        if scene_context:
-            print("🌤️  Interpreting scene context...")
-            self.environment_params = await interpret_scene_context(
-                scene_context=scene_context,
-                objects=scene_data.get("objects", {})
-            )
-            # Use narrative as LLM context for object augmentation
-            llm_context = scene_context.get("narrative", "") or self.environment_params.get("description", "")
-        else:
-            llm_context = None
-
-        # Step 2: Augment objects with LLM
+        # Step 1: Augment objects with LLM
         print("🤖 Augmenting scene with LLM...")
         augmented_objects = await self.llm_interpreter.augment_scene(
             scene_data.get("objects", []),
-            scene_context=llm_context
+            scene_context=scene_context
         )
         scene_data["objects"] = augmented_objects
 
-        # Step 3: Create Genesis scene with environment-aware settings
+        # Step 2: Create Genesis scene with ray-tracer
         print("🌍 Creating Genesis scene...")
         self._create_scene()
 
@@ -171,31 +157,27 @@ class GenesisRenderer:
             # If Genesis is already initialized, continue
             pass
 
-        # Configure lighting from environment parameters or use defaults
-        if self.environment_params:
-            lights = self._build_lights_from_environment()
-        else:
-            # Default 3-point lighting setup
-            lights = [
-                {
-                    "pos": (10.0, 20.0, 10.0),
-                    "color": (1.0, 0.95, 0.9),  # Warm key light
-                    "intensity": 15.0,
-                    "radius": 6.0
-                },
-                {
-                    "pos": (-10.0, 10.0, -10.0),
-                    "color": (0.8, 0.9, 1.0),  # Cool fill light
-                    "intensity": 5.0,
-                    "radius": 4.0
-                },
-                {
-                    "pos": (0.0, 5.0, -15.0),
-                    "color": (1.0, 1.0, 1.0),  # Back light
-                    "intensity": 8.0,
-                    "radius": 3.0
-                }
-            ]
+        # Configure lighting (3-point lighting setup)
+        lights = [
+            {
+                "pos": (10.0, 20.0, 10.0),
+                "color": (1.0, 0.95, 0.9),  # Warm key light
+                "intensity": 15.0,
+                "radius": 6.0
+            },
+            {
+                "pos": (-10.0, 10.0, -10.0),
+                "color": (0.8, 0.9, 1.0),  # Cool fill light
+                "intensity": 5.0,
+                "radius": 4.0
+            },
+            {
+                "pos": (0.0, 5.0, -15.0),
+                "color": (1.0, 1.0, 1.0),  # Back light
+                "intensity": 8.0,
+                "radius": 3.0
+            }
+        ]
 
         # Create scene with renderer
         # Try RayTracer first, fall back to Rasterizer if LuisaRenderer unavailable
@@ -237,64 +219,6 @@ class GenesisRenderer:
             self.using_raytracer = False
             print("✅ Rasterizer scene created successfully (PBR materials enabled)")
 
-    def _build_lights_from_environment(self) -> List[Dict]:
-        """Build Genesis lights from environment interpretation"""
-
-        lighting = self.environment_params.get("lighting", {})
-        directional = lighting.get("directional", {})
-        ambient = lighting.get("ambient", {})
-
-        # Convert color temperature to RGB (simplified)
-        def kelvin_to_rgb(kelvin: int) -> Tuple[float, float, float]:
-            """Approximate Kelvin color temperature to RGB"""
-            if kelvin < 3000:
-                return (1.0, 0.5, 0.2)  # Warm orange
-            elif kelvin < 4000:
-                return (1.0, 0.7, 0.4)  # Warm
-            elif kelvin < 5000:
-                return (1.0, 0.9, 0.7)  # Neutral warm
-            elif kelvin < 6000:
-                return (1.0, 0.95, 0.9)  # Slightly warm
-            elif kelvin < 7000:
-                return (1.0, 1.0, 1.0)  # Neutral
-            else:
-                return (0.9, 0.95, 1.0)  # Cool blue
-
-        # Directional light (sun/moon)
-        color_temp = directional.get("colorTemperature", 5500)
-        intensity = directional.get("intensity", 1.0) * 15.0  # Scale for Genesis
-        angle = directional.get("angle", [45, 180])
-
-        # Convert angle to position
-        import math
-        altitude_rad = math.radians(angle[0])
-        azimuth_rad = math.radians(angle[1])
-        distance = 20.0
-
-        pos_x = distance * math.cos(altitude_rad) * math.sin(azimuth_rad)
-        pos_y = distance * math.sin(altitude_rad)
-        pos_z = distance * math.cos(altitude_rad) * math.cos(azimuth_rad)
-
-        lights = [
-            {
-                "pos": (pos_x, pos_y, pos_z),
-                "color": kelvin_to_rgb(color_temp),
-                "intensity": intensity,
-                "radius": 6.0
-            }
-        ]
-
-        # Add ambient fill light
-        ambient_intensity = ambient.get("intensity", 0.4) * 8.0
-        lights.append({
-            "pos": (-pos_x * 0.5, pos_y * 0.5, -pos_z * 0.5),
-            "color": (0.9, 0.95, 1.0),
-            "intensity": ambient_intensity,
-            "radius": 4.0
-        })
-
-        return lights
-
     def _setup_camera(
         self,
         resolution: Tuple[int, int],
@@ -309,33 +233,15 @@ class GenesisRenderer:
         lookat = config.get("lookat", (0, 2, 0))
         fov = config.get("fov", 40)
 
-        # Apply environment camera settings if available
-        if self.environment_params:
-            camera_params = self.environment_params.get("camera", {})
-            exposure = camera_params.get("exposure", 0.0)
-            dof_settings = camera_params.get("depthOfField", {})
-        else:
-            exposure = 0.0
-            dof_settings = {}
-
         # Check if we're using RayTracer or Rasterizer
         if self.using_raytracer:
             # RayTracer supports advanced camera features
             aperture = config.get("aperture", 2.8)
-
-            # Use depth of field settings from environment if available
-            if dof_settings.get("enabled", True):
-                f_stop = dof_settings.get("fStop", aperture)
-                focus_dist = dof_settings.get("focusDistance", None)
-            else:
-                f_stop = 22.0  # High f-stop = no DOF
-                focus_dist = None
-
             self.camera = self.scene.add_camera(
                 model="thinlens",  # Enable depth-of-field
                 spp=self.quality["spp"],
-                aperture=f_stop,
-                focus_dist=focus_dist,  # Auto-compute from pos/lookat if None
+                aperture=aperture,
+                focus_dist=None,  # Auto-compute from pos/lookat
                 denoise=True,  # Enable AI denoising
                 res=resolution,
                 fov=fov,
