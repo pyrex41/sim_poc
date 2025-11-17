@@ -3016,14 +3016,6 @@ async def upload_asset_v2(
 
     # Log upload details for debugging
     logger.info(f"Upload: filename={file.filename}, content_type={file.content_type}, size={len(contents)} bytes")
-    logger.info(f"First 16 bytes (hex): {contents[:16].hex()}")
-
-    # Security: Validate file type with magic bytes (prevents file type spoofing)
-    if not validate_file_type_with_magic_bytes(contents, file.content_type):
-        raise HTTPException(
-            status_code=400,
-            detail=f"File content does not match claimed type {file.content_type}. Possible file type spoofing attempt."
-        )
 
     # Validate file size (max 50MB)
     max_size = 50 * 1024 * 1024  # 50MB
