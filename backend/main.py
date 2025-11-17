@@ -2216,6 +2216,21 @@ async def api_get_image_models(
             "Content-Type": "application/json"
         }
 
+        # Special handling for curated image-editing collection
+        if collection == "image-editing":
+            return {"models": [
+                {
+                    "id": "reve/create",
+                    "name": "Reve Create",
+                    "owner": "reve",
+                    "description": "Natural language image editing - remove objects, change backgrounds, swap seasons, restyle elements, or make any adjustment you can describe in words",
+                    "cover_image_url": None,
+                    "latest_version": None,
+                    "run_count": 0,
+                    "input_schema": None
+                }
+            ]}
+
         # Use collections API with the specified collection slug
         url = f"https://api.replicate.com/v1/collections/{collection}"
         response = requests.get(url, headers=headers, timeout=30)

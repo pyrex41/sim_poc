@@ -358,6 +358,11 @@ view model =
                 ]
                 [ text "Text to Image" ]
             , button
+                [ onClick (SelectCollection "image-editing")
+                , class (if model.selectedCollection == "image-editing" then "collection-button active" else "collection-button")
+                ]
+                [ text "Image Editing" ]
+            , button
                 [ onClick (SelectCollection "super-resolution")
                 , class (if model.selectedCollection == "super-resolution" then "collection-button active" else "collection-button")
                 ]
