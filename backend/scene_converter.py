@@ -57,12 +57,8 @@ class SceneConverter:
             visual = obj_data.get("visualProperties", {})
             genesis_props = obj_data.get("genesis_properties", {})
 
-            # Get position and rotation first
-            position = self._get_position(transform)
-            rotation = self._get_rotation(transform)
-
-            # Create morph (geometry) with position and rotation
-            morph = self._create_morph(visual, genesis_props, position, rotation)
+            # Create morph (geometry)
+            morph = self._create_morph(visual, genesis_props)
             if not morph:
                 return None
 
@@ -73,11 +69,17 @@ class SceneConverter:
             # TODO: Fix - gs.surfaces.Surface has NotImplementedError in Genesis 0.3.7
             # surface = self._create_surface(visual, genesis_props)
 
+            # Get position and rotation
+            position = self._get_position(transform)
+            rotation = self._get_rotation(transform)
+
             # Add entity to scene (without surface for now)
             entity = self.scene.add_entity(
                 morph=morph,
-                material=material
+                material=material,
                 # surface=surface,  # Disabled - NotImplementedError
+                pos=position,
+                quat=rotation
             )
 
             return entity
@@ -90,9 +92,7 @@ class SceneConverter:
     def _create_morph(
         self,
         visual: Dict,
-        genesis_props: Dict,
-        position: tuple,
-        rotation: tuple
+        genesis_props: Dict
     ):
         """Create Genesis morph (geometry) from visual properties"""
 
@@ -144,18 +144,18 @@ class SceneConverter:
                     "length": scale.get("y", 1.0) * multiplier[1]
                 }
 
-        # Create appropriate morph with position and rotation
+        # Create appropriate morph
         if shape == "Box":
-            return gs.morphs.Box(size=size, pos=position, quat=rotation)
+            return gs.morphs.Box(size=size)
         elif shape == "Sphere":
-            return gs.morphs.Sphere(radius=size, pos=position, quat=rotation)
+            return gs.morphs.Sphere(radius=size)
         elif shape == "Cylinder":
-            return gs.morphs.Cylinder(radius=size["radius"], height=size["height"], pos=position, quat=rotation)
+            return gs.morphs.Cylinder(radius=size["radius"], height=size["height"])
         elif shape == "Capsule":
-            return gs.morphs.Capsule(radius=size["radius"], length=size["length"], pos=position, quat=rotation)
+            return gs.morphs.Capsule(radius=size["radius"], length=size["length"])
         else:
             print(f"Unsupported shape: {shape}, defaulting to Box")
-            return gs.morphs.Box(size=[1.0, 1.0, 1.0], pos=position, quat=rotation)
+            return gs.morphs.Box(size=[1.0, 1.0, 1.0])
 
     def _create_material(self, physics: Dict):
         """Create Genesis material (physics properties) from physics data"""

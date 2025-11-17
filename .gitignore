@@ -32,4 +32,13 @@ coverage/
 
 # Build outputs
 dist/
-build/
+build/TEAM_CREDENTIALS.md
+backend/DATA/
+DATA/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python

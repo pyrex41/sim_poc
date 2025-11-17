@@ -10,12 +10,21 @@ import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode
 import Json.Encode as Encode
-import Route exposing (Route, fromUrl, toHref)
-import Set exposing (Set)
+import Route exposing (Route)
+import Task
+import Process
 import Url exposing (Url)
 import Video
-import VideoGallery exposing (Model, Msg, init, update, view, subscriptions) exposing (Model, Msg, init, update, view, subscriptions) exposing (Model, Msg as VideoGalleryMsg, init as initVideoGallery, update as videoGalleryUpdate, view as videoGalleryView, subscriptions as videoGallerySubscriptions)
-import SimulationGallery exposing (Model, Msg, init, update, view, subscriptions) exposing (Model, Msg, init, update, view, subscriptions) exposing (Model, Msg as SimulationGalleryMsg, init as initSimulationGallery, update as simulationGalleryUpdate, view as simulationGalleryView, subscriptions as simulationGallerySubscriptions)
+import VideoDetail
+import VideoGallery
+import SimulationGallery
+import Image
+import ImageDetail
+import ImageGallery
+import Auth
+import CreativeBriefEditor
+import BriefGallery
+import Browser.Navigation as Nav
 
 
 -- MAIN
@@ -34,214 +43,60 @@ main =
 
 
 -- MODEL
- 
-type TransformMode
-    = Translate
-    | Rotate
-    | Scale
- 
-type Shape
-    = Box
-    | Sphere
-    | Cylinder
- 
-type alias Vec3 =
-    { x : Float
-    , y : Float
-    , z : Float
-    }
- 
-type alias Transform =
-    { position : Vec3
-    , rotation : Vec3
-    , scale : Vec3
-    }
- 
-type alias PhysicsProperties =
-    { mass : Float
-    , friction : Float
-    , restitution : Float
-    }
- 
-type alias VisualProperties =
-    { color : String
-    , shape : Shape
-    }
- 
-type alias PhysicsObject =
-    { id : String
-    , transform : Transform
-    , physicsProperties : PhysicsProperties
-    , visualProperties : VisualProperties
-    , description : Maybe String
-    }
- 
-type alias EnvironmentSettings =
-    { timeOfDay : String
-    , weather : String
-    , season : String
-    , atmosphere : Float
-    }
- 
-type alias LightingSettings =
-    { ambientIntensity : Float
-    , ambientColor : String
-    , directionalIntensity : Float
-    , directionalColor : String
-    , directionalAngle : Float
-    , shadows : Bool
-    }
- 
-type alias SceneContext =
-    { environment : EnvironmentSettings
-    , lighting : LightingSettings
-    , narrative : String
-    , renderQuality : String
-    }
- 
-type alias Scene =
-    { objects : Dict String PhysicsObject
-    , selectedObject : Maybe String
-    , selectedObjects : Set String
-    , sceneContext : SceneContext
-    }
- 
-type alias MotionData =
-    {}
- 
-type alias UiState =
-    { textInput : String
-    , isGenerating : Bool
-    , errorMessage : Maybe String
-    , refineInput : String
-    , isRefining : Bool
-    , populateInput : String
-    , populateNumObjects : Int
-    , populatePlacementStrategy : String
-    , isPopulating : Bool
-    , motionInput : String
-    , isGeneratingMotion : Bool
-    , motionData : Maybe MotionData
-    , isRendering : Bool
-    , currentStep : Int
-    }
- 
-type alias SimulationState =
-    { isRunning : Bool
-    , transformMode : TransformMode
-    , snapToGrid : Bool
-    , gridSize : Float
-    , shiftPressed : Bool
-    , typingInInput : Bool
-    }
- 
-defaultSceneContext : SceneContext
-defaultSceneContext =
-    { environment =
-        { timeOfDay = "midday"
-        , weather = "clear"
-        , season = "summer"
-        , atmosphere = 0.5
-        }
-    , lighting =
-        { ambientIntensity = 0.4
-        , ambientColor = "#ffffff"
-        , directionalIntensity = 0.8
-        , directionalColor = "#ffffff"
-        , directionalAngle = 45.0
-        , shadows = False
-        }
-    , narrative = ""
-    , renderQuality = "high"
-    }
- 
-defaultUiState : UiState
-defaultUiState =
-    { textInput = ""
-    , isGenerating = False
-    , errorMessage = Nothing
-    , refineInput = ""
-    , isRefining = False
-    , populateInput = ""
-    , populateNumObjects = 5
-    , populatePlacementStrategy = "natural"
-    , isPopulating = False
-    , motionInput = ""
-    , isGeneratingMotion = False
-    , motionData = Nothing
-    , isRendering = False
-    , currentStep = 1
-    }
- 
-defaultSimulationState : SimulationState
-defaultSimulationState =
-    { isRunning = False
-    , transformMode = Translate
-    , snapToGrid = False
-    , gridSize = 1.0
-    , shiftPressed = False
-    , typingInInput = False
-    }
- 
-emptyScene : Scene
-emptyScene =
-    { objects = Dict.empty
-    , selectedObject = Nothing
-    , selectedObjects = Set.empty
-    , sceneContext = defaultSceneContext
-    }
- 
-type Route
-    = Home
-    | Gallery
-    | VideoGalleryRoute
-    | Simulations
- 
-urlToRoute : Url -> Route
-urlToRoute url =
-    case url.path of
-        "/" ->
-            Home
-        "/gallery" ->
-            Gallery
-        "/videos" ->
-            VideoGalleryRoute
-        "/simulations" ->
-            Simulations
-        _ ->
-            Home
- 
+
+
 type alias Model =
-    { simulationGallery : SimGallery.Model
-    , videoGallery : VideoGallery.Model
-    , route : Route
-    , key : Nav.Key
+    { key : Nav.Key
+    , url : Url
+    , route : Maybe Route
     , scene : Scene
-    , initialScene : Maybe Scene
     , uiState : UiState
     , simulationState : SimulationState
+    , initialScene : Maybe Scene
     , history : List Scene
     , future : List Scene
     , ctrlPressed : Bool
+    , videoModel : Video.Model
+    , videoDetailModel : Maybe VideoDetail.Model
+    , galleryModel : VideoGallery.Model
+    , simulationGalleryModel : SimulationGallery.Model
+    , imageModel : Image.Model
+    , imageDetailModel : Maybe ImageDetail.Model
+    , imageGalleryModel : ImageGallery.Model
+    , authModel : Auth.Auth
+    , pendingVideoFromImage : Maybe { modelId : String, imageUrl : String }
+    , creativeBriefEditorModel : CreativeBriefEditor.Model
+    , briefGalleryModel : BriefGallery.Model
     }
- 
-type alias Transform =
-    { position : Vec3
-    , rotation : Vec3
-    , scale : Vec3
+
+
+type alias Scene =
+    { objects : Dict String PhysicsObject
+    , selectedObject : Maybe String
     }
- 
-type alias PhysicsProperties =
-    { mass : Float
-    , friction : Float
-    , restitution : Float
+
+
+type alias UiState =
+    { textInput : String
+    , isGenerating : Bool
+    , errorMessage : Maybe String
+    , refineInput : String
+    , isRefining : Bool
     }
- 
-type alias VisualProperties =
-    { color : String
-    , shape : Shape
+
+
+type alias SimulationState =
+    { isRunning : Bool
+    , transformMode : TransformMode
     }
- 
+
+
+type TransformMode
+    = Translate
+    | Rotate
+    | Scale
+
+
 type alias PhysicsObject =
     { id : String
     , transform : Transform
@@ -249,137 +104,14 @@ type alias PhysicsObject =
     , visualProperties : VisualProperties
     , description : Maybe String
     }
- 
-type alias EnvironmentSettings =
-    { timeOfDay : String
-    , weather : String
-    , season : String
-    , atmosphere : Float
-    }
- 
-type alias LightingSettings =
-    { ambientIntensity : Float
-    , ambientColor : String
-    , directionalIntensity : Float
-    , directionalColor : String
-    , directionalAngle : Float
-    , shadows : Bool
-    }
- 
-type alias SceneContext =
-    { environment : EnvironmentSettings
-    , lighting : LightingSettings
-    , narrative : String
-    , renderQuality : String
-    }
- 
-type alias Scene =
-    { objects : Dict String PhysicsObject
-    , selectedObject : Maybe String
-    , selectedObjects : Set String
-    , sceneContext : SceneContext
-    }
- 
-type alias MotionData =
-    {}
- 
-type alias UiState =
-    { textInput : String
-    , isGenerating : Bool
-    , errorMessage : Maybe String
-    , refineInput : String
-    , isRefining : Bool
-    , populateInput : String
-    , populateNumObjects : Int
-    , populatePlacementStrategy : String
-    , isPopulating : Bool
-    , motionInput : String
-    , isGeneratingMotion : Bool
-    , motionData : Maybe MotionData
-    , isRendering : Bool
-    , currentStep : Int
-    }
- 
-type alias SimulationState =
-    { isRunning : Bool
-    , transformMode : TransformMode
-    , snapToGrid : Bool
-    , gridSize : Float
-    , shiftPressed : Bool
-    , typingInInput : Bool
-    }
- 
-type Route
-    = Home
-    | Gallery
-    | VideoGalleryRoute
-    | Simulations
 
-defaultSceneContext : SceneContext
-defaultSceneContext =
-    { environment =
-        { timeOfDay = "midday"
-        , weather = "clear"
-        , season = "summer"
-        , atmosphere = 0.5
-        }
-    , lighting =
-        { ambientIntensity = 0.4
-        , ambientColor = "#ffffff"
-        , directionalIntensity = 0.8
-        , directionalColor = "#ffffff"
-        , directionalAngle = 45.0
-        , shadows = False
-        }
-    , narrative = ""
-    , renderQuality = "high"
+
+type alias Transform =
+    { position : Vec3
+    , rotation : Vec3
+    , scale : Vec3
     }
 
-defaultUiState : UiState
-defaultUiState =
-    { textInput = ""
-    , isGenerating = False
-    , errorMessage = Nothing
-    , refineInput = ""
-    , isRefining = False
-    , populateInput = ""
-    , populateNumObjects = 5
-    , populatePlacementStrategy = "natural"
-    , isPopulating = False
-    , motionInput = ""
-    , isGeneratingMotion = False
-    , motionData = Nothing
-    , isRendering = False
-    , currentStep = 1
-    }
-
-defaultSimulationState : SimulationState
-defaultSimulationState =
-    { isRunning = False
-    , transformMode = Translate
-    , snapToGrid = False
-    , gridSize = 1.0
-    , shiftPressed = False
-    , typingInInput = False
-    }
-
-emptyScene : Scene
-emptyScene =
-    { objects = Dict.empty
-    , selectedObject = Nothing
-    , selectedObjects = Set.empty
-    , sceneContext = defaultSceneContext
-    }
-
-type TransformMode
-    = Translate
-    | Rotate
-    | Scale
-
-type Shape
-    = Box
-    | Sphere
-    | Cylinder
 
 type alias Vec3 =
     { x : Float
@@ -387,11 +119,6 @@ type alias Vec3 =
     , z : Float
     }
 
-type alias Transform =
-    { position : Vec3
-    , rotation : Vec3
-    , scale : Vec3
-    }
 
 type alias PhysicsProperties =
     { mass : Float
@@ -399,547 +126,78 @@ type alias PhysicsProperties =
     , restitution : Float
     }
 
+
 type alias VisualProperties =
     { color : String
     , shape : Shape
     }
 
-type alias PhysicsObject =
-    { id : String
-    , transform : Transform
-    , physicsProperties : PhysicsProperties
-    , visualProperties : VisualProperties
-    , description : Maybe String
-    }
-
-type alias EnvironmentSettings =
-    { timeOfDay : String
-    , weather : String
-    , season : String
-    , atmosphere : Float
-    }
-
-type alias LightingSettings =
-    { ambientIntensity : Float
-    , ambientColor : String
-    , directionalIntensity : Float
-    , directionalColor : String
-    , directionalAngle : Float
-    , shadows : Bool
-    }
-
-type alias SceneContext =
-    { environment : EnvironmentSettings
-    , lighting : LightingSettings
-    , narrative : String
-    , renderQuality : String
-    }
-
-type alias Scene =
-    { objects : Dict String PhysicsObject
-    , selectedObject : Maybe String
-    , selectedObjects : Set String
-    , sceneContext : SceneContext
-    }
-
-type alias MotionData =
-    {}
-
-type alias UiState =
-    { textInput : String
-    , isGenerating : Bool
-    , errorMessage : Maybe String
-    , refineInput : String
-    , isRefining : Bool
-    , populateInput : String
-    , populateNumObjects : Int
-    , populatePlacementStrategy : String
-    , isPopulating : Bool
-    , motionInput : String
-    , isGeneratingMotion : Bool
-    , motionData : Maybe MotionData
-    , isRendering : Bool
-    , currentStep : Int
-    }
-
-type alias SimulationState =
-    { isRunning : Bool
-    , transformMode : TransformMode
-    , snapToGrid : Bool
-    , gridSize : Float
-    , shiftPressed : Bool
-    , typingInInput : Bool
-    }
-
-defaultSceneContext : SceneContext
-defaultSceneContext =
-    { environment =
-        { timeOfDay = "midday"
-        , weather = "clear"
-        , season = "summer"
-        , atmosphere = 0.5
-        }
-    , lighting =
-        { ambientIntensity = 0.4
-        , ambientColor = "#ffffff"
-        , directionalIntensity = 0.8
-        , directionalColor = "#ffffff"
-        , directionalAngle = 45.0
-        , shadows = False
-        }
-    , narrative = ""
-    , renderQuality = "high"
-    }
-
-defaultUiState : UiState
-defaultUiState =
-    { textInput = ""
-    , isGenerating = False
-    , errorMessage = Nothing
-    , refineInput = ""
-    , isRefining = False
-    , populateInput = ""
-    , populateNumObjects = 5
-    , populatePlacementStrategy = "natural"
-    , isPopulating = False
-    , motionInput = ""
-    , isGeneratingMotion = False
-    , motionData = Nothing
-    , isRendering = False
-    , currentStep = 1
-    }
-
-defaultSimulationState : SimulationState
-defaultSimulationState =
-    { isRunning = False
-    , transformMode = Translate
-    , snapToGrid = False
-    , gridSize = 1.0
-    , shiftPressed = False
-    , typingInInput = False
-    }
-
-emptyScene : Scene
-emptyScene =
-    { objects = Dict.empty
-    , selectedObject = Nothing
-    , selectedObjects = Set.empty
-    , sceneContext = defaultSceneContext
-    }
-
-type Route
-    = Home
-    | Gallery
-    | VideoGalleryRoute
-    | Simulations
-
-urlToRoute : Url -> Route
-urlToRoute url =
-    case url.path of
-        "/" ->
-            Home
-
-        "/gallery" ->
-            Gallery
-
-        "/videos" ->
-            VideoGalleryRoute
-
-        "/simulations" ->
-            Simulations
-
-        _ ->
-            Home
-
-type TransformMode
-    = Translate
-    | Rotate
-    | Scale
 
 type Shape
     = Box
     | Sphere
     | Cylinder
 
-type alias Vec3 =
-    { x : Float
-    , y : Float
-    , z : Float
-    }
-
-type alias Transform =
-    { position : Vec3
-    , rotation : Vec3
-    , scale : Vec3
-    }
-
-type alias PhysicsProperties =
-    { mass : Float
-    , friction : Float
-    , restitution : Float
-    }
-
-type alias VisualProperties =
-    { color : String
-    , shape : Shape
-    }
-
-type alias PhysicsObject =
-    { id : String
-    , transform : Transform
-    , physicsProperties : PhysicsProperties
-    , visualProperties : VisualProperties
-    , description : Maybe String
-    }
-
-type alias EnvironmentSettings =
-    { timeOfDay : String
-    , weather : String
-    , season : String
-    , atmosphere : Float
-    }
-
-type alias LightingSettings =
-    { ambientIntensity : Float
-    , ambientColor : String
-    , directionalIntensity : Float
-    , directionalColor : String
-    , directionalAngle : Float
-    , shadows : Bool
-    }
-
-type alias SceneContext =
-    { environment : EnvironmentSettings
-    , lighting : LightingSettings
-    , narrative : String
-    , renderQuality : String
-    }
-
-type alias Scene =
-    { objects : Dict String PhysicsObject
-    , selectedObject : Maybe String
-    , selectedObjects : Set String
-    , sceneContext : SceneContext
-    }
-
-type alias MotionData =
-    {}
-
-type alias UiState =
-    { textInput : String
-    , isGenerating : Bool
-    , errorMessage : Maybe String
-    , refineInput : String
-    , isRefining : Bool
-    , populateInput : String
-    , populateNumObjects : Int
-    , populatePlacementStrategy : String
-    , isPopulating : Bool
-    , motionInput : String
-    , isGeneratingMotion : Bool
-    , motionData : Maybe MotionData
-    , isRendering : Bool
-    , currentStep : Int
-    }
-
-type alias SimulationState =
-    { isRunning : Bool
-    , transformMode : TransformMode
-    , snapToGrid : Bool
-    , gridSize : Float
-    , shiftPressed : Bool
-    , typingInInput : Bool
-    }
-
-defaultSceneContext : SceneContext
-defaultSceneContext =
-    { environment =
-        { timeOfDay = "midday"
-        , weather = "clear"
-        , season = "summer"
-        , atmosphere = 0.5
-        }
-    , lighting =
-        { ambientIntensity = 0.4
-        , ambientColor = "#ffffff"
-        , directionalIntensity = 0.8
-        , directionalColor = "#ffffff"
-        , directionalAngle = 45.0
-        , shadows = False
-        }
-    , narrative = ""
-    , renderQuality = "high"
-    }
-
-defaultUiState : UiState
-defaultUiState =
-    { textInput = ""
-    , isGenerating = False
-    , errorMessage = Nothing
-    , refineInput = ""
-    , isRefining = False
-    , populateInput = ""
-    , populateNumObjects = 5
-    , populatePlacementStrategy = "natural"
-    , isPopulating = False
-    , motionInput = ""
-    , isGeneratingMotion = False
-    , motionData = Nothing
-    , isRendering = False
-    , currentStep = 1
-    }
-
-defaultSimulationState : SimulationState
-defaultSimulationState =
-    { isRunning = False
-    , transformMode = Translate
-    , snapToGrid = False
-    , gridSize = 1.0
-    , shiftPressed = False
-    , typingInInput = False
-    }
-
-emptyScene : Scene
-emptyScene =
-    { objects = Dict.empty
-    , selectedObject = Nothing
-    , selectedObjects = Set.empty
-    , sceneContext = defaultSceneContext
-    }
-
-type Route
-    = Home
-    | Gallery
-    | VideoGalleryRoute
-    | Simulations
-
-urlToRoute : Url -> Route
-urlToRoute url =
-    case url.path of
-        "/" ->
-            Home
-        "/gallery" ->
-            Gallery
-        "/videos" ->
-            VideoGalleryRoute
-        "/simulations" ->
-            Simulations
-        _ ->
-            Home
-
-type TransformMode
-    = Translate
-    | Rotate
-    | Scale
-
-type Shape
-    = Box
-    | Sphere
-    | Cylinder
-
-type alias Vec3 =
-    { x : Float
-    , y : Float
-    , z : Float
-    }
-
-type alias Transform =
-    { position : Vec3
-    , rotation : Vec3
-    , scale : Vec3
-    }
-
-type alias PhysicsProperties =
-    { mass : Float
-    , friction : Float
-    , restitution : Float
-    }
-
-type alias VisualProperties =
-    { color : String
-    , shape : Shape
-    }
-
-type alias PhysicsObject =
-    { id : String
-    , transform : Transform
-    , physicsProperties : PhysicsProperties
-    , visualProperties : VisualProperties
-    , description : Maybe String
-    }
-
-type alias EnvironmentSettings =
-    { timeOfDay : String
-    , weather : String
-    , season : String
-    , atmosphere : Float
-    }
-
-type alias LightingSettings =
-    { ambientIntensity : Float
-    , ambientColor : String
-    , directionalIntensity : Float
-    , directionalColor : String
-    , directionalAngle : Float
-    , shadows : Bool
-    }
-
-type alias SceneContext =
-    { environment : EnvironmentSettings
-    , lighting : LightingSettings
-    , narrative : String
-    , renderQuality : String
-    }
-
-type alias Scene =
-    { objects : Dict String PhysicsObject
-    , selectedObject : Maybe String
-    , selectedObjects : Set String
-    , sceneContext : SceneContext
-    }
-
-type alias MotionData =
-    {}
-
-type alias UiState =
-    { textInput : String
-    , isGenerating : Bool
-    , errorMessage : Maybe String
-    , refineInput : String
-    , isRefining : Bool
-    , populateInput : String
-    , populateNumObjects : Int
-    , populatePlacementStrategy : String
-    , isPopulating : Bool
-    , motionInput : String
-    , isGeneratingMotion : Bool
-    , motionData : Maybe MotionData
-    , isRendering : Bool
-    , currentStep : Int
-    }
-
-type alias SimulationState =
-    { isRunning : Bool
-    , transformMode : TransformMode
-    , snapToGrid : Bool
-    , gridSize : Float
-    , shiftPressed : Bool
-    , typingInInput : Bool
-    }
-
-defaultSceneContext : SceneContext
-defaultSceneContext =
-    { environment =
-        { timeOfDay = "midday"
-        , weather = "clear"
-        , season = "summer"
-        , atmosphere = 0.5
-        }
-    , lighting =
-        { ambientIntensity = 0.4
-        , ambientColor = "#ffffff"
-        , directionalIntensity = 0.8
-        , directionalColor = "#ffffff"
-        , directionalAngle = 45.0
-        , shadows = False
-        }
-    , narrative = ""
-    , renderQuality = "high"
-    }
-
-defaultUiState : UiState
-defaultUiState =
-    { textInput = ""
-    , isGenerating = False
-    , errorMessage = Nothing
-    , refineInput = ""
-    , isRefining = False
-    , populateInput = ""
-    , populateNumObjects = 5
-    , populatePlacementStrategy = "natural"
-    , isPopulating = False
-    , motionInput = ""
-    , isGeneratingMotion = False
-    , motionData = Nothing
-    , isRendering = False
-    , currentStep = 1
-    }
-
-defaultSimulationState : SimulationState
-defaultSimulationState =
-    { isRunning = False
-    , transformMode = Translate
-    , snapToGrid = False
-    , gridSize = 1.0
-    , shiftPressed = False
-    , typingInInput = False
-    }
-
-emptyScene : Scene
-emptyScene =
-    { objects = Dict.empty
-    , selectedObject = Nothing
-    , selectedObjects = Set.empty
-    , sceneContext = defaultSceneContext
-    }
-
-type Route
-    = Home
-    | Gallery
-    | VideoGalleryRoute
-    | Simulations
-
-urlToRoute : Url -> Route
-urlToRoute url =
-    case url.path of
-        "/" ->
-            Home
-        "/gallery" ->
-            Gallery
-        "/videos" ->
-            VideoGalleryRoute
-        "/simulations" ->
-            Simulations
-        _ ->
-            Home
-
-type alias Model =
-    { simulationGallery : SimulationGallery.Model
-    , videoGallery : VideoGallery.Model
-    , route : Route
-    , key : Nav.Key
-    , scene : Scene
-    , initialScene : Maybe Scene
-    , uiState : UiState
-    , simulationState : SimulationState
-    , history : List Scene
-    , future : List Scene
-    , ctrlPressed : Bool
-    }
 
 init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
     let
-        ( simModel, simCmd ) =
+        ( videoModel, videoCmd ) =
+            Video.init
+
+        ( galleryModel, galleryCmd ) =
+            VideoGallery.init
+
+        ( simulationGalleryModel, simulationGalleryCmd ) =
             SimulationGallery.init
 
-        ( videoModel, videoCmd ) =
-            initVideoGallery ()
+        ( imageModel, imageCmd ) =
+            Image.init
 
+        ( imageGalleryModel, imageGalleryCmd ) =
+            ImageGallery.init
+
+        ( creativeBriefEditorModel, creativeBriefEditorCmd ) =
+            CreativeBriefEditor.init key
+
+        ( briefGalleryModel, briefGalleryCmd ) =
+            BriefGallery.init key
+
+        route =
+            Route.fromUrl url
     in
-    ( { simulationGallery = simModel
-      , videoGallery = videoModel
-      , route = urlToRoute url
-      , key = key
-      , scene = emptyScene
+    ( { key = key
+      , url = url
+      , route = route
+      , scene = { objects = Dict.empty, selectedObject = Nothing }
+      , uiState = { textInput = "", isGenerating = False, errorMessage = Nothing, refineInput = "", isRefining = False }
+      , simulationState = { isRunning = False, transformMode = Translate }
       , initialScene = Nothing
-      , uiState = defaultUiState
-      , simulationState = defaultSimulationState
       , history = []
       , future = []
       , ctrlPressed = False
+      , videoModel = videoModel
+      , videoDetailModel = Nothing
+      , galleryModel = galleryModel
+      , simulationGalleryModel = simulationGalleryModel
+      , imageModel = imageModel
+      , imageDetailModel = Nothing
+      , imageGalleryModel = imageGalleryModel
+      , authModel = Auth.init
+      , pendingVideoFromImage = Nothing
+      , creativeBriefEditorModel = creativeBriefEditorModel
+      , briefGalleryModel = briefGalleryModel
       }
-    , Cmd.batch [ Cmd.map SimulationGalleryMsg simCmd, Cmd.map VideoGalleryMsg videoCmd ]
+    , Cmd.batch
+        [ Cmd.map VideoMsg videoCmd
+        , Cmd.map GalleryMsg galleryCmd
+        , Cmd.map SimulationGalleryMsg simulationGalleryCmd
+        , Cmd.map ImageMsg imageCmd
+        , Cmd.map ImageGalleryMsg imageGalleryCmd
+        , Cmd.map CreativeBriefEditorMsg creativeBriefEditorCmd
+        , Cmd.map BriefGalleryMsg briefGalleryCmd
+        , Cmd.map AuthMsg Auth.checkAuth
+        ]
     )
 
 
@@ -964,35 +222,6 @@ type Msg
     | UpdateRefineInput String
     | RefineScene
     | SceneRefined (Result Http.Error Scene)
-    | UpdatePopulateInput String
-    | UpdatePopulateNumObjects Int
-    | UpdatePopulatePlacementStrategy String
-    | PopulateScene
-    | ScenePopulated (Result Http.Error Scene)
-    | UpdateMotionInput String
-    | GenerateMotion
-    | MotionGenerated (Result Http.Error MotionData)
-    | RenderWithGenesis
-    | GenesisRenderStarted (Result Http.Error String)
-    | ToggleObjectSelection String
-    | ClearSelection
-    | DuplicateSelected
-    | DeleteSelected
-    | ToggleSnapToGrid
-    | UpdateGridSize Float
-    | ShiftKeyDown Bool
-    | UpdateEnvironmentTimeOfDay String
-    | UpdateEnvironmentWeather String
-    | UpdateEnvironmentSeason String
-    | UpdateEnvironmentAtmosphere Float
-    | UpdateSceneNarrative String
-    | UpdateAmbientIntensity Float
-    | UpdateAmbientColor String
-    | UpdateDirectionalIntensity Float
-    | UpdateDirectionalColor String
-    | UpdateDirectionalAngle Float
-    | ToggleShadows
-    | UpdateRenderQuality String
     | Undo
     | Redo
     | SaveScene
@@ -1000,54 +229,136 @@ type Msg
     | SceneLoadedFromStorage Encode.Value
     | KeyDown String
     | KeyUp String
-    | InputFocused
-    | InputBlurred
     | ClearError
-    | NextStep
-    | PreviousStep
     | SelectionChanged (Maybe String)
-    | MultiSelectionChanged (List String)
     | TransformUpdated { objectId : String, transform : Transform }
-    | VideoGalleryMsg VideoGallery.Msg
+    | VideoMsg Video.Msg
+    | VideoDetailMsg VideoDetail.Msg
+    | GalleryMsg VideoGallery.Msg
     | SimulationGalleryMsg SimulationGallery.Msg
+    | ImageMsg Image.Msg
+    | ImageDetailMsg ImageDetail.Msg
+    | ImageGalleryMsg ImageGallery.Msg
+    | AuthMsg Auth.Msg
+    | CreativeBriefEditorMsg CreativeBriefEditor.Msg
+    | BriefGalleryMsg BriefGallery.Msg
+    | NavigateTo Route
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        SimulationGalleryMsg subMsg ->
-            let
-                ( updatedSubModel, subCmd ) =
-                    simulationGalleryUpdate subMsg model.simulationGallery
-            in
-            ( { model | simulationGallery = updatedSubModel }
-            , Cmd.map SimulationGalleryMsg subCmd
-            )
-
-        VideoGalleryMsg subMsg ->
-            let
-                ( updatedSubModel, subCmd ) =
-                    videoGalleryUpdate subMsg model.videoGallery
-            in
-            ( { model | videoGallery = updatedSubModel }
-            , Cmd.map VideoGalleryMsg subCmd
-            )
+        NoOp ->
+            ( model, Cmd.none )
 
         LinkClicked urlRequest ->
             case urlRequest of
                 Browser.Internal url ->
-                    ( model
-                    , Nav.pushUrl model.key (Url.toString url)
-                    )
+                    ( model, Nav.pushUrl model.key (Url.toString url) )
 
                 Browser.External href ->
-                    ( model
-                    , Nav.load href
-                    )
+                    ( model, Nav.load href )
 
         UrlChanged url ->
-            ( { model | route = urlToRoute url }
-            , Cmd.none
+            let
+                newRoute = Route.fromUrl url
+
+                videoDetailModel =
+                    case newRoute of
+                        Just (Route.VideoDetail videoId) ->
+                            let
+                                ( detailModel, detailCmd ) = VideoDetail.init videoId
+                            in
+                            Just detailModel
+
+                        _ ->
+                            Nothing
+
+                imageDetailModel =
+                    case newRoute of
+                        Just (Route.ImageDetail imageId) ->
+                            let
+                                ( detailModel, detailCmd ) = ImageDetail.init imageId
+                            in
+                            Just detailModel
+
+                        _ ->
+                            Nothing
+
+                creativeBriefEditorModel =
+                    case newRoute of
+                        Just Route.CreativeBriefEditor ->
+                            let
+                                ( editorModel, editorCmd ) = CreativeBriefEditor.init model.key
+                            in
+                            editorModel
+
+                        _ ->
+                            model.creativeBriefEditorModel
+
+                ( briefGalleryModel, briefGalleryInitCmd ) =
+                    case newRoute of
+                        Just Route.BriefGallery ->
+                            BriefGallery.init model.key
+
+                        _ ->
+                            ( model.briefGalleryModel, Cmd.none )
+
+                galleryCmd =
+                    case newRoute of
+                        Just Route.Gallery ->
+                            Task.perform (always (GalleryMsg VideoGallery.FetchVideos)) (Task.succeed ())
+
+                        _ ->
+                            Cmd.none
+
+                imageGalleryCmd =
+                    case newRoute of
+                        Just Route.ImageGallery ->
+                            Task.perform (always (ImageGalleryMsg ImageGallery.FetchImages)) (Task.succeed ())
+
+                        _ ->
+                            Cmd.none
+
+                videoPrefillCmd =
+                    case ( newRoute, model.pendingVideoFromImage ) of
+                        ( Just Route.Videos, Just { modelId, imageUrl } ) ->
+                            Cmd.batch
+                                [ Task.perform (always (VideoMsg (Video.SelectCollection "image-to-video"))) (Task.succeed ())
+                                , Process.sleep 50 |> Task.andThen (\_ -> Task.succeed (VideoMsg (Video.SelectModel modelId))) |> Task.perform identity
+                                , Process.sleep 100 |> Task.andThen (\_ -> Task.succeed (VideoMsg (Video.UpdateParameter "image" imageUrl))) |> Task.perform identity
+                                ]
+
+                        _ ->
+                            Cmd.none
+
+                clearedPending =
+                    case ( newRoute, model.pendingVideoFromImage ) of
+                        ( Just Route.Videos, Just _ ) ->
+                            Nothing
+
+                        _ ->
+                            model.pendingVideoFromImage
+
+                videoDetailCmd =
+                    Cmd.none
+
+                imageDetailCmd =
+                    Cmd.none
+
+                creativeBriefEditorCmd =
+                    Cmd.none
+
+                briefGalleryCmd =
+                    case newRoute of
+                        Just Route.BriefGallery ->
+                            Cmd.map BriefGalleryMsg (BriefGallery.initCmd briefGalleryModel)
+
+                        _ ->
+                            Cmd.none
+            in
+            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel, creativeBriefEditorModel = creativeBriefEditorModel, briefGalleryModel = briefGalleryModel, pendingVideoFromImage = clearedPending }
+            , Cmd.batch [ videoDetailCmd, imageDetailCmd, creativeBriefEditorCmd, briefGalleryCmd, galleryCmd, imageGalleryCmd, videoPrefillCmd ]
             )
 
         UpdateTextInput text ->
@@ -1101,6 +412,59 @@ update msg model =
                             { uiState
                                 | isGenerating = False
                                 , errorMessage = Just (Decode.errorToString error)
+                            }
+                      }
+                    , Cmd.none
+                    )
+
+        SceneGeneratedResult result ->
+            case result of
+                Ok scene ->
+                    let
+                        uiState =
+                            model.uiState
+                        modelWithHistory =
+                            saveToHistory model
+                    in
+                    ( { modelWithHistory
+                        | scene = scene
+                        , initialScene = Just scene
+                        , uiState =
+                            { uiState
+                                | isGenerating = False
+                                , textInput = ""
+                            }
+                      }
+                    , sendSceneToThreeJs (sceneEncoder scene)
+                    )
+
+                Err error ->
+                    let
+                        uiState =
+                            model.uiState
+
+                        errorMessage =
+                            case error of
+                                Http.BadUrl url ->
+                                    "Bad URL: " ++ url
+
+                                Http.Timeout ->
+                                    "Request timed out"
+
+                                Http.NetworkError ->
+                                    "Network error"
+
+                                Http.BadStatus status ->
+                                    "Server error: " ++ String.fromInt status
+
+                                Http.BadBody body ->
+                                    "Invalid response: " ++ body
+                    in
+                    ( { model
+                        | uiState =
+                            { uiState
+                                | isGenerating = False
+                                , errorMessage = Just errorMessage
                             }
                       }
                     , Cmd.none
@@ -1256,910 +620,12 @@ update msg model =
             in
             ( { model | uiState = { uiState | errorMessage = Nothing } }, Cmd.none )
 
-        SceneGeneratedResult result ->
-            case result of
-                Ok scene ->
-                    let
-                        uiState =
-                            model.uiState
-                        modelWithHistory =
-                            saveToHistory model
-                    in
-                    ( { modelWithHistory
-                        | scene = scene
-                        , initialScene = Just scene
-                        , uiState =
-                            { uiState
-                                | isGenerating = False
-                                , textInput = ""
-                            }
-                      }
-                    , sendSceneToThreeJs (sceneEncoder scene)
-                    )
-
-                Err error ->
-                    let
-                        uiState =
-                            model.uiState
-
-                        errorMessage =
-                            case error of
-                                Http.BadUrl url ->
-                                    "Bad URL: " ++ url
-
-                                Http.Timeout ->
-                                    "Request timed out"
-
-                                Http.NetworkError ->
-                                    "Network error"
-
-                                Http.BadStatus status ->
-                                    "Server error: " ++ String.fromInt status
-
-                                Http.BadBody body ->
-                                    "Invalid response: " ++ body
-                    in
-                    ( { model
-                        | uiState =
-                            { uiState
-                                | isGenerating = False
-                                , errorMessage = Just errorMessage
-                            }
-                      }
-                    , Cmd.none
-                    )
-
-        UpdateRefineInput newInput ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | refineInput = newInput } }, Cmd.none )
-
-        RefineScene ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | isRefining = True, errorMessage = Nothing } }
-            , refineSceneRequest model.scene model.uiState.refineInput
-            )
-
-        SceneRefined result ->
-            case result of
-                Ok scene ->
-                    let
-                        uiState =
-                            model.uiState
-                        modelWithHistory =
-                            saveToHistory model
-                    in
-                    ( { modelWithHistory
-                        | scene = scene
-                        , uiState =
-                            { uiState
-                                | isRefining = False
-                                , refineInput = ""
-                            }
-                      }
-                    , sendSceneToThreeJs (sceneEncoder scene)
-                    )
-
-                Err error ->
-                    let
-                        uiState =
-                            model.uiState
-
-                        errorMessage =
-                            case error of
-                                Http.BadUrl url ->
-                                    "Bad URL: " ++ url
-
-                                Http.Timeout ->
-                                    "Request timed out"
-
-                                Http.NetworkError ->
-                                    "Network error"
-
-                                Http.BadStatus status ->
-                                    "Server error: " ++ String.fromInt status
-
-                                Http.BadBody body ->
-                                    "Invalid response: " ++ body
-                    in
-                    ( { model
-                        | uiState =
-                            { uiState
-                                | isRefining = False
-                                , errorMessage = Just errorMessage
-                            }
-                      }
-                    , Cmd.none
-                    )
-
-        UpdatePopulateInput text ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | populateInput = text } }, Cmd.none )
-
-        UpdatePopulateNumObjects num ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | populateNumObjects = num } }, Cmd.none )
-
-        UpdatePopulatePlacementStrategy strategy ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | populatePlacementStrategy = strategy } }, Cmd.none )
-
-        PopulateScene ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | isPopulating = True, errorMessage = Nothing } }
-            , populateSceneRequest model.scene model.uiState.populateInput model.uiState.populateNumObjects model.uiState.populatePlacementStrategy
-            )
-
-        ScenePopulated result ->
-            case result of
-                Ok scene ->
-                    let
-                        _ =
-                            Debug.log "ScenePopulated SUCCESS" (Dict.size scene.objects)
-
-                        uiState =
-                            model.uiState
-
-                        modelWithHistory =
-                            saveToHistory model
-                    in
-                    ( { modelWithHistory
-                        | scene = scene
-                        , uiState =
-                            { uiState
-                                | isPopulating = False
-                                , populateInput = ""
-                            }
-                      }
-                    , sendSceneToThreeJs (sceneEncoder scene)
-                    )
-
-                Err error ->
-                    let
-                        uiState =
-                            model.uiState
-
-                        errorMessage =
-                            case error of
-                                Http.BadUrl url ->
-                                    "Bad URL: " ++ url
-
-                                Http.Timeout ->
-                                    "Request timed out"
-
-                                Http.NetworkError ->
-                                    "Network error"
-
-                                Http.BadStatus status ->
-                                    "Server error: " ++ String.fromInt status
-
-                                Http.BadBody body ->
-                                    "Invalid response: " ++ body
-
-                        _ =
-                            Debug.log "ScenePopulated ERROR" errorMessage
-                    in
-                    ( { model
-                        | uiState =
-                            { uiState
-                                | isPopulating = False
-                                , errorMessage = Just errorMessage
-                            }
-                      }
-                    , Cmd.none
-                    )
-
-        UpdateMotionInput text ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | motionInput = text } }, Cmd.none )
-
-        GenerateMotion ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | isGeneratingMotion = True } }
-            , generateMotionRequest model.scene.objects model.uiState.motionInput
-            )
-
-        MotionGenerated result ->
-            case result of
-                Ok motionData ->
-                    let
-                        uiState =
-                            model.uiState
-                    in
-                    ( { model
-                        | uiState =
-                            { uiState
-                                | isGeneratingMotion = False
-                                , motionData = Just motionData
-                            }
-                      }
-                    , Cmd.none
-                    )
-
-                Err error ->
-                    let
-                        uiState =
-                            model.uiState
-                    in
-                    ( { model
-                        | uiState =
-                            { uiState
-                                | isGeneratingMotion = False
-                                , errorMessage = Just ("Motion generation failed")
-                            }
-                      }
-                    , Cmd.none
-                    )
-
-        ToggleObjectSelection objectId ->
-            let
-                scene =
-                    model.scene
-
-                simulationState =
-                    model.simulationState
-
-                newSelectedObjects =
-                    if simulationState.shiftPressed then
-                        -- Multi-select with Shift
-                        if Set.member objectId scene.selectedObjects then
-                            Set.remove objectId scene.selectedObjects
-                        else
-                            Set.insert objectId scene.selectedObjects
-                    else
-                        -- Single select without Shift
-                        Set.singleton objectId
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | selectedObject = Just objectId
-                        , selectedObjects = newSelectedObjects
-                    }
-              }
-            , sendSelectionToThreeJs objectId
-            )
-
-        ClearSelection ->
-            let
-                scene =
-                    model.scene
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | selectedObject = Nothing
-                        , selectedObjects = Set.empty
-                    }
-              }
-            , Cmd.none
-            )
-
-        DuplicateSelected ->
-            let
-                scene =
-                    model.scene
-
-                selectedIds =
-                    if Set.isEmpty scene.selectedObjects then
-                        case scene.selectedObject of
-                            Just id ->
-                                [ id ]
-
-                            Nothing ->
-                                []
-                    else
-                        Set.toList scene.selectedObjects
-
-                duplicateObject : String -> PhysicsObject -> ( String, PhysicsObject )
-                duplicateObject oldId obj =
-                    let
-                        newId =
-                            oldId ++ "_copy"
-
-                        offsetPos =
-                            obj.transform.position
-
-                        newPos =
-                            { offsetPos | x = offsetPos.x + 2.0 }
-                    in
-                    ( newId
-                    , { obj
-                        | id = newId
-                        , transform =
-                            { position = newPos
-                            , rotation = obj.transform.rotation
-                            , scale = obj.transform.scale
-                            }
-                      }
-                    )
-
-                newObjects =
-                    selectedIds
-                        |> List.filterMap (\id -> Dict.get id scene.objects |> Maybe.map (duplicateObject id))
-                        |> Dict.fromList
-
-                updatedObjects =
-                    Dict.union newObjects scene.objects
-
-                modelWithHistory =
-                    saveToHistory model
-            in
-            ( { modelWithHistory
-                | scene = { scene | objects = updatedObjects }
-              }
-            , sendSceneToThreeJs (sceneEncoder { scene | objects = updatedObjects })
-            )
-
-        DeleteSelected ->
-            let
-                scene =
-                    model.scene
-
-                selectedIds =
-                    if Set.isEmpty scene.selectedObjects then
-                        case scene.selectedObject of
-                            Just id ->
-                                Set.singleton id
-
-                            Nothing ->
-                                Set.empty
-                    else
-                        scene.selectedObjects
-
-                updatedObjects =
-                    Set.foldl Dict.remove scene.objects selectedIds
-
-                modelWithHistory =
-                    saveToHistory model
-            in
-            ( { modelWithHistory
-                | scene =
-                    { scene
-                        | objects = updatedObjects
-                        , selectedObject = Nothing
-                        , selectedObjects = Set.empty
-                    }
-              }
-            , sendSceneToThreeJs (sceneEncoder { scene | objects = updatedObjects })
-            )
-
-        ToggleSnapToGrid ->
-            let
-                simulationState =
-                    model.simulationState
-            in
-            ( { model
-                | simulationState = { simulationState | snapToGrid = not simulationState.snapToGrid }
-              }
-            , Cmd.none
-            )
-
-        UpdateGridSize size ->
-            let
-                simulationState =
-                    model.simulationState
-            in
-            ( { model
-                | simulationState = { simulationState | gridSize = size }
-              }
-            , Cmd.none
-            )
-
-        ShiftKeyDown pressed ->
-            let
-                simulationState =
-                    model.simulationState
-            in
-            ( { model
-                | simulationState = { simulationState | shiftPressed = pressed }
-              }
-            , Cmd.none
-            )
-
-        UpdateEnvironmentTimeOfDay timeOfDay ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                environment =
-                    context.environment
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | environment = { environment | timeOfDay = timeOfDay }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateEnvironmentWeather weather ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                environment =
-                    context.environment
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | environment = { environment | weather = weather }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateEnvironmentSeason season ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                environment =
-                    context.environment
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | environment = { environment | season = season }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateEnvironmentAtmosphere atmosphere ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                environment =
-                    context.environment
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | environment = { environment | atmosphere = atmosphere }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateSceneNarrative narrative ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext = { context | narrative = narrative }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateAmbientIntensity intensity ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                lighting =
-                    context.lighting
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | lighting = { lighting | ambientIntensity = intensity }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateAmbientColor color ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                lighting =
-                    context.lighting
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | lighting = { lighting | ambientColor = color }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateDirectionalIntensity intensity ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                lighting =
-                    context.lighting
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | lighting = { lighting | directionalIntensity = intensity }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateDirectionalColor color ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                lighting =
-                    context.lighting
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | lighting = { lighting | directionalColor = color }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateDirectionalAngle angle ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                lighting =
-                    context.lighting
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | lighting = { lighting | directionalAngle = angle }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        ToggleShadows ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-
-                lighting =
-                    context.lighting
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext =
-                            { context
-                                | lighting = { lighting | shadows = not lighting.shadows }
-                            }
-                    }
-              }
-            , Cmd.none
-            )
-
-        UpdateRenderQuality quality ->
-            let
-                scene =
-                    model.scene
-
-                context =
-                    scene.sceneContext
-            in
-            ( { model
-                | scene =
-                    { scene
-                        | sceneContext = { context | renderQuality = quality }
-                    }
-              }
-            , Cmd.none
-            )
-
-        Undo ->
-            case model.history of
-                previousScene :: restHistory ->
-                    ( { model
-                        | scene = previousScene
-                        , history = restHistory
-                        , future = model.scene :: model.future
-                      }
-                    , sendSceneToThreeJs (sceneEncoder previousScene)
-                    )
-
-                [] ->
-                    ( model, Cmd.none )
-
-        Redo ->
-            case model.future of
-                nextScene :: restFuture ->
-                    ( { model
-                        | scene = nextScene
-                        , history = model.scene :: model.history
-                        , future = restFuture
-                      }
-                    , sendSceneToThreeJs (sceneEncoder nextScene)
-                    )
-
-                [] ->
-                    ( model, Cmd.none )
-
-        SaveScene ->
-            ( model, saveSceneToStorage (sceneEncoder model.scene) )
-
-        LoadScene ->
-            ( model, loadSceneFromStorage () )
-
-        SceneLoadedFromStorage sceneValue ->
-            case Decode.decodeValue sceneDecoder sceneValue of
-                Ok loadedScene ->
-                    let
-                        modelWithHistory =
-                            saveToHistory model
-                    in
-                    ( { modelWithHistory
-                        | scene = loadedScene
-                        , initialScene = Just loadedScene
-                      }
-                    , sendSceneToThreeJs (sceneEncoder loadedScene)
-                    )
-
-                Err _ ->
-                    ( model, Cmd.none )
-
-        KeyDown key ->
-            -- Ignore keyboard shortcuts when typing in an input field
-            if model.simulationState.typingInInput then
-                ( model, Cmd.none )
-            else
-                case key of
-                    "Control" ->
-                        ( { model | ctrlPressed = True }, Cmd.none )
-
-                    " " ->
-                        -- Space: toggle simulation
-                        update (ToggleSimulation) model
-
-                    "g" ->
-                        -- G: translate mode
-                        update (SetTransformMode Translate) model
-
-                    "r" ->
-                        -- R: rotate mode
-                        update (SetTransformMode Rotate) model
-
-                    "s" ->
-                        -- S: scale mode
-                        update (SetTransformMode Scale) model
-
-                    "z" ->
-                        -- Ctrl+Z: undo
-                        if model.ctrlPressed then
-                            update Undo model
-                        else
-                            ( model, Cmd.none )
-
-                    "y" ->
-                        -- Ctrl+Y: redo
-                        if model.ctrlPressed then
-                            update Redo model
-                        else
-                            ( model, Cmd.none )
-
-                    "d" ->
-                        -- D: duplicate selected
-                        update DuplicateSelected model
-
-                    "Delete" ->
-                        -- Delete: delete selected
-                        update DeleteSelected model
-
-                    "Backspace" ->
-                        -- Backspace: delete selected (alternative)
-                        update DeleteSelected model
-
-                    "Shift" ->
-                        -- Shift: enable multi-select mode
-                        update (ShiftKeyDown True) model
-
-                    "Escape" ->
-                        -- Escape: clear selection
-                        update ClearSelection model
-
-                    _ ->
-                        ( model, Cmd.none )
-
-        KeyUp key ->
-            case key of
-                "Control" ->
-                    ( { model | ctrlPressed = False }, Cmd.none )
-
-                "Shift" ->
-                    -- Release multi-select mode
-                    update (ShiftKeyDown False) model
-
-                _ ->
-                    ( model, Cmd.none )
-
-        InputFocused ->
-            let
-                simState = model.simulationState
-            in
-            ( { model | simulationState = { simState | typingInInput = True } }, Cmd.none )
-
-        InputBlurred ->
-            let
-                simState = model.simulationState
-            in
-            ( { model | simulationState = { simState | typingInInput = False } }, Cmd.none )
-
-        NextStep ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | currentStep = Basics.min 3 (uiState.currentStep + 1) } }, Cmd.none )
-
-        PreviousStep ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | currentStep = Basics.max 1 (uiState.currentStep - 1) } }, Cmd.none )
-
-        RenderWithGenesis ->
-            let
-                uiState =
-                    model.uiState
-            in
-            ( { model | uiState = { uiState | isRendering = True, errorMessage = Nothing } }
-            , renderWithGenesisRequest model.scene
-            )
-
-        GenesisRenderStarted result ->
-            case result of
-                Ok videoId ->
-                    let
-                        uiState =
-                            model.uiState
-                    in
-                    ( { model | uiState = { uiState | isRendering = False } }
-                    , Nav.pushUrl model.key "/simulations"
-                    )
-
-                Err error ->
-                    let
-                        uiState =
-                            model.uiState
-
-                        errorMessage =
-                            case error of
-                                Http.BadUrl url ->
-                                    "Invalid URL: " ++ url
-
-                                Http.Timeout ->
-                                    "Request timed out"
-
-                                Http.NetworkError ->
-                                    "Network error - check your connection"
-
-                                Http.BadStatus status ->
-                                    "Server error: " ++ String.fromInt status
-
-                                Http.BadBody body ->
-                                    "Invalid response: " ++ body
-                    in
-                    ( { model
-                        | uiState =
-                            { uiState
-                                | isRendering = False
-                                , errorMessage = Just errorMessage
-                            }
-                      }
-                    , Cmd.none
-                    )
-
         SelectionChanged maybeObjectId ->
             let
                 scene =
                     model.scene
             in
             ( { model | scene = { scene | selectedObject = maybeObjectId } }, Cmd.none )
-
-        MultiSelectionChanged objectIds ->
-            let
-                scene =
-                    model.scene
-            in
-            ( { model | scene = { scene | selectedObjects = Set.fromList objectIds } }, Cmd.none )
 
         TransformUpdated { objectId, transform } ->
             let
@@ -2181,7 +647,249 @@ update msg model =
             , Cmd.none
             )
 
--- Removed unused VideoMsg, VisionUploadMsg, GalleryMsg cases
+        UpdateRefineInput text ->
+            let
+                uiState = model.uiState
+            in
+            ( { model | uiState = { uiState | refineInput = text } }, Cmd.none )
+
+        RefineScene ->
+            let
+                uiState = model.uiState
+            in
+            ( { model | uiState = { uiState | isRefining = True } }
+            , refineSceneRequest model.scene model.uiState.refineInput
+            )
+
+        SceneRefined result ->
+            case result of
+                Ok newScene ->
+                    let
+                        uiState = model.uiState
+                    in
+                    ( { model
+                        | scene = newScene
+                        , history = model.scene :: model.history
+                        , future = []
+                        , uiState = { uiState | isRefining = False }
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    let
+                        uiState = model.uiState
+
+                        errorMessage =
+                            case error of
+                                Http.BadUrl url ->
+                                    "Bad URL: " ++ url
+
+                                Http.Timeout ->
+                                    "Request timed out"
+
+                                Http.NetworkError ->
+                                    "Network error"
+
+                                Http.BadStatus status ->
+                                    "Bad status: " ++ String.fromInt status
+
+                                Http.BadBody message ->
+                                    "Bad response: " ++ message
+                    in
+                    ( { model | uiState = { uiState | isRefining = False, errorMessage = Just errorMessage } }
+                    , Cmd.none
+                    )
+
+        Undo ->
+            case model.history of
+                prevScene :: restHistory ->
+                    ( { model | scene = prevScene, history = restHistory, future = model.scene :: model.future }
+                    , Cmd.none
+                    )
+
+                [] ->
+                    ( model, Cmd.none )
+
+        Redo ->
+            case model.future of
+                nextScene :: restFuture ->
+                    ( { model | scene = nextScene, future = restFuture, history = model.scene :: model.history }
+                    , Cmd.none
+                    )
+
+                [] ->
+                    ( model, Cmd.none )
+
+        SaveScene ->
+            ( model, Cmd.none )
+
+        LoadScene ->
+            ( model, Cmd.none )
+
+        SceneLoadedFromStorage result ->
+            ( model, Cmd.none )
+
+        KeyDown key ->
+            case key of
+                "Control" ->
+                    ( { model | ctrlPressed = True }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        KeyUp key ->
+            case key of
+                "Control" ->
+                    ( { model | ctrlPressed = False }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        VideoMsg videoMsg ->
+            let
+                ( updatedVideoModel, videoCmd ) =
+                    Video.update videoMsg model.videoModel
+
+                -- Handle navigation to video detail page
+                navCmd =
+                    case videoMsg of
+                        Video.NavigateToVideo videoId ->
+                            Nav.pushUrl model.key (Route.toHref (Route.VideoDetail videoId))
+
+                        _ ->
+                            Cmd.none
+            in
+            ( { model | videoModel = updatedVideoModel }
+            , Cmd.batch [ Cmd.map VideoMsg videoCmd, navCmd ]
+            )
+
+        VideoDetailMsg videoDetailMsg ->
+            case model.videoDetailModel of
+                Just videoDetailModel ->
+                    let
+                        ( updatedVideoDetailModel, videoDetailCmd ) =
+                            VideoDetail.update videoDetailMsg videoDetailModel
+                    in
+                    ( { model | videoDetailModel = Just updatedVideoDetailModel }
+                    , Cmd.map VideoDetailMsg videoDetailCmd
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        GalleryMsg galleryMsg ->
+            let
+                ( updatedGalleryModel, galleryCmd ) =
+                    VideoGallery.update galleryMsg model.galleryModel
+            in
+            ( { model | galleryModel = updatedGalleryModel }, Cmd.map GalleryMsg galleryCmd )
+
+        SimulationGalleryMsg simulationGalleryMsg ->
+            let
+                ( updatedSimulationGalleryModel, simulationGalleryCmd ) =
+                    SimulationGallery.update simulationGalleryMsg model.simulationGalleryModel
+            in
+            ( { model | simulationGalleryModel = updatedSimulationGalleryModel }, Cmd.map SimulationGalleryMsg simulationGalleryCmd )
+
+        ImageMsg imageMsg ->
+            let
+                ( updatedImageModel, imageCmd ) =
+                    Image.update imageMsg model.imageModel
+
+                -- Handle navigation to image detail page
+                navCmd =
+                    case imageMsg of
+                        Image.NavigateToImage imageId ->
+                            Nav.pushUrl model.key (Route.toHref (Route.ImageDetail imageId))
+
+                        _ ->
+                            Cmd.none
+            in
+            ( { model | imageModel = updatedImageModel }
+            , Cmd.batch [ Cmd.map ImageMsg imageCmd, navCmd ]
+            )
+
+        ImageDetailMsg imageDetailMsg ->
+            case model.imageDetailModel of
+                Just imageDetailModel ->
+                    let
+                        ( updatedImageDetailModel, imageDetailCmd ) =
+                            ImageDetail.update imageDetailMsg imageDetailModel
+                    in
+                    ( { model | imageDetailModel = Just updatedImageDetailModel }
+                    , Cmd.map ImageDetailMsg imageDetailCmd
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        ImageGalleryMsg imageGalleryMsg ->
+            let
+                ( updatedImageGalleryModel, imageGalleryCmd ) =
+                    ImageGallery.update imageGalleryMsg model.imageGalleryModel
+
+                -- Handle navigation to video page with image
+                ( navCmd, updatedModel ) =
+                    case imageGalleryMsg of
+                        ImageGallery.CreateVideoFromImage modelId imageUrl ->
+                            -- Store the model ID and image URL, then navigate to videos page
+                            ( Nav.pushUrl model.key "/videos"
+                            , { model
+                                | imageGalleryModel = updatedImageGalleryModel
+                                , pendingVideoFromImage = Just { modelId = modelId, imageUrl = imageUrl }
+                              }
+                            )
+
+                        _ ->
+                            ( Cmd.none
+                            , { model | imageGalleryModel = updatedImageGalleryModel }
+                            )
+            in
+            ( updatedModel, Cmd.batch [ Cmd.map ImageGalleryMsg imageGalleryCmd, navCmd ] )
+
+        AuthMsg authMsg ->
+            let
+                ( updatedAuthModel, authCmd ) =
+                    Auth.update authMsg model.authModel
+
+                -- Trigger gallery fetches when login succeeds (cookies are already set by server)
+                fetchCmd =
+                    case authMsg of
+                        Auth.LoginResult (Ok _) ->
+                            Cmd.batch
+                                [ Cmd.map GalleryMsg (Task.perform (always VideoGallery.FetchVideos) (Task.succeed ()))
+                                , Cmd.map SimulationGalleryMsg (Task.perform (always SimulationGallery.FetchVideos) (Task.succeed ()))
+                                , Cmd.map ImageGalleryMsg (Task.perform (always ImageGallery.FetchImages) (Task.succeed ()))
+                                ]
+
+                        _ ->
+                            Cmd.none
+            in
+            ( { model | authModel = updatedAuthModel }
+            , Cmd.batch [ Cmd.map AuthMsg authCmd, fetchCmd ]
+            )
+
+        CreativeBriefEditorMsg briefMsg ->
+            let
+                ( updatedModel, cmd ) =
+                    CreativeBriefEditor.update briefMsg model.creativeBriefEditorModel
+            in
+            ( { model | creativeBriefEditorModel = updatedModel }
+            , Cmd.map CreativeBriefEditorMsg cmd
+            )
+
+        BriefGalleryMsg galleryMsg ->
+            let
+                ( updatedModel, cmd ) =
+                    BriefGallery.update galleryMsg model.briefGalleryModel
+            in
+            ( { model | briefGalleryModel = updatedModel }
+            , Cmd.map BriefGalleryMsg cmd
+            )
+
+        NavigateTo route ->
+            ( model, Nav.pushUrl model.key (Route.toHref route) )
 
 
 -- HISTORY MANAGEMENT
@@ -2200,41 +908,123 @@ saveToHistory model =
 
 view : Model -> Browser.Document Msg
 view model =
-    { title = "Physics Simulator"
+    { title = "Gauntlet Video Sim POC"
     , body =
-        [ div [ class "app" ]
-            [ case model.route of
-                Home ->
-                    div [ class "home" ]
-                        [ h1 [] [ text "Physics Simulator" ]
-                        , p [] [ text "Generate and simulate physics scenes with AI." ]
-
-                        , div [ class "galleries" ]
-                            [ div [ class "gallery-container" ]
-                                [ h2 [] [ text "Simulation Gallery" ]
-, Html.map alwaysNoOpSim (simulationGalleryView model.simulationGallery)
-            ]
-                            , div [ class "gallery-container" ]
-                                [ h2 [] [ text "Video Gallery" ]
-, Html.map alwaysNoOpVid (videoGalleryView model.videoGallery)
-            ]
+        case model.authModel.loginState of
+            Auth.Checking ->
+                -- Show blurred page with loading spinner
+                [ div [ style "position" "relative" ]
+                    [ div [ style "filter" "blur(4px)", style "pointer-events" "none" ]
+                        [ viewMainContent model ]
+                    , div
+                        [ style "position" "fixed"
+                        , style "top" "0"
+                        , style "left" "0"
+                        , style "width" "100%"
+                        , style "height" "100%"
+                        , style "display" "flex"
+                        , style "align-items" "center"
+                        , style "justify-content" "center"
+                        , style "background" "rgba(0, 0, 0, 0.3)"
+                        , style "z-index" "9999"
+                        ]
+                        [ div
+                            [ style "width" "60px"
+                            , style "height" "60px"
+                            , style "border" "6px solid #f3f3f3"
+                            , style "border-top" "6px solid #667eea"
+                            , style "border-radius" "50%"
+                            , style "animation" "spin 1s linear infinite"
                             ]
+                            []
                         ]
+                    ]
+                ]
 
-                Gallery ->
-                    div [ class "gallery" ]
-                        [ h1 [] [ text "Simulation Gallery" ]
-                        , simulationGalleryView model.simulationGallery
-                        ]
+            Auth.NotLoggedIn ->
+                -- Show login screen
+                [ Html.map AuthMsg (Auth.view model.authModel) ]
 
-                VideoGalleryRoute ->
-                    div [ class "video-gallery" ]
-                        [ h1 [] [ text "Video Gallery" ]
-                        , videoGalleryView model.videoGallery
-                        ]
-            ]
-        ]
+            Auth.LoggingIn ->
+                -- Show login screen while logging in
+                [ Html.map AuthMsg (Auth.view model.authModel) ]
+
+            Auth.LoggedIn ->
+                -- Show normal page
+                [ viewMainContent model ]
     }
+
+
+viewMainContent : Model -> Html Msg
+viewMainContent model =
+    div []
+        [ viewTabs model
+        , case model.route of
+            Just Route.Physics ->
+                div [ class "app-container" ]
+                    [ viewLeftPanel model
+                    , viewCanvasContainer
+                    , viewRightPanel model
+                    , viewBottomBar model
+                    ]
+
+            Just Route.Videos ->
+                Video.view model.videoModel
+                    |> Html.map VideoMsg
+
+            Just (Route.VideoDetail _) ->
+                case model.videoDetailModel of
+                    Just videoDetailModel ->
+                        VideoDetail.view videoDetailModel
+                            |> Html.map VideoDetailMsg
+
+                    Nothing ->
+                        div [ class "loading" ] [ text "Loading video detail..." ]
+
+            Just Route.Gallery ->
+                VideoGallery.view model.galleryModel
+                    |> Html.map GalleryMsg
+
+            Just Route.SimulationGallery ->
+                SimulationGallery.view model.simulationGalleryModel
+                    |> Html.map SimulationGalleryMsg
+
+            Just Route.Images ->
+                Image.view model.imageModel
+                    |> Html.map ImageMsg
+
+            Just (Route.ImageDetail _) ->
+                case model.imageDetailModel of
+                    Just imageDetailModel ->
+                        ImageDetail.view imageDetailModel
+                            |> Html.map ImageDetailMsg
+
+                    Nothing ->
+                        div [ class "loading" ] [ text "Loading image detail..." ]
+
+            Just Route.ImageGallery ->
+                ImageGallery.view model.imageGalleryModel
+                    |> Html.map ImageGalleryMsg
+
+            Just Route.Auth ->
+                Html.map AuthMsg (Auth.view model.authModel)
+
+            Just Route.BriefGallery ->
+                BriefGallery.view model.briefGalleryModel
+                    |> Html.map BriefGalleryMsg
+
+            Just Route.CreativeBriefEditor ->
+                CreativeBriefEditor.view model.creativeBriefEditorModel
+                    |> Html.map CreativeBriefEditorMsg
+
+            Nothing ->
+                div [ class "app-container" ]
+                    [ viewLeftPanel model
+                    , viewCanvasContainer
+                    , viewRightPanel model
+                    , viewBottomBar model
+                    ]
+        ]
 
 
 viewTabs : Model -> Html Msg
@@ -2251,6 +1041,16 @@ viewTabs model =
             ]
             [ text "Video Gallery" ]
         , a
+            [ href "/images"
+            , class (if model.route == Just Route.Images then "active" else "")
+            ]
+            [ text "Image Models" ]
+        , a
+            [ href "/image-gallery"
+            , class (if model.route == Just Route.ImageGallery then "active" else "")
+            ]
+            [ text "Image Gallery" ]
+        , a
             [ href "/simulations"
             , class (if model.route == Just Route.SimulationGallery then "active" else "")
             ]
@@ -2260,156 +1060,65 @@ viewTabs model =
             , class (if model.route == Just Route.Physics then "active" else "")
             ]
             [ text "Physics Simulator" ]
+        , a
+            [ href "/auth"
+            , class (if model.route == Just Route.Auth then "active" else "")
+            ]
+            [ text "Auth" ]
+        , a
+            [ href "/briefs"
+            , class (if model.route == Just Route.BriefGallery then "active" else "")
+            ]
+            [ text "Brief Gallery" ]
+        , a
+            [ href "/creative"
+            , class (if model.route == Just Route.CreativeBriefEditor then "active" else "")
+            ]
+            [ text "Creative Brief Editor" ]
         ]
 
 
 viewBottomBar : Model -> Html Msg
 viewBottomBar model =
     div [ class "bottom-bar" ]
-        [ div [ class "canvas-hint" ]
-            [ text "💡 Click canvas to add objects • G/R/S to move/rotate/scale • D to duplicate • Delete to remove • Shift+Click for multi-select"
+        [ div [ class "simulation-controls" ]
+            [ button
+                [ onClick ToggleSimulation
+                , class (if model.simulationState.isRunning then "active" else "")
+                ]
+                [ text (if model.simulationState.isRunning then "Pause" else "Play") ]
+            , button [ onClick ResetSimulation ] [ text "Reset" ]
             ]
-        , div [ class "essential-controls" ]
+        , div [ class "transform-controls" ]
+            [ button
+                [ onClick (SetTransformMode Translate)
+                , class (if model.simulationState.transformMode == Translate then "active" else "")
+                ]
+                [ text "Move (G)" ]
+            , button
+                [ onClick (SetTransformMode Rotate)
+                , class (if model.simulationState.transformMode == Rotate then "active" else "")
+                ]
+                [ text "Rotate (R)" ]
+            , button
+                [ onClick (SetTransformMode Scale)
+                , class (if model.simulationState.transformMode == Scale then "active" else "")
+                ]
+                [ text "Scale (S)" ]
+            ]
+        , div [ class "history-controls" ]
             [ button
                 [ onClick Undo
                 , disabled (List.isEmpty model.history)
-                , title "Undo (Ctrl+Z)"
                 ]
-                [ text "↶ Undo" ]
+                [ text "Undo" ]
             , button
                 [ onClick Redo
                 , disabled (List.isEmpty model.future)
-                , title "Redo (Ctrl+Y)"
                 ]
-                [ text "↷ Redo" ]
-            , button
-                [ onClick ToggleSnapToGrid
-                , class (if model.simulationState.snapToGrid then "active" else "")
-                , title "Toggle snap to grid"
-                ]
-                [ text (if model.simulationState.snapToGrid then "📐 Grid ON" else "📐 Grid OFF") ]
-            ]
-        ]
-
-
-viewSceneSettings : SceneContext -> Html Msg
-viewSceneSettings context =
-    div [ class "scene-settings" ]
-        [ div [ class "setting-group" ]
-            [ h4 [] [ text "Environment" ]
-            , div [ class "control-row" ]
-                [ label [] [ text "Time of Day:" ]
-                , select [ value context.environment.timeOfDay, onInput UpdateEnvironmentTimeOfDay ]
-                    [ option [ value "dawn" ] [ text "Dawn" ]
-                    , option [ value "morning" ] [ text "Morning" ]
-                    , option [ value "midday" ] [ text "Midday" ]
-                    , option [ value "afternoon" ] [ text "Afternoon" ]
-                    , option [ value "golden_hour" ] [ text "Golden Hour" ]
-                    , option [ value "dusk" ] [ text "Dusk" ]
-                    , option [ value "night" ] [ text "Night" ]
-                    ]
-                ]
-            , div [ class "control-row" ]
-                [ label [] [ text "Weather:" ]
-                , select [ value context.environment.weather, onInput UpdateEnvironmentWeather ]
-                    [ option [ value "clear" ] [ text "Clear" ]
-                    , option [ value "cloudy" ] [ text "Cloudy" ]
-                    , option [ value "overcast" ] [ text "Overcast" ]
-                    , option [ value "rainy" ] [ text "Rainy" ]
-                    , option [ value "stormy" ] [ text "Stormy" ]
-                    , option [ value "foggy" ] [ text "Foggy" ]
-                    , option [ value "snowy" ] [ text "Snowy" ]
-                    ]
-                ]
-            , div [ class "control-row" ]
-                [ label [] [ text "Season:" ]
-                , select [ value context.environment.season, onInput UpdateEnvironmentSeason ]
-                    [ option [ value "spring" ] [ text "Spring" ]
-                    , option [ value "summer" ] [ text "Summer" ]
-                    , option [ value "autumn" ] [ text "Autumn" ]
-                    , option [ value "winter" ] [ text "Winter" ]
-                    ]
-                ]
-            , div [ class "control-row" ]
-                [ label [] [ text ("Atmosphere: " ++ String.fromFloat context.environment.atmosphere) ]
-                , input
-                    [ type_ "range"
-                    , Html.Attributes.min "0"
-                    , Html.Attributes.max "1"
-                    , step "0.1"
-                    , value (String.fromFloat context.environment.atmosphere)
-                    , onInput (\val -> UpdateEnvironmentAtmosphere (Maybe.withDefault 0.5 (String.toFloat val)))
-                    ]
-                    []
-                ]
-            ]
-        , div [ class "setting-group" ]
-            [ h4 [] [ text "Scene Narrative & Motion" ]
-            , textarea
-                [ placeholder "Describe the scene, mood, and how objects should move:\ne.g., 'The red car drives forward at 10 m/s, then turns right. The blue box falls from above.'"
-                , value context.narrative
-                , onInput UpdateSceneNarrative
-                , onFocus InputFocused
-                , onBlur InputBlurred
-                , rows 4
-                ]
-                []
-            ]
-        , div [ class "setting-group" ]
-            [ h4 [] [ text "Lighting" ]
-            , div [ class "control-row" ]
-                [ label [] [ text ("Ambient: " ++ String.fromFloat context.lighting.ambientIntensity) ]
-                , input
-                    [ type_ "range"
-                    , Html.Attributes.min "0"
-                    , Html.Attributes.max "1"
-                    , step "0.1"
-                    , value (String.fromFloat context.lighting.ambientIntensity)
-                    , onInput (\val -> UpdateAmbientIntensity (Maybe.withDefault 0.4 (String.toFloat val)))
-                    ]
-                    []
-                ]
-            , div [ class "control-row" ]
-                [ label [] [ text ("Directional: " ++ String.fromFloat context.lighting.directionalIntensity) ]
-                , input
-                    [ type_ "range"
-                    , Html.Attributes.min "0"
-                    , Html.Attributes.max "2"
-                    , step "0.1"
-                    , value (String.fromFloat context.lighting.directionalIntensity)
-                    , onInput (\val -> UpdateDirectionalIntensity (Maybe.withDefault 0.8 (String.toFloat val)))
-                    ]
-                    []
-                ]
-            , div [ class "control-row" ]
-                [ label [] [ text ("Angle: " ++ String.fromFloat context.lighting.directionalAngle ++ "°") ]
-                , input
-                    [ type_ "range"
-                    , Html.Attributes.min "0"
-                    , Html.Attributes.max "90"
-                    , step "5"
-                    , value (String.fromFloat context.lighting.directionalAngle)
-                    , onInput (\val -> UpdateDirectionalAngle (Maybe.withDefault 45.0 (String.toFloat val)))
-                    ]
-                    []
-                ]
-            , div [ class "control-row" ]
-                [ label [] [ text "Shadows:" ]
-                , input
-                    [ type_ "checkbox"
-                    , checked context.lighting.shadows
-                    , onClick ToggleShadows
-                    ]
-                    []
-                ]
-            ]
-        , div [ class "setting-group" ]
-            [ h4 [] [ text "Render Quality" ]
-            , select [ value context.renderQuality, onInput UpdateRenderQuality ]
-                [ option [ value "draft" ] [ text "Draft (Fast)" ]
-                , option [ value "high" ] [ text "High (Balanced)" ]
-                , option [ value "ultra" ] [ text "Ultra (Slow)" ]
-                ]
+                [ text "Redo" ]
+            , button [ onClick SaveScene ] [ text "Save" ]
+            , button [ onClick LoadScene ] [ text "Load" ]
             ]
         ]
 
@@ -2417,129 +1126,50 @@ viewSceneSettings context =
 viewLeftPanel : Model -> Html Msg
 viewLeftPanel model =
     div [ class "left-panel" ]
-        [ -- Progress dots
-          div [ class "step-progress" ]
-            [ div [ class (if model.uiState.currentStep == 1 then "step-dot active" else "step-dot completed") ] [ text "1" ]
-            , div [ class "step-line" ] []
-            , div [ class (if model.uiState.currentStep == 2 then "step-dot active" else if model.uiState.currentStep > 2 then "step-dot completed" else "step-dot") ] [ text "2" ]
-            , div [ class "step-line" ] []
-            , div [ class (if model.uiState.currentStep == 3 then "step-dot active" else "step-dot") ] [ text "3" ]
+        [ h2 [] [ text "Generation" ]
+        , textarea
+            [ placeholder "Describe a scene to generate..."
+            , value model.uiState.textInput
+            , onInput UpdateTextInput
+            , disabled model.uiState.isGenerating
             ]
-
-        , -- Current step content
-          case model.uiState.currentStep of
-            1 ->
-                div [ class "workflow-step active-step" ]
-                    [ h2 [ class "step-header" ] [ text "🎨 BUILD YOUR SCENE" ]
-                    , p [ class "step-help" ] [ text "Click canvas to add objects, or use AI to populate" ]
-                    , h4 [ class "subsection-title" ] [ text "AI Populate" ]
-                    , textarea
-                        [ placeholder "e.g., 'add 3 cars and 2 street lights in a parking lot'"
-                        , value model.uiState.populateInput
-                        , onInput UpdatePopulateInput
-                        , onFocus InputFocused
-                        , onBlur InputBlurred
-                        , disabled model.uiState.isPopulating
-                        , rows 3
-                        ]
-                        []
-                    , div [ class "populate-controls" ]
-                        [ div [ class "control-group" ]
-                            [ label [] [ text ("Objects: " ++ String.fromInt model.uiState.populateNumObjects) ]
-                            , input
-                                [ type_ "range"
-                                , Html.Attributes.min "1"
-                                , Html.Attributes.max "20"
-                                , value (String.fromInt model.uiState.populateNumObjects)
-                                , onInput (\val -> UpdatePopulateNumObjects (Maybe.withDefault 5 (String.toInt val)))
-                                , disabled model.uiState.isPopulating
-                                ]
-                                []
-                            ]
-                        , div [ class "control-group" ]
-                            [ label [] [ text "Placement:" ]
-                            , select
-                                [ value model.uiState.populatePlacementStrategy
-                                , onInput UpdatePopulatePlacementStrategy
-                                , disabled model.uiState.isPopulating
-                                ]
-                                [ option [ value "natural" ] [ text "Natural" ]
-                                , option [ value "grid" ] [ text "Grid" ]
-                                , option [ value "random" ] [ text "Random" ]
-                                ]
-                            ]
-                        ]
-                    , button
-                        [ onClick PopulateScene
-                        , disabled (String.isEmpty (String.trim model.uiState.populateInput) || model.uiState.isPopulating)
-                        , class "action-button"
-                        ]
-                        [ if model.uiState.isPopulating then
-                            span [ class "loading" ] []
-                          else
-                            text ""
-                        , text (if model.uiState.isPopulating then "Populating..." else "Populate Scene")
-                        ]
-                    ]
-
-            2 ->
-                div [ class "workflow-step active-step" ]
-                    [ h2 [ class "step-header" ] [ text "🎬 CONFIGURE FINAL RENDER" ]
-                    , p [ class "step-help" ] [ text "Set environment, lighting, and render quality" ]
-                    , viewSceneSettings model.scene.sceneContext
-                    ]
-
-            3 ->
-                div [ class "workflow-step active-step workflow-step-render" ]
-                    [ h2 [ class "step-header" ] [ text "🎥 RENDER WITH GENESIS" ]
-                    , p [ class "step-help" ] [ text "Create photorealistic video with physics simulation" ]
-                    , div [ class "render-info" ]
-                        [ p [] [ text ("Objects in scene: " ++ String.fromInt (Dict.size model.scene.objects)) ]
-                        , p [] [ text "Estimated time: ~30s for 3s video" ]
-                        ]
-                    , button
-                        [ onClick RenderWithGenesis
-                        , disabled (Dict.isEmpty model.scene.objects || model.uiState.isRendering)
-                        , class "render-button"
-                        ]
-                        [ text
-                            (if model.uiState.isRendering then
-                                "⏳ RENDERING..."
-                             else
-                                "🎬 RENDER WITH GENESIS"
-                            )
-                        ]
-                    , p [ class "render-status" ]
-                        [ text
-                            (if model.uiState.isRendering then
-                                "Status: Rendering with Genesis... This will take ~30 seconds"
-                             else if Dict.isEmpty model.scene.objects then
-                                "Status: Add objects to the scene to render"
-                             else
-                                "Status: Ready to render"
-                            )
-                        ]
-                    ]
-
-            _ ->
+            []
+        , button
+            [ onClick GenerateScene
+            , disabled (String.isEmpty (String.trim model.uiState.textInput) || model.uiState.isGenerating)
+            ]
+            [ if model.uiState.isGenerating then
+                span [ class "loading" ] []
+              else
                 text ""
+            , text (if model.uiState.isGenerating then "Generating..." else "Generate Scene")
+            ]
+        , case model.uiState.errorMessage of
+            Just error ->
+                div [ class "error" ]
+                    [ text error
+                    , button [ onClick ClearError ] [ text "×" ]
+                    ]
 
-        , -- Navigation buttons
-          div [ class "step-navigation" ]
-            [ button
-                [ onClick PreviousStep
-                , disabled (model.uiState.currentStep == 1)
-                , class "nav-button"
-                ]
-                [ text "← Previous" ]
-            , div [ class "step-indicator" ]
-                [ text ("Step " ++ String.fromInt model.uiState.currentStep ++ " of 3") ]
-            , button
-                [ onClick NextStep
-                , disabled (model.uiState.currentStep == 3)
-                , class "nav-button"
-                ]
-                [ text "Next →" ]
+            Nothing ->
+                text ""
+        , h2 [] [ text "Refinement" ]
+        , textarea
+            [ placeholder "Describe how to modify the current scene..."
+            , value model.uiState.refineInput
+            , onInput UpdateRefineInput
+            , disabled (Dict.isEmpty model.scene.objects || model.uiState.isRefining)
+            ]
+            []
+        , button
+            [ onClick RefineScene
+            , disabled (String.isEmpty (String.trim model.uiState.refineInput) || Dict.isEmpty model.scene.objects || model.uiState.isRefining)
+            ]
+            [ if model.uiState.isRefining then
+                span [ class "loading" ] []
+              else
+                text ""
+            , text (if model.uiState.isRefining then "Refining..." else "Refine Scene")
             ]
         ]
 
@@ -2598,8 +1228,6 @@ viewObjectProperties object =
                 , placeholder "e.g., blue corvette, light pole, wooden coffee table..."
                 , Html.Attributes.value (Maybe.withDefault "" object.description)
                 , onInput (\desc -> UpdateObjectDescription object.id desc)
-                , onFocus InputFocused
-                , onBlur InputBlurred
                 , rows 3
                 ]
                 []
@@ -2673,7 +1301,7 @@ subscriptions model =
         gallerySub =
             case model.route of
                 Just Route.Gallery ->
-                    Sub.map GalleryMsg (videoGallerySubscriptions model.galleryModel)  -- Assume subscriptions function
+                    Sub.map GalleryMsg (VideoGallery.subscriptions model.galleryModel)
 
                 _ ->
                     Sub.none
@@ -2681,24 +1309,64 @@ subscriptions model =
         simulationGallerySub =
             case model.route of
                 Just Route.SimulationGallery ->
-                    Sub.map SimulationGalleryMsg (simulationGallerySubscriptions model.simulationGalleryModel)  -- Assume
+                    Sub.map SimulationGalleryMsg (SimulationGallery.subscriptions model.simulationGalleryModel)
 
                 _ ->
                     Sub.none
 
-        visionSub =
-            Sub.map VisionUploadMsg (visionUploadSubscriptions model.visionUpload)  -- Assume
+        videoDetailSub =
+            case ( model.route, model.videoDetailModel ) of
+                ( Just (Route.VideoDetail _), Just videoDetailModel ) ->
+                    Sub.map VideoDetailMsg (VideoDetail.subscriptions videoDetailModel)
+
+                _ ->
+                    Sub.none
+
+        imageGallerySub =
+            case model.route of
+                Just Route.ImageGallery ->
+                    Sub.map ImageGalleryMsg (ImageGallery.subscriptions model.imageGalleryModel)
+
+                _ ->
+                    Sub.none
+
+        imageDetailSub =
+            case ( model.route, model.imageDetailModel ) of
+                ( Just (Route.ImageDetail _), Just imageDetailModel ) ->
+                    Sub.map ImageDetailMsg (ImageDetail.subscriptions imageDetailModel)
+
+                _ ->
+                    Sub.none
+
+        creativeBriefEditorSub =
+            case model.route of
+                Just Route.CreativeBriefEditor ->
+                    Sub.map CreativeBriefEditorMsg (CreativeBriefEditor.subscriptions model.creativeBriefEditorModel)
+
+                _ ->
+                    Sub.none
+
+        briefGallerySub =
+            case model.route of
+                Just Route.BriefGallery ->
+                    Sub.map BriefGalleryMsg (BriefGallery.subscriptions model.briefGalleryModel)
+
+                _ ->
+                    Sub.none
     in
     Sub.batch
         [ sendSelectionToElm SelectionChanged
-        , sendMultiSelectionToElm MultiSelectionChanged
         , sendTransformUpdateToElm TransformUpdated
         , sceneLoadedFromStorage SceneLoadedFromStorage
         , Browser.Events.onKeyDown (Decode.map KeyDown keyDecoder)
         , Browser.Events.onKeyUp (Decode.map KeyUp keyDecoder)
         , gallerySub
         , simulationGallerySub
-
+        , videoDetailSub
+        , imageGallerySub
+        , imageDetailSub
+        , creativeBriefEditorSub
+        , briefGallerySub
         ]
 
 
@@ -2728,12 +1396,6 @@ port sendTransformModeToThreeJs : String -> Cmd msg
 port sendTransformUpdateToElm : ({ objectId : String, transform : Transform } -> msg) -> Sub msg
 
 
-port sendMultiSelectionToThreeJs : List String -> Cmd msg
-
-
-port sendMultiSelectionToElm : (List String -> msg) -> Sub msg
-
-
 port saveSceneToStorage : Encode.Value -> Cmd msg
 
 
@@ -2748,11 +1410,9 @@ port sceneLoadedFromStorage : (Encode.Value -> msg) -> Sub msg
 
 sceneDecoder : Decode.Decoder Scene
 sceneDecoder =
-    Decode.map4 Scene
+    Decode.map2 Scene
         (Decode.field "objects" (Decode.dict physicsObjectDecoder))
         (Decode.maybe (Decode.field "selectedObject" Decode.string))
-        (Decode.succeed Set.empty)
-        (Decode.succeed defaultSceneContext)
 
 
 physicsObjectDecoder : Decode.Decoder PhysicsObject
@@ -2821,6 +1481,7 @@ shapeDecoder =
 
 generateSceneRequest : String -> Cmd Msg
 generateSceneRequest prompt =
+    -- Cookies are sent automatically, no need for Authorization header
     Http.post
         { url = "/api/generate"
         , body = Http.jsonBody (Encode.object [ ( "prompt", Encode.string prompt ) ])
@@ -2830,76 +1491,12 @@ generateSceneRequest prompt =
 
 refineSceneRequest : Scene -> String -> Cmd Msg
 refineSceneRequest scene prompt =
+    -- Cookies are sent automatically, no need for Authorization header
     Http.post
         { url = "/api/refine"
         , body = Http.jsonBody (Encode.object [ ( "scene", sceneEncoder scene ), ( "prompt", Encode.string prompt ) ])
         , expect = Http.expectJson SceneRefined sceneDecoder
         }
-
-
-populateSceneRequest : Scene -> String -> Int -> String -> Cmd Msg
-populateSceneRequest scene prompt numObjects placementStrategy =
-    Http.post
-        { url = "/api/scene/populate"
-        , body =
-            Http.jsonBody
-                (Encode.object
-                    [ ( "scene", sceneEncoder scene )
-                    , ( "prompt", Encode.string prompt )
-                    , ( "num_objects", Encode.int numObjects )
-                    , ( "placement_strategy", Encode.string placementStrategy )
-                    ]
-                )
-        , expect = Http.expectJson ScenePopulated sceneDecoder
-        }
-
-
-generateMotionRequest : Dict String PhysicsObject -> String -> Cmd Msg
-generateMotionRequest objects motionPrompt =
-    Http.post
-        { url = "/api/motion/generate"
-        , body =
-            Http.jsonBody
-                (Encode.object
-                    [ ( "motion_prompt", Encode.string motionPrompt )
-                    , ( "objects", Encode.dict identity physicsObjectEncoder objects )
-                    , ( "duration", Encode.float 5.0 )
-                    , ( "fps", Encode.int 60 )
-                    ]
-                )
-        , expect = Http.expectJson MotionGenerated motionDataDecoder
-        }
-
-
-renderWithGenesisRequest : Scene -> Cmd Msg
-renderWithGenesisRequest scene =
-    Http.post
-        { url = "/api/genesis/render"
-        , body =
-            Http.jsonBody
-                (Encode.object
-                    [ ( "scene"
-                      , Encode.object
-                            [ ( "objects", Encode.dict identity physicsObjectEncoder scene.objects )
-                            , ( "sceneContext", sceneContextEncoder scene.sceneContext )
-                            ]
-                      )
-                    , ( "duration", Encode.float 5.0 )
-                    , ( "fps", Encode.int 60 )
-                    , ( "resolution", Encode.list Encode.int [ 1920, 1080 ] )
-                    , ( "quality", Encode.string "high" )
-                    ]
-                )
-        , expect = Http.expectString GenesisRenderStarted
-        }
-
-
-motionDataDecoder : Decode.Decoder MotionData
-motionDataDecoder =
-    Decode.map3 MotionData
-        (Decode.field "animations" (Decode.dict Decode.value))
-        (Decode.field "cameraAnimation" Decode.value)
-        (Decode.field "description" Decode.string)
 
 
 -- ENCODERS
@@ -2991,35 +1588,3 @@ maybeEncoder encoder maybeValue =
 
         Nothing ->
             Encode.null
-
-
-sceneContextEncoder : SceneContext -> Encode.Value
-sceneContextEncoder context =
-    Encode.object
-        [ ( "environment", environmentSettingsEncoder context.environment )
-        , ( "narrative", Encode.string context.narrative )
-        , ( "lighting", lightingSettingsEncoder context.lighting )
-        , ( "renderQuality", Encode.string context.renderQuality )
-        ]
-
-
-environmentSettingsEncoder : EnvironmentSettings -> Encode.Value
-environmentSettingsEncoder env =
-    Encode.object
-        [ ( "timeOfDay", Encode.string env.timeOfDay )
-        , ( "weather", Encode.string env.weather )
-        , ( "season", Encode.string env.season )
-        , ( "atmosphere", Encode.float env.atmosphere )
-        ]
-
-
-lightingSettingsEncoder : LightingSettings -> Encode.Value
-lightingSettingsEncoder lighting =
-    Encode.object
-        [ ( "ambientIntensity", Encode.float lighting.ambientIntensity )
-        , ( "ambientColor", Encode.string lighting.ambientColor )
-        , ( "directionalIntensity", Encode.float lighting.directionalIntensity )
-        , ( "directionalColor", Encode.string lighting.directionalColor )
-        , ( "directionalAngle", Encode.float lighting.directionalAngle )
-        , ( "shadows", Encode.bool lighting.shadows )
-        ]

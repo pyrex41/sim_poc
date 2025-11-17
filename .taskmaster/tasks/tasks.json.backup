@@ -1,0 +1,507 @@
+{
+  "mvp": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Extend Database Schema for Video Generation Jobs",
+        "description": "Add new columns to the generated_videos table to support progress tracking, video data storage, and cost estimation as specified in the PRD.",
+        "details": "In database.py, execute ALTER TABLE statements to add 'progress' (JSON), 'video_data' (BLOB), and 'estimated_cost' (REAL) columns. Implement helper functions like update_job_progress and get_job to handle JSON serialization and retrieval. Ensure indexes on status and campaign_id for efficient querying. Use SQLite-compatible syntax and handle migrations safely.",
+        "testStrategy": "Unit tests for database functions: insert a job, update progress, retrieve and verify JSON parsing. Integration test: run migrations on a test DB and confirm schema changes.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Perform Schema Migration for New Columns",
+            "description": "Execute ALTER TABLE statements in database.py to add 'progress' (JSON), 'video_data' (BLOB), and 'estimated_cost' (REAL) columns to the generated_videos table using SQLite-compatible syntax.",
+            "dependencies": [],
+            "details": "In the database.py file, write and execute ALTER TABLE generated_videos ADD COLUMN progress JSON; ALTER TABLE generated_videos ADD COLUMN video_data BLOB; ALTER TABLE generated_videos ADD COLUMN estimated_cost REAL; Ensure the migration is handled safely to avoid data loss or corruption.",
+            "status": "pending",
+            "testStrategy": "Unit tests to verify column additions by checking schema after migration on a test database."
+          },
+          {
+            "id": 2,
+            "title": "Implement Helper Functions for Job Management",
+            "description": "Create helper functions like update_job_progress and get_job in database.py to handle JSON serialization, retrieval, and job data management.",
+            "dependencies": [],
+            "details": "Implement update_job_progress(job_id, progress_data) to serialize progress_data as JSON and update the progress column. Implement get_job(job_id) to retrieve job data and deserialize the progress JSON. Ensure proper error handling for JSON operations and database queries.",
+            "status": "pending",
+            "testStrategy": "Unit tests for each function: insert a job, update progress with sample JSON, retrieve and verify correct parsing and data integrity."
+          },
+          {
+            "id": 3,
+            "title": "Add Indexes and Conduct Testing",
+            "description": "Ensure indexes on status and campaign_id columns for efficient querying, and perform comprehensive testing of the schema changes.",
+            "dependencies": [],
+            "details": "Execute CREATE INDEX statements for status and campaign_id on the generated_videos table. Run unit tests for database functions and integration tests to confirm schema changes, including inserting jobs, updating progress, and querying with indexes.",
+            "status": "pending",
+            "testStrategy": "Integration tests: Run migrations on a test DB, insert sample data, update progress, retrieve jobs, and verify query performance with indexes; ensure no regressions in existing functionality."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Implement Pydantic Models for API Requests and Responses",
+        "description": "Define and implement the Pydantic models for GenerationRequest, VideoProgress, JobResponse, and related enums as outlined in the PRD.",
+        "details": "Create models/video.py with classes like VideoStatus (Enum), Scene, StoryboardEntry, GenerationRequest, VideoProgress, and JobResponse. Use Pydantic v2 syntax for validation. Ensure fields match the PRD specifications, including optional fields and literals for duration, platform, etc. Import and use in API endpoints.",
+        "testStrategy": "Unit tests for model validation: test valid inputs pass, invalid inputs raise ValidationError. Edge cases like missing optional fields.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define Enums for Video Models",
+            "description": "Create the VideoStatus enum and any other related enums as specified in the PRD.",
+            "dependencies": [],
+            "details": "In models/video.py, define VideoStatus as an Enum with values like 'pending', 'processing', 'completed', etc. Ensure it uses Python's enum module and is compatible with Pydantic v2.",
+            "status": "pending",
+            "testStrategy": "Unit tests to verify enum values and that invalid values raise errors."
+          },
+          {
+            "id": 2,
+            "title": "Implement Scene Model",
+            "description": "Define the Scene Pydantic model with fields for prompt, duration, and other attributes.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add the Scene class in models/video.py using Pydantic BaseModel. Include fields like prompt (str), duration (Literal or constrained int), and any optional fields as per PRD specifications.",
+            "status": "pending",
+            "testStrategy": "Unit tests for model validation: check valid inputs pass and invalid ones raise ValidationError."
+          },
+          {
+            "id": 3,
+            "title": "Implement StoryboardEntry Model",
+            "description": "Define the StoryboardEntry Pydantic model to represent entries in the storyboard.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "In models/video.py, create StoryboardEntry class with fields linking to Scene, image_url, etc. Use Pydantic v2 syntax for validation and ensure it references the Scene model.",
+            "status": "pending",
+            "testStrategy": "Unit tests for validation and edge cases like missing optional fields."
+          },
+          {
+            "id": 4,
+            "title": "Implement GenerationRequest Model",
+            "description": "Define the GenerationRequest Pydantic model for API input.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Add GenerationRequest class with fields like title, description, scenes (list of Scene), platform (Literal), duration, etc. Match PRD specs, including optionals and literals.",
+            "status": "pending",
+            "testStrategy": "Unit tests for full model validation, including nested Scene lists."
+          },
+          {
+            "id": 5,
+            "title": "Implement VideoProgress and JobResponse Models",
+            "description": "Define VideoProgress and JobResponse Pydantic models for API responses.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "In models/video.py, create VideoProgress with fields like job_id, status, progress_percentage, etc., and JobResponse with job details. Ensure they use Pydantic v2 and integrate with other models.",
+            "status": "pending",
+            "testStrategy": "Unit tests for response models: verify serialization and validation."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Implement Core API Endpoints with Stubs",
+        "description": "Create the v2 API endpoints in api/v2/videos.py for /generate, /jobs/{id}, /render, and others as listed in the PRD, starting with stub implementations.",
+        "details": "In FastAPI router, define POST /api/v2/generate to accept GenerationRequest, save to DB, return job_id. GET /api/v2/jobs/{job_id} to return JobResponse. POST /api/v2/jobs/{job_id}/render to trigger render. Include stubs for refine, delete, data, thumbnail. Use dependency injection for auth. Pseudo-code: async def generate(request: GenerationRequest) -> dict: job_id = save_job(request); return {'job_id': job_id, ...}",
+        "testStrategy": "Integration tests: Mock DB, send requests to endpoints, verify responses match schemas. Use FastAPI TestClient.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement POST /api/v2/generate endpoint",
+            "description": "Create the POST endpoint for /api/v2/generate that accepts a GenerationRequest, saves the job to the database, and returns a job_id.",
+            "dependencies": [],
+            "details": "In the FastAPI router in api/v2/videos.py, define an async function for POST /api/v2/generate. Use dependency injection for authentication. Accept GenerationRequest model, save to DB using a helper function, and return a dict with job_id and other relevant data. Ensure proper error handling and validation.",
+            "status": "pending",
+            "testStrategy": "Integration test: Mock the database, send a POST request with valid GenerationRequest, verify response contains job_id and matches expected schema."
+          },
+          {
+            "id": 2,
+            "title": "Implement GET /api/v2/jobs/{job_id} endpoint",
+            "description": "Create the GET endpoint for /api/v2/jobs/{job_id} that retrieves and returns the JobResponse for a given job ID.",
+            "dependencies": [],
+            "details": "In the FastAPI router, define an async function for GET /api/v2/jobs/{job_id}. Use dependency injection for auth. Fetch job data from DB, construct and return JobResponse model. Handle cases where job_id does not exist with appropriate HTTP status codes.",
+            "status": "pending",
+            "testStrategy": "Integration test: Mock DB to return job data, send GET request with valid job_id, verify JobResponse schema. Test invalid job_id returns 404."
+          },
+          {
+            "id": 3,
+            "title": "Implement POST /api/v2/jobs/{job_id}/render endpoint",
+            "description": "Create the POST endpoint for /api/v2/jobs/{job_id}/render that triggers the video rendering process for an approved job.",
+            "dependencies": [],
+            "details": "In the FastAPI router, define an async function for POST /api/v2/jobs/{job_id}/render. Check job status for approval, trigger background task for rendering, and return confirmation. Use dependency injection for auth and ensure job exists.",
+            "status": "pending",
+            "testStrategy": "Integration test: Mock DB and background tasks, send POST request for approved job, verify task is triggered and response is correct. Test for unapproved job returns error."
+          },
+          {
+            "id": 4,
+            "title": "Implement stub for refine endpoint",
+            "description": "Create a stub implementation for the refine endpoint, likely POST /api/v2/jobs/{job_id}/refine, to allow for future refinement of generated content.",
+            "dependencies": [],
+            "details": "In the FastAPI router, define a placeholder async function for the refine endpoint. Accept necessary parameters, return a stub response indicating the feature is not yet implemented. Include dependency injection for auth and basic validation.",
+            "status": "pending",
+            "testStrategy": "Unit test: Verify endpoint accepts requests and returns stub response without errors. Integration: Ensure auth dependency works."
+          },
+          {
+            "id": 5,
+            "title": "Implement stubs for delete, data, and thumbnail endpoints",
+            "description": "Create stub implementations for the delete, data, and thumbnail endpoints related to job management and media retrieval.",
+            "dependencies": [],
+            "details": "In the FastAPI router, define async stub functions for DELETE /api/v2/jobs/{job_id}, GET /api/v2/jobs/{job_id}/data, and GET /api/v2/jobs/{job_id}/thumbnail. Each should return placeholder responses indicating stub status, with auth dependencies and basic path parameter validation.",
+            "status": "pending",
+            "testStrategy": "Integration tests: For each endpoint, mock DB, send requests, verify stub responses and auth. Test invalid job_id scenarios."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Integrate Authentication and Rate Limiting",
+        "description": "Add JWT authentication and rate limiting to the v2 endpoints as per security requirements.",
+        "details": "Reuse existing verify_auth function for JWT checks on all endpoints. Implement rate limiting using FastAPI middleware or a library like slowapi, with limits: 5/min for generate, 30/min for jobs poll, etc. Ensure ownership checks on job_id and campaign_id. Pseudo-code: @app.post('/generate', dependencies=[Depends(verify_auth), Depends(rate_limit)])",
+        "testStrategy": "Integration tests: Authenticate with valid/invalid JWT, check rate limits by sending multiple requests, verify 429 responses.",
+        "priority": "high",
+        "dependencies": [
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Integrate JWT Authentication into v2 Endpoints",
+            "description": "Add JWT authentication to all v2 API endpoints by reusing the existing verify_auth function as a dependency, ensuring that each endpoint checks for valid JWT tokens before processing requests.",
+            "dependencies": [
+              3
+            ],
+            "details": "Modify the FastAPI router in api/v2/videos.py to include Depends(verify_auth) in the dependency list for each endpoint such as /generate, /jobs/{id}, /render, etc. Implement ownership checks on job_id and campaign_id within the endpoint logic to verify that the authenticated user owns the resources. Ensure the verify_auth function is imported and properly configured to validate JWT tokens against the user database.",
+            "status": "pending",
+            "testStrategy": "Integration tests: Use FastAPI TestClient to send requests with valid and invalid JWT tokens, verify 401 responses for unauthenticated requests, and confirm ownership checks prevent access to unauthorized resources."
+          },
+          {
+            "id": 2,
+            "title": "Implement Rate Limiting for v2 Endpoints",
+            "description": "Set up rate limiting on v2 endpoints using a library like slowapi or FastAPI middleware, with specific limits such as 5 requests per minute for /generate and 30 per minute for /jobs poll.",
+            "dependencies": [
+              3
+            ],
+            "details": "Install and configure slowapi or equivalent middleware in the FastAPI application. Define rate limit decorators or dependencies for each endpoint, e.g., @limiter.limit('5/minute') for /generate. Ensure the rate limiting applies per user based on JWT authentication. Handle rate limit exceeded responses (e.g., 429 status) and integrate with existing error handling. Test for proper enforcement across different endpoints and user sessions.",
+            "status": "pending",
+            "testStrategy": "Integration tests: Send multiple requests to endpoints using TestClient, verify 429 responses when limits are exceeded, and ensure limits reset appropriately. Test with authenticated users to confirm per-user rate limiting."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Implement Replicate Client Helpers",
+        "description": "Create helper functions in services/replicate_client.py for generating images and videos using Replicate models.",
+        "details": "Use requests to call Replicate API with env vars REPLICATE_API_KEY, models like flux-schnell for images and skyreels-2 for videos. Functions: _generate_image(prompt) -> image_url, _generate_video(image_urls, duration) -> video_url. Handle async calls and error handling for API failures. Pseudo-code: def _generate_image(prompt: str) -> str: response = requests.post('https://api.replicate.com/v1/predictions', json={'version': 'flux-schnell', 'input': {'prompt': prompt}}) return response.json()['output']",
+        "testStrategy": "Unit tests with mocked Replicate API: verify correct payload, handle success/error responses. Integration: test with real API if possible, but mock for CI.",
+        "priority": "medium",
+        "dependencies": [],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Image Generation Helper Function",
+            "description": "Create the _generate_image function in services/replicate_client.py to generate images using the Replicate API with the flux-schnell model.",
+            "dependencies": [],
+            "details": "Use the requests library to make a POST call to 'https://api.replicate.com/v1/predictions' with the API key from environment variable REPLICATE_API_KEY. Include version 'flux-schnell' and input prompt. Handle asynchronous calls by polling for completion, implement error handling for API failures such as timeouts or invalid responses, and return the image URL upon success. Ensure the function is private (prefixed with _) and follows the pseudo-code structure provided.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mocked Replicate API responses to verify correct payload construction, polling logic, error handling for failures, and successful return of image URL."
+          },
+          {
+            "id": 2,
+            "title": "Implement Video Generation Helper Function",
+            "description": "Create the _generate_video function in services/replicate_client.py to generate videos from image URLs using the Replicate API with the skyreels-2 model.",
+            "dependencies": [],
+            "details": "Use the requests library to make a POST call to 'https://api.replicate.com/v1/predictions' with the API key from REPLICATE_API_KEY. Specify version 'skyreels-2' and inputs including image URLs and duration. Handle asynchronous calls by polling for completion, implement error handling for API failures, and return the video URL upon success. Support multiple image URLs for variations if needed, and ensure the function is private.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mocked Replicate API responses to verify correct payload with image URLs and duration, polling for async completion, error handling, and successful return of video URL."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement Background Task for Storyboard Generation",
+        "description": "Develop the generate_storyboard_ai function to parse prompts and generate scene images via Replicate.",
+        "details": "In services/background_tasks.py, use existing prompt_parser_service to extract scenes. For each scene, call _generate_image, update progress via update_job_progress. Store storyboard in DB. Use BackgroundTasks for async execution. Pseudo-code: def generate_storyboard_ai(job_id): scenes = parse_prompt(job.prompt); for i, scene in enumerate(scenes): img = _generate_image(scene.prompt); update_progress(job_id, f'generating_scene_{i+1}'); save_storyboard(job_id, img)",
+        "testStrategy": "Unit tests for task logic: mock parser and Replicate, verify progress updates and DB saves. Integration: trigger task and poll for completion.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Parse Prompts to Extract Scenes",
+            "description": "Use the existing prompt_parser_service to parse the job prompt and extract individual scenes for storyboard generation.",
+            "dependencies": [],
+            "details": "In the generate_storyboard_ai function, call parse_prompt(job.prompt) to get a list of scenes. Ensure the parser handles the prompt structure correctly and returns scene objects with prompts.",
+            "status": "pending",
+            "testStrategy": "Unit test with mocked prompt_parser_service to verify scenes are extracted accurately from various prompt formats."
+          },
+          {
+            "id": 2,
+            "title": "Implement Image Generation Loop",
+            "description": "For each extracted scene, call the _generate_image function to generate images via Replicate API.",
+            "dependencies": [
+              1
+            ],
+            "details": "In a loop over the scenes, invoke _generate_image(scene.prompt) for each scene. Handle asynchronous calls if needed, and collect the generated image URLs or data. Ensure error handling for API failures.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mocked Replicate API to verify correct prompts are sent and images are generated; check loop handles multiple scenes."
+          },
+          {
+            "id": 3,
+            "title": "Update Progress and Store Storyboard",
+            "description": "Update job progress during generation and save the completed storyboard to the database.",
+            "dependencies": [
+              2
+            ],
+            "details": "After each image generation, call update_job_progress with status like 'generating_scene_{i+1}'. At the end, save the storyboard data to the DB using save_storyboard. Ensure progress is accurately reflected and data is stored correctly.",
+            "status": "pending",
+            "testStrategy": "Integration tests: Mock DB and progress updates, verify progress messages are sent in sequence and storyboard is saved upon completion."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Implement Background Task for Video Rendering",
+        "description": "Develop the generate_video_ai function to render videos from storyboard images using Replicate and handle exports.",
+        "details": "In background_tasks.py, after approval, call _generate_video with image URLs. Handle variations by parallel calls. Use FFmpeg in exporters.py for format conversions (e.g., MP4 to GIF). Update progress and store video_data. Pseudo-code: def generate_video_ai(job_id): imgs = get_storyboard_images(job_id); video = _generate_video(imgs); ffmpeg_export(video, formats); update_progress(job_id, 'completed')",
+        "testStrategy": "Unit tests: mock Replicate and FFmpeg, verify video generation and exports. Integration: full render test with sample images.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Core Video Generation Function",
+            "description": "Develop the _generate_video function to call Replicate's video model with storyboard image URLs and return the generated video URL.",
+            "dependencies": [
+              5
+            ],
+            "details": "In services/replicate_client.py, create _generate_video(image_urls: list[str], duration: int) -> str. Use Replicate API to submit prediction for skyreels-2 model with inputs like image_urls and duration. Handle async polling for completion and error handling. Ensure it integrates with existing Replicate client helpers.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mocked Replicate API to verify correct payload submission and response handling. Mock async polling to test success and failure scenarios."
+          },
+          {
+            "id": 2,
+            "title": "Add Support for Parallel Video Variations",
+            "description": "Modify the generate_video_ai function to handle multiple video variations by making parallel calls to _generate_video.",
+            "dependencies": [
+              1
+            ],
+            "details": "In background_tasks.py, update generate_video_ai to accept a variations parameter (e.g., number of variations). Use asyncio or threading to run multiple _generate_video calls concurrently. Collect all video URLs and select or store them appropriately. Ensure progress updates reflect parallel processing.",
+            "status": "pending",
+            "testStrategy": "Unit tests to mock parallel calls, verify concurrency, and check that all variations are generated. Integration tests to run with sample images and confirm multiple outputs."
+          },
+          {
+            "id": 3,
+            "title": "Implement FFmpeg Export Functionality",
+            "description": "Develop ffmpeg_export function in exporters.py to convert video formats using FFmpeg, such as MP4 to GIF.",
+            "dependencies": [],
+            "details": "In exporters.py, create ffmpeg_export(video_url: str, formats: list[str]) -> dict[str, str]. Use subprocess to call FFmpeg commands for conversions (e.g., ffmpeg -i input.mp4 output.gif). Handle multiple formats in parallel if needed. Store exported files and return URLs. Include error handling for FFmpeg failures.",
+            "status": "pending",
+            "testStrategy": "Unit tests with mocked subprocess calls to verify FFmpeg command generation and output handling. Test with sample videos to ensure conversions work correctly."
+          },
+          {
+            "id": 4,
+            "title": "Integrate Progress Updates and Data Storage",
+            "description": "Update generate_video_ai to handle progress tracking, store video_data in the database, and mark job as completed.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "In background_tasks.py, within generate_video_ai, call update_job_progress at key stages (e.g., starting generation, exporting). After generating videos and exports, save video_data (URLs, formats) to the job in the database. Finally, set status to 'completed'. Ensure atomic operations for data consistency.",
+            "status": "pending",
+            "testStrategy": "Unit tests to mock DB operations and progress updates, verifying correct status changes. Integration tests to simulate full flow and check final job state."
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement Progress Tracking and Polling Logic",
+        "description": "Enhance the /jobs/{id} endpoint to return real-time progress, storyboard, and results.",
+        "details": "In GET /jobs/{id}, fetch job from DB, parse progress JSON, return JobResponse with status, progress, storyboard if complete. Implement polling-friendly responses with timestamps. Add cost estimation logic in utils/. Pseudo-code: def get_job(job_id): job = get_job_db(job_id); return JobResponse(status=job.status, progress=VideoProgress(**job.progress), ...)",
+        "testStrategy": "Integration tests: simulate progress updates, poll endpoint, verify JSON responses match schema and update correctly.",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          6,
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Enhance /jobs/{id} Endpoint for Real-Time Progress and Polling",
+            "description": "Modify the GET /jobs/{id} endpoint to fetch job data from the database, parse progress JSON, and return a JobResponse including status, progress, storyboard if complete, with polling-friendly timestamps.",
+            "dependencies": [],
+            "details": "In the FastAPI router for /jobs/{id}, implement logic to retrieve the job from the database using get_job_db(job_id), parse the progress field as VideoProgress, and construct a JobResponse object. Ensure responses include timestamps for effective polling. Integrate with existing models from models/video.py.",
+            "status": "pending",
+            "testStrategy": "Integration tests: simulate progress updates in the database, poll the endpoint, and verify JSON responses match the JobResponse schema and update correctly over time."
+          },
+          {
+            "id": 2,
+            "title": "Add Cost Estimation Logic in Utils",
+            "description": "Develop cost estimation functions in the utils/ directory to calculate and provide cost estimates for video generation jobs based on parameters like duration and platform.",
+            "dependencies": [],
+            "details": "Create utility functions in utils/cost_estimator.py that take inputs such as video duration, platform, and other relevant factors to compute estimated costs. Ensure the logic aligns with Replicate API pricing or similar models. Integrate this into the JobResponse or endpoint responses as needed.",
+            "status": "pending",
+            "testStrategy": "Unit tests: mock input parameters, verify cost calculations are accurate and handle edge cases like invalid durations or platforms."
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Add Export, Thumbnail, and Refine Functionality",
+        "description": "Implement endpoints for downloading videos, thumbnails, and refining jobs.",
+        "details": "For /data and /thumbnail, serve binary data from DB using FFmpeg for thumbnails. For /refine, update job fields and re-queue storyboard generation. For DELETE, set status to cancelled. Pseudo-code: @app.get('/jobs/{id}/thumbnail'): img = ffmpeg_thumbnail(job.video_data); return Response(img, media_type='image/jpeg')",
+        "testStrategy": "Integration tests: upload test video, verify downloads and thumbnails. Test refine by updating job and checking re-generation.",
+        "priority": "medium",
+        "dependencies": [
+          3,
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Thumbnail Serving Endpoint",
+            "description": "Create the GET /jobs/{id}/thumbnail endpoint to generate and serve thumbnail images from video data stored in the database using FFmpeg.",
+            "dependencies": [
+              3,
+              7
+            ],
+            "details": "In the FastAPI router, implement the endpoint to fetch job video_data from DB, use FFmpeg to generate a thumbnail image, and return it as a Response with media_type='image/jpeg'. Ensure proper error handling for missing jobs or data.",
+            "status": "pending",
+            "testStrategy": "Integration tests: Upload a test video, call the endpoint, verify the returned image is a valid JPEG thumbnail."
+          },
+          {
+            "id": 2,
+            "title": "Implement Video Data Export Endpoint",
+            "description": "Develop the GET /jobs/{id}/data endpoint to allow downloading of rendered videos from the database.",
+            "dependencies": [
+              3,
+              7
+            ],
+            "details": "In the API router, define the endpoint to retrieve video_data binary from the DB for completed jobs, and serve it as a downloadable file with appropriate headers (e.g., Content-Disposition for filename). Handle cases where video is not yet rendered.",
+            "status": "pending",
+            "testStrategy": "Integration tests: Complete a video render job, call the endpoint, verify the downloaded file matches the expected video format and content."
+          },
+          {
+            "id": 3,
+            "title": "Implement Refine and Delete Operations",
+            "description": "Add POST /jobs/{id}/refine endpoint to update job fields and re-queue storyboard generation, and DELETE /jobs/{id} to cancel jobs.",
+            "dependencies": [
+              3,
+              6
+            ],
+            "details": "For refine: Update job fields based on request, reset status, and trigger background task for storyboard re-generation. For delete: Set job status to 'cancelled' in DB. Ensure proper authentication and validation. Integrate with existing background task system.",
+            "status": "pending",
+            "testStrategy": "Integration tests: Create a job, call refine to update and re-queue, verify storyboard regeneration; call delete, verify status change."
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Integrate Frontend Hooks and End-to-End Testing",
+        "description": "Update frontend useVideoGeneration.ts for v2 API calls and implement comprehensive testing.",
+        "details": "Modify Next.js hooks to use new endpoints, handle polling with setInterval, display storyboard and progress. Add error handling for timeouts. For testing: unit tests for services, integration for full flow, load tests for 10 concurrent jobs. Use pytest for backend, Jest for frontend.",
+        "testStrategy": "E2E tests: simulate user flow from generate to download, verify frontend updates. Load tests: concurrent requests to endpoints.",
+        "priority": "low",
+        "dependencies": [
+          3,
+          4,
+          8,
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Update useVideoGeneration.ts Hook for v2 API Calls",
+            "description": "Modify the Next.js useVideoGeneration.ts hook to integrate with the new v2 API endpoints, including handling polling with setInterval for job progress, displaying storyboard and progress updates, and adding error handling for timeouts.",
+            "dependencies": [
+              3,
+              4,
+              8,
+              9
+            ],
+            "details": "Update the hook to call the new v2 endpoints for video generation. Implement polling logic using setInterval to check job status every few seconds. Ensure the hook displays storyboard images and progress percentages. Add robust error handling for API timeouts, network failures, and invalid responses. Use React state to manage loading states and error messages.",
+            "status": "pending",
+            "testStrategy": null
+          },
+          {
+            "id": 2,
+            "title": "Implement Unit Tests for Frontend Services",
+            "description": "Create unit tests for the frontend services related to video generation, focusing on API calls, polling logic, and error handling using Jest.",
+            "dependencies": [
+              1
+            ],
+            "details": "Write Jest unit tests for the updated useVideoGeneration.ts hook and any related service functions. Mock API responses to test successful polling, error scenarios, and timeout handling. Ensure tests cover edge cases like network failures and invalid job IDs. Run tests in the CI pipeline to verify functionality without external dependencies.",
+            "status": "pending",
+            "testStrategy": "Use Jest with mocked fetch API to simulate various response scenarios, including success, errors, and timeouts."
+          },
+          {
+            "id": 3,
+            "title": "Implement Integration Tests for Full Video Generation Flow",
+            "description": "Develop integration tests to verify the complete flow from frontend hook initiation to backend job completion, ensuring seamless interaction between components.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Set up integration tests using Jest and possibly a test server to simulate the full user flow: triggering video generation, polling for updates, displaying progress and storyboard, and handling completion or errors. Test interactions between frontend hooks, API calls, and backend responses. Include tests for authentication and rate limiting integration if applicable.",
+            "status": "pending",
+            "testStrategy": "Use Jest with a test backend setup (e.g., using supertest or a local server) to test end-to-end flow within the frontend context, verifying state updates and UI rendering."
+          },
+          {
+            "id": 4,
+            "title": "Implement E2E and Load Tests for Video Generation",
+            "description": "Create end-to-end tests simulating user flows from generation to download, and load tests for handling 10 concurrent jobs using appropriate tools.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Use tools like Playwright or Cypress for E2E tests to simulate real user interactions: navigating to the generation page, submitting prompts, monitoring progress, and downloading videos. For load tests, use tools like Artillery or k6 to simulate 10 concurrent requests to the v2 endpoints, measuring response times and error rates. Ensure tests cover both frontend UI updates and backend performance under load.",
+            "status": "pending",
+            "testStrategy": "E2E: Use Playwright to automate browser interactions, verifying frontend updates and downloads. Load: Use k6 to script concurrent API requests, asserting performance metrics like latency and throughput."
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-11-16T03:03:02.696Z",
+      "updated": "2025-11-16T03:03:02.696Z",
+      "description": "Tasks for mvp context"
+    }
+  }
+}
