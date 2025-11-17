@@ -60,7 +60,7 @@
             "title": "Define Enums for Video Models",
             "description": "Create the VideoStatus enum and any other related enums as specified in the PRD.",
             "dependencies": [],
-            "details": "In models/video.py, define VideoStatus as an Enum with values like 'pending', 'processing', 'completed', etc. Ensure it uses Python's enum module and is compatible with Pydantic v2.",
+            "details": "In models/video.py, define VideoStatus as an Enum with values like 'pending', 'processing', 'completed', etc. Ensure it uses Python's enum module and is compatible with Pydantic v2.\n<info added on 2025-11-17T01:50:12.469Z>\nCreated comprehensive Pydantic models in backend/schemas/assets.py including BaseAsset, ImageAsset, VideoAsset, AudioAsset, DocumentAsset with proper discriminated union pattern. Added format enums (ImageFormat, VideoFormat, AudioFormat, DocumentFormat). Implemented AssetWithMetadata for video generation context and UploadAssetInput for request validation. All models include proper type hints, examples, and docstrings.\n</info added on 2025-11-17T01:50:12.469Z>",
             "status": "pending",
             "testStrategy": "Unit tests to verify enum values and that invalid values raise errors."
           },
@@ -543,27 +543,27 @@
         ]
       },
       {
-        "id": 11,
+        "id": "11",
         "title": "Implement Asset Upload Endpoint",
-        "description": "Create /api/v2/upload-asset endpoint for user-uploaded images and videos",
-        "details": "Accept multipart/form-data uploads. Validate file types (jpg, png, mp4, mov, gif) and size (max 50MB). Store in VIDEO_STORAGE_PATH/uploads/{client_id}/{asset_id}.{ext}. Generate unique asset IDs (UUID). Return asset URL and metadata. Implement rate limiting (10/min/user). No ClamAV for MVP - add in production.",
-        "testStrategy": "Integration tests: upload valid files (image, video), verify file saved to disk and URL returned. Test invalid MIME type returns 400. Test file >50MB returns 413. Test concurrent uploads from same user. Verify rate limiting works.",
-        "priority": "high",
+        "description": "Create /api/v2/upload-asset endpoint for user-uploaded images, videos, audio, and documents",
+        "status": "pending",
         "dependencies": [
           1,
           2,
           3
         ],
-        "status": "pending",
+        "priority": "high",
+        "details": "Accept multipart/form-data uploads. Validate file types (jpg, png, mp4, mov, gif, mp3, wav, pdf, docx) and size (max 50MB). Store in VIDEO_STORAGE_PATH/uploads/{client_id}/{asset_id}.{ext}. Generate unique asset IDs (UUID). Enforce clientId as required parameter. Return asset URL and metadata using Pydantic discriminated union (ImageAsset | VideoAsset | AudioAsset | DocumentAsset). Implement rate limiting (10/min/user). No ClamAV for MVP - add in production. Added OpenAPI schema generation via response_model.",
+        "testStrategy": "Integration tests: upload valid files (image, video, audio, document), verify file saved to disk and URL returned. Test invalid MIME type returns 400. Test file >50MB returns 413. Test concurrent uploads from same user. Verify rate limiting works. Test required clientId parameter. Verify response model matches discriminated union.",
         "subtasks": [
           {
             "id": 1,
             "title": "Create Upload Endpoint with Validation",
             "description": "Implement POST /api/v2/upload-asset with file type and size validation",
             "dependencies": [],
-            "details": "Use FastAPI UploadFile. Validate Content-Type header matches allowed types. Check file.size < 50MB before reading. Generate UUID for asset_id. Use dependency injection for auth (verify_auth). Return JSON: {asset_id, url, file_type, size_bytes, uploaded_at}.",
+            "details": "Use FastAPI UploadFile. Validate Content-Type header matches allowed types (jpg, png, mp4, mov, gif, mp3, wav, pdf, docx). Check file.size < 50MB before reading. Enforce clientId as required parameter. Generate UUID for asset_id. Use dependency injection for auth (verify_auth). Return JSON using Pydantic discriminated union: ImageAsset | VideoAsset | AudioAsset | DocumentAsset with fields like asset_id, url, file_type, size_bytes, uploaded_at. Added OpenAPI schema generation via response_model.",
             "status": "pending",
-            "testStrategy": "Integration tests with TestClient: upload 10MB image (success), upload 60MB video (fail 413), upload .exe file (fail 400), upload without auth (fail 401)."
+            "testStrategy": "Integration tests with TestClient: upload 10MB image (success), upload 60MB video (fail 413), upload .exe file (fail 400), upload without auth (fail 401), upload without clientId (fail 400), verify response model."
           },
           {
             "id": 2,
@@ -583,7 +583,7 @@
             "dependencies": [
               2
             ],
-            "details": "URL format: /api/v2/assets/{asset_id}. Implement GET endpoint that reads file from disk, returns FileResponse with correct Content-Type. Add caching headers (Cache-Control: public, max-age=86400). Verify client owns asset before serving (check client_id from JWT matches upload client_id).",
+            "details": "URL format: /api/v2/assets/{asset_id}. Implement GET endpoint that reads file from disk, returns FileResponse with correct Content-Type. Add caching headers (Cache-Control: public, max-age=86400). Verify client owns asset before serving (check client_id from JWT matches upload client_id). Support serving images, videos, audio, and documents.",
             "status": "pending",
             "testStrategy": "Integration: upload asset, GET URL, verify file downloads correctly. Test cross-client access blocked (403). Test non-existent asset returns 404."
           }
@@ -594,7 +594,7 @@
         "title": "Implement Storyboard Approval Workflow",
         "description": "Add approval state management and validation before video rendering",
         "details": "Create POST /api/v2/jobs/{id}/approve endpoint. Update job.approved=true and add approved_at timestamp. Modify /render endpoint to validate approved=true before queueing video generation. Return 403 Forbidden if render called without approval. Log approval events for analytics (track approval rate metric).",
-        "testStrategy": "Integration tests: generate storyboard \u2192 approve \u2192 render (success). Test render without approval returns 403. Test approving non-existent job returns 404. Test approving job not in 'storyboard_complete' status returns 400.",
+        "testStrategy": "Integration tests: generate storyboard → approve → render (success). Test render without approval returns 403. Test approving non-existent job returns 404. Test approving job not in 'storyboard_complete' status returns 400.",
         "priority": "high",
         "dependencies": [
           3,
