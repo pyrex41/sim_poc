@@ -2928,10 +2928,15 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
 
             print(f"Image {image_id} downloaded successfully: {file_size} bytes stored in DB")
             # Return a database URL instead of file path
-            # Use BASE_URL for full URLs
+            # Use NGROK_URL for external services like Replicate, fall back to BASE_URL
+            ngrok_url = os.getenv("NGROK_URL", "").strip()
             base_url = os.getenv("BASE_URL", "").strip()
-            if base_url:
-                return f"{base_url}/api/images/{image_id}/data"
+
+            # Prefer ngrok URL for external accessibility
+            public_url = ngrok_url if ngrok_url else base_url
+
+            if public_url:
+                return f"{public_url}/api/images/{image_id}/data"
             else:
                 return f"/api/images/{image_id}/data"
 
