@@ -13,6 +13,9 @@ type Route
     | Images
     | ImageDetail Int
     | ImageGallery
+    | Audio
+    | AudioDetail Int
+    | AudioGallery
     | Auth
     | BriefGallery
     | CreativeBriefEditor
@@ -30,6 +33,9 @@ parser =
         , Parser.map Images (s "images")
         , Parser.map ImageDetail (s "image" </> int)
         , Parser.map ImageGallery (s "image-gallery")
+        , Parser.map Audio (s "audio")
+        , Parser.map AudioDetail (s "audio" </> int)
+        , Parser.map AudioGallery (s "audio-gallery")
         , Parser.map Auth (s "auth")
         , Parser.map BriefGallery (s "briefs")
         , Parser.map CreativeBriefEditor (s "creative")
@@ -72,6 +78,15 @@ toHref route =
 
         ImageGallery ->
             "/image-gallery"
+
+        Audio ->
+            "/audio"
+
+        AudioDetail id ->
+            "/audio/" ++ String.fromInt id
+
+        AudioGallery ->
+            "/audio-gallery"
 
         Auth ->
             "/auth"

@@ -21,6 +21,9 @@ import SimulationGallery
 import Image
 import ImageDetail
 import ImageGallery
+import Audio
+import AudioDetail
+import AudioGallery
 import Auth
 import CreativeBriefEditor
 import BriefGallery
@@ -63,6 +66,9 @@ type alias Model =
     , imageModel : Image.Model
     , imageDetailModel : Maybe ImageDetail.Model
     , imageGalleryModel : ImageGallery.Model
+    , audioModel : Audio.Model
+    , audioDetailModel : Maybe AudioDetail.Model
+    , audioGalleryModel : AudioGallery.Model
     , authModel : Auth.Auth
     , pendingVideoFromImage : Maybe { modelId : String, imageUrl : String }
     , creativeBriefEditorModel : CreativeBriefEditor.Model
@@ -157,6 +163,12 @@ init _ url key =
         ( imageGalleryModel, imageGalleryCmd ) =
             ImageGallery.init
 
+        ( audioModel, audioCmd ) =
+            Audio.init
+
+        ( audioGalleryModel, audioGalleryCmd ) =
+            AudioGallery.init
+
         ( creativeBriefEditorModel, creativeBriefEditorCmd ) =
             CreativeBriefEditor.init key
 
@@ -183,6 +195,9 @@ init _ url key =
       , imageModel = imageModel
       , imageDetailModel = Nothing
       , imageGalleryModel = imageGalleryModel
+      , audioModel = audioModel
+      , audioDetailModel = Nothing
+      , audioGalleryModel = audioGalleryModel
       , authModel = Auth.init
       , pendingVideoFromImage = Nothing
       , creativeBriefEditorModel = creativeBriefEditorModel
@@ -194,6 +209,8 @@ init _ url key =
         , Cmd.map SimulationGalleryMsg simulationGalleryCmd
         , Cmd.map ImageMsg imageCmd
         , Cmd.map ImageGalleryMsg imageGalleryCmd
+        , Cmd.map AudioMsg audioCmd
+        , Cmd.map AudioGalleryMsg audioGalleryCmd
         , Cmd.map CreativeBriefEditorMsg creativeBriefEditorCmd
         , Cmd.map BriefGalleryMsg briefGalleryCmd
         , Cmd.map AuthMsg Auth.checkAuth
@@ -239,6 +256,9 @@ type Msg
     | ImageMsg Image.Msg
     | ImageDetailMsg ImageDetail.Msg
     | ImageGalleryMsg ImageGallery.Msg
+    | AudioMsg Audio.Msg
+    | AudioDetailMsg AudioDetail.Msg
+    | AudioGalleryMsg AudioGallery.Msg
     | AuthMsg Auth.Msg
     | CreativeBriefEditorMsg CreativeBriefEditor.Msg
     | BriefGalleryMsg BriefGallery.Msg
@@ -285,6 +305,17 @@ update msg model =
                         _ ->
                             Nothing
 
+                audioDetailModel =
+                    case newRoute of
+                        Just (Route.AudioDetail audioId) ->
+                            let
+                                ( detailModel, detailCmd ) = AudioDetail.init audioId
+                            in
+                            Just detailModel
+
+                        _ ->
+                            Nothing
+
                 creativeBriefEditorModel =
                     case newRoute of
                         Just Route.CreativeBriefEditor ->
@@ -320,6 +351,14 @@ update msg model =
                         _ ->
                             Cmd.none
 
+                audioGalleryCmd =
+                    case newRoute of
+                        Just Route.AudioGallery ->
+                            Task.perform (always (AudioGalleryMsg AudioGallery.FetchAudio)) (Task.succeed ())
+
+                        _ ->
+                            Cmd.none
+
                 videoPrefillCmd =
                     case ( newRoute, model.pendingVideoFromImage ) of
                         ( Just Route.Videos, Just { modelId, imageUrl } ) ->
@@ -346,6 +385,9 @@ update msg model =
                 imageDetailCmd =
                     Cmd.none
 
+                audioDetailCmd =
+                    Cmd.none
+
                 creativeBriefEditorCmd =
                     Cmd.none
 
@@ -357,8 +399,8 @@ update msg model =
                         _ ->
                             Cmd.none
             in
-            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel, creativeBriefEditorModel = creativeBriefEditorModel, briefGalleryModel = briefGalleryModel, pendingVideoFromImage = clearedPending }
-            , Cmd.batch [ videoDetailCmd, imageDetailCmd, creativeBriefEditorCmd, briefGalleryCmd, galleryCmd, imageGalleryCmd, videoPrefillCmd ]
+            ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel, audioDetailModel = audioDetailModel, creativeBriefEditorModel = creativeBriefEditorModel, briefGalleryModel = briefGalleryModel, pendingVideoFromImage = clearedPending }
+            , Cmd.batch [ videoDetailCmd, imageDetailCmd, audioDetailCmd, creativeBriefEditorCmd, briefGalleryCmd, galleryCmd, imageGalleryCmd, audioGalleryCmd, videoPrefillCmd ]
             )
 
         UpdateTextInput text ->
@@ -848,6 +890,45 @@ update msg model =
             in
             ( updatedModel, Cmd.batch [ Cmd.map ImageGalleryMsg imageGalleryCmd, navCmd ] )
 
+        AudioMsg audioMsg ->
+            let
+                ( updatedAudioModel, audioCmd ) =
+                    Audio.update audioMsg model.audioModel
+
+                -- Handle navigation to audio detail page
+                navCmd =
+                    case audioMsg of
+                        Audio.NavigateToAudio audioId ->
+                            Nav.pushUrl model.key (Route.toHref (Route.AudioDetail audioId))
+
+                        _ ->
+                            Cmd.none
+            in
+            ( { model | audioModel = updatedAudioModel }
+            , Cmd.batch [ Cmd.map AudioMsg audioCmd, navCmd ]
+            )
+
+        AudioDetailMsg audioDetailMsg ->
+            case model.audioDetailModel of
+                Just audioDetailModel ->
+                    let
+                        ( updatedAudioDetailModel, audioDetailCmd ) =
+                            AudioDetail.update audioDetailMsg audioDetailModel
+                    in
+                    ( { model | audioDetailModel = Just updatedAudioDetailModel }
+                    , Cmd.map AudioDetailMsg audioDetailCmd
+                    )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        AudioGalleryMsg audioGalleryMsg ->
+            let
+                ( updatedAudioGalleryModel, audioGalleryCmd ) =
+                    AudioGallery.update audioGalleryMsg model.audioGalleryModel
+            in
+            ( { model | audioGalleryModel = updatedAudioGalleryModel }, Cmd.map AudioGalleryMsg audioGalleryCmd )
+
         AuthMsg authMsg ->
             let
                 ( updatedAuthModel, authCmd ) =
@@ -861,6 +942,7 @@ update msg model =
                                 [ Cmd.map GalleryMsg (Task.perform (always VideoGallery.FetchVideos) (Task.succeed ()))
                                 , Cmd.map SimulationGalleryMsg (Task.perform (always SimulationGallery.FetchVideos) (Task.succeed ()))
                                 , Cmd.map ImageGalleryMsg (Task.perform (always ImageGallery.FetchImages) (Task.succeed ()))
+                                , Cmd.map AudioGalleryMsg (Task.perform (always AudioGallery.FetchAudio) (Task.succeed ()))
                                 ]
 
                         _ ->
@@ -1006,6 +1088,23 @@ viewMainContent model =
                 ImageGallery.view model.imageGalleryModel
                     |> Html.map ImageGalleryMsg
 
+            Just Route.Audio ->
+                Audio.view model.audioModel
+                    |> Html.map AudioMsg
+
+            Just (Route.AudioDetail _) ->
+                case model.audioDetailModel of
+                    Just audioDetailModel ->
+                        AudioDetail.view audioDetailModel
+                            |> Html.map AudioDetailMsg
+
+                    Nothing ->
+                        div [ class "loading" ] [ text "Loading audio detail..." ]
+
+            Just Route.AudioGallery ->
+                AudioGallery.view model.audioGalleryModel
+                    |> Html.map AudioGalleryMsg
+
             Just Route.Auth ->
                 Html.map AuthMsg (Auth.view model.authModel)
 
@@ -1050,6 +1149,16 @@ viewTabs model =
             , class (if model.route == Just Route.ImageGallery then "active" else "")
             ]
             [ text "Image Gallery" ]
+        , a
+            [ href "/audio"
+            , class (if model.route == Just Route.Audio then "active" else "")
+            ]
+            [ text "Audio Models" ]
+        , a
+            [ href "/audio-gallery"
+            , class (if model.route == Just Route.AudioGallery then "active" else "")
+            ]
+            [ text "Audio Gallery" ]
         , a
             [ href "/simulations"
             , class (if model.route == Just Route.SimulationGallery then "active" else "")
@@ -1338,6 +1447,22 @@ subscriptions model =
                 _ ->
                     Sub.none
 
+        audioGallerySub =
+            case model.route of
+                Just Route.AudioGallery ->
+                    Sub.map AudioGalleryMsg (AudioGallery.subscriptions model.audioGalleryModel)
+
+                _ ->
+                    Sub.none
+
+        audioDetailSub =
+            case ( model.route, model.audioDetailModel ) of
+                ( Just (Route.AudioDetail _), Just audioDetailModel ) ->
+                    Sub.map AudioDetailMsg (AudioDetail.subscriptions audioDetailModel)
+
+                _ ->
+                    Sub.none
+
         creativeBriefEditorSub =
             case model.route of
                 Just Route.CreativeBriefEditor ->
@@ -1365,6 +1490,8 @@ subscriptions model =
         , videoDetailSub
         , imageGallerySub
         , imageDetailSub
+        , audioGallerySub
+        , audioDetailSub
         , creativeBriefEditorSub
         , briefGallerySub
         ]
