@@ -193,7 +193,7 @@ background_tasks.add_task(
 
 ### Current .env
 ```
-REPLICATE_API_KEY=***REMOVED***
+REPLICATE_API_KEY=[configured in environment]
 NGROK_URL=https://mds.ngrok.dev
 BASE_URL=https://mds.ngrok.dev
 ```
