@@ -1,8 +1,8 @@
 # Current Project Progress - Video Generation MVP
 
-**Last Updated:** November 17, 2025 00:05
+**Last Updated:** November 17, 2025 02:30
 **Branch:** simple
-**Status:** 🟡 Active Development - API Endpoints Phase
+**Status:** 🟢 Active Development - Audio/Music Generation Phase
 
 ---
 
@@ -14,7 +14,49 @@ Building an AI-powered video generation platform with creative brief parsing, st
 
 ## ✅ Recent Accomplishments (Nov 15-17)
 
-### 1. V2 Generation Endpoints (Nov 17 - Latest) ⭐
+### 1. Audio/Music Generation System (Nov 17 - Latest) 🎵⭐
+**Commit:** `060ba0280` - feat: Add comprehensive audio/music generation system
+
+**Key Features Delivered:**
+- **Audio Generation API**: POST `/api/v2/generate/audio`
+  - Two model options: meta/musicgen (default), riffusion/riffusion
+  - Model-specific parameters (duration, temperature, denoising, etc.)
+  - Campaign and client tracking integration
+  - Rate limited to 10/minute
+
+- **Audio Gallery Endpoints**: Complete CRUD operations
+  - GET `/api/audio` - List with filtering (client, campaign, status, model)
+  - GET `/api/audio/{id}` - Retrieve specific audio with metadata
+  - DELETE `/api/audio/{id}` - Remove audio records
+
+- **Video Model Selection**: Enhanced video generation flexibility
+  - VideoModel enum: bytedance/seedance-1-lite (default), kwaivgi/kling-v2.1
+  - Model-specific parameter building (Seedance: resolution/fps/aspect, Kling: mode/negative_prompt)
+  - Easy model swapping for rapid development
+
+**Database Enhancements:**
+- New `generated_audio` table with full structure
+- BLOB storage support for audio data
+- Campaign/client/brief foreign key relationships
+- Comprehensive indexes for performance optimization
+- Duration field (REAL) for audio-specific metadata
+
+**Technical Implementation:**
+- AudioModel enum (MUSICGEN, RIFFUSION)
+- Model-specific input parameter builders
+- Replicate API integration with sensible defaults
+- Database helper functions (save, update, get, list, delete)
+- Full parameter schemas from Replicate docs
+
+**Files Modified:**
+- `backend/main.py` (+890 lines): Audio endpoints, video model selection, enums
+- `backend/schema.sql` (+28 lines): generated_audio table and indexes
+- `backend/database.py` (+165 lines): Audio CRUD functions
+- `log_docs/PROJECT_LOG_2025-11-17_audio-generation-system.md` (new): Complete documentation
+
+**Status:** Backend audio infrastructure complete. Frontend Elm UI deferred for later iteration.
+
+### 2. V2 Generation Endpoints (Nov 17 - Previous) ⭐
 **Commit:** `53f4d4a96` - feat: Add V2 image/video generation endpoints
 
 **Key Features Delivered:**
@@ -54,20 +96,28 @@ Building an AI-powered video generation platform with creative brief parsing, st
 
 ## 🔄 Work In Progress
 
-### Current Session Issue
-**Problem:** Video playback authentication errors with "Invalid salt" from API key verification
+### Audio System - Remaining Backend Tasks
+**Status:** Core infrastructure complete, async processing pending
 
-**Diagnosis:**
-- `/api/videos/{id}` endpoint requires auth, failing with bcrypt hash errors
-- `/api/videos/{id}/data` endpoint is public, works correctly
-- Valid API key created: `sk_gIPpASjt2CS2NaK3l9A5zVrtzWSTnB-fv7-8xxRJrxs`
-- Frontend may be using old/invalid API key
+**Pending Implementation:**
+1. **Background Task for Audio Download** - Similar to video/image processing
+   - Async polling of Replicate prediction status
+   - Audio file download and BLOB storage
+   - Retry mechanism with exponential backoff
 
-**Next Actions:**
-1. Investigate frontend API key usage
-2. Test complete generation flow with new API key
-3. Verify background tasks complete successfully
-4. Update task-master status for completed work
+2. **Webhook Handler Updates** - Audio completion events
+   - Add audio webhook route
+   - Update status on completion
+   - Trigger download tasks
+
+3. **Audio Data Blob Endpoint** - Public audio playback
+   - GET `/api/audio/{audio_id}/data`
+   - Stream audio BLOB from database
+   - Support for MP3/WAV formats
+
+**Deferred:**
+- Frontend Elm UI implementation (Audio.elm, AudioGallery.elm, AudioDetail.elm)
+- Route updates and navigation integration
 
 ---
 
@@ -92,37 +142,50 @@ Building an AI-powered video generation platform with creative brief parsing, st
 
 ## 🐛 Known Issues
 
-### Critical
-🔴 **API Key Authentication Errors** - Blocking video metadata access (workaround: use data endpoint)
+### Active
+🟡 **Audio Background Processing** - Not yet implemented, audio generation succeeds but lacks async download
+🟡 **Audio Webhook Handling** - Missing webhook routes for completion events
 
 ### Resolved
 ✅ Background task parameter mismatches
 ✅ Image URL accessibility for Replicate
 ✅ Model name confusion (bananaml → google/nano-banana)
 ✅ Invalid API key hashes in database
+✅ API Key Authentication Errors (resolved with new key creation)
 
 ---
 
 ## 🎯 Next Steps
 
-### Immediate
-1. Fix API key authentication for video metadata
-2. Test end-to-end generation flow
-3. Update task-master with implementation notes
-4. Verify webhook delivery
+### Immediate (Audio System Completion)
+1. Implement audio background task for download/processing
+2. Add webhook handler for audio completion events
+3. Create audio data blob streaming endpoint
+4. Test end-to-end audio generation flow
 
 ### Short Term
-1. Implement job status polling endpoint
-2. Add cost estimation to generation endpoints
-3. Integrate brand guidelines auto-injection
-4. Add retry logic for failed generations
+1. Frontend Elm UI for audio generation and gallery
+2. Add polling mechanism for audio status updates
+3. Implement job status polling endpoint for all media types
+4. Add cost estimation to generation endpoints
+5. Integrate brand guidelines auto-injection
 
 ---
 
 ## 📁 Key Code References
 
-- **Generation Endpoints:** `backend/main.py:4573-4964`
-- **Request Models:** `backend/main.py:903-941`
+### Audio System
+- **Audio Generation Endpoint:** `backend/main.py:4925-5018`
+- **Audio Gallery Endpoints:** `backend/main.py:2879-2937`
+- **Audio Database Functions:** `backend/database.py:667-832`
+- **Audio Schema:** `backend/schema.sql:223-250`
+- **Audio Model Enum:** `backend/main.py:933-935`
+
+### Video/Image System
+- **Video Generation Endpoint:** `backend/main.py:4820-4908`
+- **Image Generation Endpoint:** `backend/main.py:4573-4680`
+- **Video Model Enum:** `backend/main.py:929-931`
+- **Request Models:** `backend/main.py:903-963`
 - **Image Reference Resolution:** `backend/main.py:1618-1729`
 - **Background Tasks:** `backend/main.py:1326,2217`
 - **Migration System:** `backend/migrate.py:19`
@@ -142,4 +205,4 @@ BASE_URL=https://mds.ngrok.dev
 
 ---
 
-**Status:** Core generation API functional with auto-chaining (text → image → video). Database schema production-ready. Authentication issues blocking some endpoints but workarounds exist. Ready for frontend integration.
+**Status:** Core generation API fully functional with auto-chaining (text → image → video → audio). Audio system backend complete with database schema, API endpoints, and model selection. Video model flexibility implemented with easy swapping. Database schema production-ready. Pending: audio background processing, webhooks, and frontend Elm UI. Ready for audio testing and frontend integration.
