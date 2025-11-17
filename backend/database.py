@@ -1880,7 +1880,10 @@ def get_generated_images_by_client(client_id: str, status: Optional[str] = None,
         with get_db() as conn:
             if status:
                 query = """
-                    SELECT * FROM generated_images
+                    SELECT id, prompt, image_url, model_id, parameters, status,
+                           created_at, collection, metadata, download_attempted,
+                           download_retries, download_error, brief_id, client_id, campaign_id
+                    FROM generated_images
                     WHERE client_id = ? AND status = ?
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -1888,7 +1891,10 @@ def get_generated_images_by_client(client_id: str, status: Optional[str] = None,
                 params = (client_id, status, limit)
             else:
                 query = """
-                    SELECT * FROM generated_images
+                    SELECT id, prompt, image_url, model_id, parameters, status,
+                           created_at, collection, metadata, download_attempted,
+                           download_retries, download_error, brief_id, client_id, campaign_id
+                    FROM generated_images
                     WHERE client_id = ?
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -1922,7 +1928,13 @@ def get_generated_videos_by_client(client_id: str, status: Optional[str] = None,
         with get_db() as conn:
             if status:
                 query = """
-                    SELECT * FROM generated_videos
+                    SELECT id, prompt, video_url, model_id, parameters, status,
+                           created_at, collection, metadata, download_attempted,
+                           download_retries, download_error, progress, storyboard_data,
+                           approved, approved_at, estimated_cost, actual_cost,
+                           error_message, updated_at, download_count, refinement_count,
+                           brief_id, client_id, campaign_id
+                    FROM generated_videos
                     WHERE client_id = ? AND status = ?
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -1930,7 +1942,13 @@ def get_generated_videos_by_client(client_id: str, status: Optional[str] = None,
                 params = (client_id, status, limit)
             else:
                 query = """
-                    SELECT * FROM generated_videos
+                    SELECT id, prompt, video_url, model_id, parameters, status,
+                           created_at, collection, metadata, download_attempted,
+                           download_retries, download_error, progress, storyboard_data,
+                           approved, approved_at, estimated_cost, actual_cost,
+                           error_message, updated_at, download_count, refinement_count,
+                           brief_id, client_id, campaign_id
+                    FROM generated_videos
                     WHERE client_id = ?
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -1964,7 +1982,10 @@ def get_generated_images_by_campaign(campaign_id: str, status: Optional[str] = N
         with get_db() as conn:
             if status:
                 query = """
-                    SELECT * FROM generated_images
+                    SELECT id, prompt, image_url, model_id, parameters, status,
+                           created_at, collection, metadata, download_attempted,
+                           download_retries, download_error, brief_id, client_id, campaign_id
+                    FROM generated_images
                     WHERE campaign_id = ? AND status = ?
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -1972,7 +1993,10 @@ def get_generated_images_by_campaign(campaign_id: str, status: Optional[str] = N
                 params = (campaign_id, status, limit)
             else:
                 query = """
-                    SELECT * FROM generated_images
+                    SELECT id, prompt, image_url, model_id, parameters, status,
+                           created_at, collection, metadata, download_attempted,
+                           download_retries, download_error, brief_id, client_id, campaign_id
+                    FROM generated_images
                     WHERE campaign_id = ?
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -2006,7 +2030,13 @@ def get_generated_videos_by_campaign(campaign_id: str, status: Optional[str] = N
         with get_db() as conn:
             if status:
                 query = """
-                    SELECT * FROM generated_videos
+                    SELECT id, prompt, video_url, model_id, parameters, status,
+                           created_at, collection, metadata, download_attempted,
+                           download_retries, download_error, progress, storyboard_data,
+                           approved, approved_at, estimated_cost, actual_cost,
+                           error_message, updated_at, download_count, refinement_count,
+                           brief_id, client_id, campaign_id
+                    FROM generated_videos
                     WHERE campaign_id = ? AND status = ?
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -2014,7 +2044,13 @@ def get_generated_videos_by_campaign(campaign_id: str, status: Optional[str] = N
                 params = (campaign_id, status, limit)
             else:
                 query = """
-                    SELECT * FROM generated_videos
+                    SELECT id, prompt, video_url, model_id, parameters, status,
+                           created_at, collection, metadata, download_attempted,
+                           download_retries, download_error, progress, storyboard_data,
+                           approved, approved_at, estimated_cost, actual_cost,
+                           error_message, updated_at, download_count, refinement_count,
+                           brief_id, client_id, campaign_id
+                    FROM generated_videos
                     WHERE campaign_id = ?
                     ORDER BY created_at DESC
                     LIMIT ?
