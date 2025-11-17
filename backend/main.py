@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Dict, Optional, List, Any, Union
 from datetime import timedelta
 import uvicorn
@@ -63,7 +63,13 @@ from .database import (
     refine_scene_in_storyboard,
     reorder_storyboard_scenes,
     get_refinement_count,
-    increment_estimated_cost
+    increment_estimated_cost,
+    # Client-based generation queries
+    get_generated_images_by_client,
+    get_generated_videos_by_client,
+    # Campaign-based generation queries
+    get_generated_images_by_campaign,
+    get_generated_videos_by_campaign
 )
 # Redis cache layer (optional, gracefully degrades if unavailable)
 from .cache import (
@@ -894,6 +900,46 @@ class RunImageRequest(BaseModel):
     version: Optional[str] = None  # Model version ID for reliable predictions
     brief_id: Optional[str] = None  # Link to creative brief for context
 
+class ImageGenerationRequest(BaseModel):
+    prompt: Optional[str] = None
+    asset_id: Optional[str] = None  # Reference to uploaded asset
+    image_id: Optional[int] = None  # Reference to generated image
+    video_id: Optional[int] = None  # Reference to generated video (use thumbnail)
+    client_id: Optional[str] = None  # For tracking ownership
+    campaign_id: str  # Required - link to campaign
+
+    @validator('prompt', 'asset_id', 'image_id', 'video_id', always=True)
+    def check_at_least_one(cls, v, values):
+        # Check if at least one of the required fields is provided
+        has_prompt = values.get('prompt') or v
+        has_asset = values.get('asset_id')
+        has_image = values.get('image_id')
+        has_video = values.get('video_id')
+
+        if not any([has_prompt, has_asset, has_image, has_video]):
+            raise ValueError('At least one of prompt, asset_id, image_id, or video_id must be provided')
+        return v
+
+class VideoGenerationRequest(BaseModel):
+    prompt: Optional[str] = None
+    asset_id: Optional[str] = None  # Reference to uploaded asset
+    image_id: Optional[int] = None  # Reference to generated image
+    video_id: Optional[int] = None  # Reference to generated video (use thumbnail)
+    client_id: Optional[str] = None  # For tracking ownership
+    campaign_id: str  # Required - link to campaign
+
+    @validator('prompt', 'asset_id', 'image_id', 'video_id', always=True)
+    def check_at_least_one(cls, v, values):
+        # Check if at least one of the required fields is provided
+        has_prompt = values.get('prompt') or v
+        has_asset = values.get('asset_id')
+        has_image = values.get('image_id')
+        has_video = values.get('video_id')
+
+        if not any([has_prompt, has_asset, has_image, has_video]):
+            raise ValueError('At least one of prompt, asset_id, image_id, or video_id must be provided')
+        return v
+
 class GenesisRenderRequest(BaseModel):
     scene: Scene
     duration: float = 5.0
@@ -1568,6 +1614,120 @@ async def api_run_video_model(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+def resolve_image_reference(
+    asset_id: Optional[str] = None,
+    image_id: Optional[int] = None,
+    video_id: Optional[int] = None
+) -> str:
+    """
+    Resolve an image reference (asset_id, image_id, or video_id) to a public URL for Replicate.
+
+    Args:
+        asset_id: Optional asset UUID
+        image_id: Optional generated image ID
+        video_id: Optional generated video ID
+
+    Returns:
+        Public URL to the image
+
+    Raises:
+        HTTPException: If reference is invalid, not found, or multiple references provided
+    """
+    # Count how many references are provided
+    refs_provided = sum([asset_id is not None, image_id is not None, video_id is not None])
+
+    if refs_provided == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No image reference provided"
+        )
+
+    if refs_provided > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide exactly one image reference (asset_id, image_id, or video_id)"
+        )
+
+    base_url = settings.BASE_URL
+    if not base_url:
+        raise HTTPException(
+            status_code=500,
+            detail="BASE_URL not configured - cannot generate public URLs for Replicate"
+        )
+
+    # Handle asset_id
+    if asset_id:
+        asset = get_asset_by_id(asset_id)
+        if not asset:
+            raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
+
+        # Check if it's an image or video asset
+        if asset.get('type') not in ['image', 'video']:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Asset must be an image or video, got {asset.get('type')}"
+            )
+
+        # For images, use data endpoint; for videos, use thumbnail if available
+        if asset.get('type') == 'video':
+            # Use thumbnail for videos
+            return f"{base_url}/api/v2/assets/{asset_id}/thumbnail"
+        else:
+            return f"{base_url}/api/v2/assets/{asset_id}/data"
+
+    # Handle image_id
+    if image_id:
+        image = get_image_by_id(image_id)
+        if not image:
+            raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
+
+        # Check if image is completed
+        if image.get('status') != 'completed':
+            raise HTTPException(
+                status_code=400,
+                detail=f"Image {image_id} is not completed (status: {image.get('status')})"
+            )
+
+        # Prefer Replicate's original URL (publicly accessible) over localhost
+        # This allows external services like Replicate to fetch the image
+        import json
+        metadata = image.get('metadata')
+        if metadata:
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except:
+                    pass
+
+            if isinstance(metadata, dict):
+                original_url = metadata.get('original_url')
+                if original_url:
+                    return original_url
+
+        # Fallback to local URL (only works if BASE_URL is publicly accessible)
+        return f"{base_url}/api/images/{image_id}/data"
+
+    # Handle video_id
+    if video_id:
+        video = get_video_by_id(video_id)
+        if not video:
+            raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
+
+        # Check if video is completed
+        if video.get('status') != 'completed':
+            raise HTTPException(
+                status_code=400,
+                detail=f"Video {video_id} is not completed (status: {video.get('status')})"
+            )
+
+        # For videos, we'll use the thumbnail endpoint (images)
+        # Since videos don't have thumbnails in the blob, we'll just use the data endpoint
+        # and let Replicate handle it (it can extract frames from videos)
+        return f"{base_url}/api/videos/{video_id}/data"
+
+    # Should never reach here
+    raise HTTPException(status_code=500, detail="Internal error resolving image reference")
 
 def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3) -> str:
     """
@@ -4409,6 +4569,399 @@ async def get_job_metadata(job_id: int):
     except Exception as e:
         logger.error(f"Error fetching metadata for job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch metadata: {str(e)}")
+
+# ============================================================================
+# Simple Image/Video Generation Endpoints
+# ============================================================================
+
+@app.post("/api/v2/generate/image")
+@limiter.limit("10/minute")
+async def generate_image(
+    request: Request,
+    gen_request: ImageGenerationRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Generate an image using nano-banana model.
+
+    Supports text-to-image and image-to-image workflows.
+    At least one of (prompt, asset_id, image_id, video_id) must be provided.
+
+    Rate limit: 10 requests per minute per user
+    """
+    try:
+        # Build nano-banana input parameters
+        nano_banana_input = {}
+
+        # Handle prompt
+        if gen_request.prompt:
+            nano_banana_input["prompt"] = gen_request.prompt
+        else:
+            # Default prompt if only image reference is provided
+            nano_banana_input["prompt"] = "high quality image"
+
+        # Handle image reference (if provided)
+        image_url = None
+        if any([gen_request.asset_id, gen_request.image_id, gen_request.video_id]):
+            image_url = resolve_image_reference(
+                asset_id=gen_request.asset_id,
+                image_id=gen_request.image_id,
+                video_id=gen_request.video_id
+            )
+            nano_banana_input["image_input"] = [image_url]
+            nano_banana_input["aspect_ratio"] = "match_input_image"
+        else:
+            # No image reference, use default aspect ratio
+            nano_banana_input["image_input"] = []
+            nano_banana_input["aspect_ratio"] = "1:1"
+
+        # Set output format
+        nano_banana_input["output_format"] = "jpg"
+
+        # Create run request for nano-banana
+        run_request = RunImageRequest(
+            model_id="google/nano-banana",
+            input=nano_banana_input,
+            collection=None,
+            version=None,
+            brief_id=None
+        )
+
+        # Call the existing run-image-model endpoint logic
+        # Get the base URL for webhooks
+        base_url = settings.BASE_URL
+
+        # Only use webhooks if we have an HTTPS URL (production)
+        use_webhooks = base_url.startswith("https://")
+
+        # Create prediction using HTTP API
+        payload = {
+            "input": nano_banana_input,
+        }
+        if use_webhooks:
+            payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+            payload["webhook_events_filter"] = ["completed"]
+
+        url = "https://api.replicate.com/v1/models/google/nano-banana/predictions"
+
+        headers = {
+            "Authorization": f"Token {settings.REPLICATE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        prediction = response.json()
+
+        # Save to database with client_id and campaign_id
+        image_id = save_generated_image(
+            prompt=nano_banana_input["prompt"],
+            image_url="pending",
+            model_id="google/nano-banana",
+            parameters=nano_banana_input,
+            collection=None,
+            metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
+            status="processing",
+            brief_id=None,
+            client_id=gen_request.client_id,
+            campaign_id=gen_request.campaign_id
+        )
+
+        # Queue background processing
+        background_tasks.add_task(
+            process_image_generation_background,
+            image_id=image_id,
+            prediction_url=prediction.get("urls", {}).get("get"),
+            api_key=settings.REPLICATE_API_KEY,
+            model_id="google/nano-banana",
+            input_params=nano_banana_input,
+            collection=None
+        )
+
+        # Return immediately with image ID
+        return {"image_id": image_id, "status": "processing"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating image: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate image: {str(e)}")
+
+@app.post("/api/v2/generate/video")
+@limiter.limit("5/minute")
+async def generate_video(
+    request: Request,
+    gen_request: VideoGenerationRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Generate a video using kling-v2.1 model.
+
+    Requires a start_image. If only a prompt is provided, an image will be auto-generated first.
+    At least one of (prompt, asset_id, image_id, video_id) must be provided.
+
+    Rate limit: 5 requests per minute per user
+    """
+    try:
+        # Determine if we have an image reference
+        has_image_ref = any([gen_request.asset_id, gen_request.image_id, gen_request.video_id])
+
+        intermediate_image_id = None
+
+        # If no image reference, auto-generate one using nano-banana
+        if not has_image_ref:
+            if not gen_request.prompt:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Either provide a prompt (for auto-image generation) or an image reference"
+                )
+
+            logger.info("No image reference provided, auto-generating image for video")
+
+            # Generate image synchronously (with timeout)
+            image_gen_request = ImageGenerationRequest(
+                prompt=gen_request.prompt,
+                client_id=gen_request.client_id,
+                campaign_id=gen_request.campaign_id
+            )
+
+            # Build nano-banana input
+            nano_banana_input = {
+                "prompt": gen_request.prompt,
+                "image_input": [],
+                "aspect_ratio": "16:9",  # Good for video
+                "output_format": "jpg"
+            }
+
+            # Call Replicate for image generation
+            payload = {"input": nano_banana_input}
+            url = "https://api.replicate.com/v1/models/google/nano-banana/predictions"
+            headers = {
+                "Authorization": f"Token {settings.REPLICATE_API_KEY}",
+                "Content-Type": "application/json"
+            }
+
+            response = requests.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            prediction = response.json()
+
+            # Save intermediate image
+            intermediate_image_id = save_generated_image(
+                prompt=gen_request.prompt,
+                image_url="pending",
+                model_id="google/nano-banana",
+                parameters=nano_banana_input,
+                collection=None,
+                metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
+                status="processing",
+                brief_id=None,
+                client_id=gen_request.client_id,
+                campaign_id=gen_request.campaign_id
+            )
+
+            # Wait for image completion (with timeout)
+            import time
+            max_wait = 60  # 60 seconds
+            wait_interval = 2  # Check every 2 seconds
+            elapsed = 0
+
+            while elapsed < max_wait:
+                prediction_url = prediction.get("urls", {}).get("get")
+                pred_response = requests.get(prediction_url, headers=headers)
+                pred_response.raise_for_status()
+                pred_data = pred_response.json()
+
+                if pred_data.get("status") == "succeeded":
+                    # Download and save image
+                    image_url = pred_data.get("output")
+                    if isinstance(image_url, list):
+                        image_url = image_url[0]
+
+                    # Download image
+                    download_url = download_and_save_image(image_url, intermediate_image_id)
+                    break
+                elif pred_data.get("status") in ["failed", "canceled"]:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Image generation failed: {pred_data.get('error')}"
+                    )
+
+                time.sleep(wait_interval)
+                elapsed += wait_interval
+
+            if elapsed >= max_wait:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Image generation timed out after 60 seconds"
+                )
+
+            # Use the generated image as reference
+            gen_request.image_id = intermediate_image_id
+
+        # Now we have an image reference, resolve it
+        start_image_url = resolve_image_reference(
+            asset_id=gen_request.asset_id,
+            image_id=gen_request.image_id,
+            video_id=gen_request.video_id
+        )
+
+        # Build kling-v2.1 input parameters
+        kling_input = {
+            "prompt": gen_request.prompt or "high quality video",
+            "start_image": start_image_url,
+            "mode": "pro",
+            "duration": 5,
+            "negative_prompt": ""
+        }
+
+        # Call Replicate for video generation
+        base_url = settings.BASE_URL
+        use_webhooks = base_url.startswith("https://")
+
+        payload = {
+            "input": kling_input,
+        }
+        if use_webhooks:
+            payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+            payload["webhook_events_filter"] = ["completed"]
+
+        url = "https://api.replicate.com/v1/models/kwaivgi/kling-v2.1/predictions"
+        headers = {
+            "Authorization": f"Token {settings.REPLICATE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        prediction = response.json()
+
+        # Save to database with client_id and campaign_id
+        video_id = save_generated_video(
+            prompt=kling_input["prompt"],
+            video_url="pending",
+            model_id="kwaivgi/kling-v2.1",
+            parameters=kling_input,
+            collection=None,
+            metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
+            status="processing",
+            brief_id=None,
+            client_id=gen_request.client_id,
+            campaign_id=gen_request.campaign_id
+        )
+
+        # Queue background processing
+        background_tasks.add_task(
+            process_video_generation_background,
+            video_id=video_id,
+            prediction_url=prediction.get("urls", {}).get("get"),
+            api_key=settings.REPLICATE_API_KEY,
+            model_id="kwaivgi/kling-v2.1",
+            input_params=kling_input,
+            collection=None
+        )
+
+        # Return immediately with video ID
+        result = {"video_id": video_id, "status": "processing"}
+        if intermediate_image_id:
+            result["intermediate_image_id"] = intermediate_image_id
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating video: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate video: {str(e)}")
+
+@app.get("/api/v2/clients/{client_id}/generated-images")
+async def get_client_generated_images(
+    client_id: str,
+    status: Optional[str] = None,
+    limit: int = 50,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Get all generated images for a specific client.
+
+    Query parameters:
+    - status: Optional filter by status (processing, completed, failed, canceled)
+    - limit: Maximum number of images to return (default: 50)
+    """
+    try:
+        images = get_generated_images_by_client(client_id, status, limit)
+        return {"client_id": client_id, "count": len(images), "images": images}
+    except Exception as e:
+        logger.error(f"Error fetching images for client {client_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch images: {str(e)}")
+
+@app.get("/api/v2/clients/{client_id}/generated-videos")
+async def get_client_generated_videos(
+    client_id: str,
+    status: Optional[str] = None,
+    limit: int = 50,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Get all generated videos for a specific client.
+
+    Query parameters:
+    - status: Optional filter by status (processing, completed, failed, canceled)
+    - limit: Maximum number of videos to return (default: 50)
+    """
+    try:
+        videos = get_generated_videos_by_client(client_id, status, limit)
+        return {"client_id": client_id, "count": len(videos), "videos": videos}
+    except Exception as e:
+        logger.error(f"Error fetching videos for client {client_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch videos: {str(e)}")
+
+@app.get("/api/v2/campaigns/{campaign_id}/generated-images")
+async def get_campaign_generated_images(
+    campaign_id: str,
+    status: Optional[str] = None,
+    limit: int = 50,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Get all generated images for a specific campaign.
+
+    Query parameters:
+    - status: Optional filter by status (processing, completed, failed, canceled)
+    - limit: Maximum number of images to return (default: 50)
+    """
+    try:
+        images = get_generated_images_by_campaign(campaign_id, status, limit)
+        return {"campaign_id": campaign_id, "count": len(images), "images": images}
+    except Exception as e:
+        logger.error(f"Error fetching images for campaign {campaign_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch images: {str(e)}")
+
+@app.get("/api/v2/campaigns/{campaign_id}/generated-videos")
+async def get_campaign_generated_videos(
+    campaign_id: str,
+    status: Optional[str] = None,
+    limit: int = 50,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Get all generated videos for a specific campaign.
+
+    Query parameters:
+    - status: Optional filter by status (processing, completed, failed, canceled)
+    - limit: Maximum number of videos to return (default: 50)
+    """
+    try:
+        videos = get_generated_videos_by_campaign(campaign_id, status, limit)
+        return {"campaign_id": campaign_id, "count": len(videos), "videos": videos}
+    except Exception as e:
+        logger.error(f"Error fetching videos for campaign {campaign_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch videos: {str(e)}")
 
 # ============================================================================
 # Creative Brief Parsing Endpoints

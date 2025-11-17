@@ -14,333 +14,13 @@ DATA_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "scenes.db"
 
 def init_db():
-    """Initialize the database with required tables."""
-    with get_db() as conn:
-        # Authentication tables
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                hashed_password TEXT NOT NULL,
-                is_active BOOLEAN DEFAULT 1,
-                is_admin BOOLEAN DEFAULT 0,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP
-            )
-        """)
+    """Initialize the database with required tables.
 
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_hash TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                user_id INTEGER NOT NULL,
-                is_active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_used TIMESTAMP,
-                expires_at TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_api_keys_hash
-            ON api_keys(key_hash)
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_users_username
-            ON users(username)
-        """)
-
-        # Existing tables
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS generated_scenes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                prompt TEXT NOT NULL,
-                scene_data TEXT NOT NULL,
-                model TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                metadata TEXT
-            )
-        """)
-
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS generated_videos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                prompt TEXT NOT NULL,
-                video_url TEXT NOT NULL,
-                model_id TEXT NOT NULL,
-                parameters TEXT NOT NULL,
-                status TEXT DEFAULT 'completed',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                collection TEXT,
-                metadata TEXT,
-                download_attempted BOOLEAN DEFAULT 0,
-                download_retries INTEGER DEFAULT 0,
-                download_error TEXT
-            )
-        """)
-
-        # Add download tracking columns if they don't exist (for existing databases)
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN download_attempted BOOLEAN DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN download_retries INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN download_error TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN video_data BLOB")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Add v2 workflow columns for video generation
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN progress TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN storyboard_data TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN approved BOOLEAN DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN approved_at TIMESTAMP")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN estimated_cost REAL DEFAULT 0.0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN actual_cost REAL DEFAULT 0.0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN error_message TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Add download tracking columns
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN download_count INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN refinement_count INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN client_id TEXT")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Add image data column for generated_images
-        try:
-            conn.execute("ALTER TABLE generated_images ADD COLUMN image_data BLOB")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_created_at
-            ON generated_scenes(created_at DESC)
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_model
-            ON generated_scenes(model)
-        """)
-
-        # Add brief_id column to generated_scenes if it doesn't exist
-        try:
-            conn.execute("ALTER TABLE generated_scenes ADD COLUMN brief_id TEXT REFERENCES creative_briefs(id)")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_scenes_brief
-            ON generated_scenes(brief_id)
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_videos_created_at
-            ON generated_videos(created_at DESC)
-        """)
-
-        # Add brief_id column to generated_videos if it doesn't exist
-        try:
-            conn.execute("ALTER TABLE generated_videos ADD COLUMN brief_id TEXT REFERENCES creative_briefs(id)")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_videos_brief
-            ON generated_videos(brief_id)
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_videos_model
-            ON generated_videos(model_id)
-        """)
-
-        # Genesis-specific videos table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS genesis_videos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                scene_data TEXT NOT NULL,
-                video_path TEXT NOT NULL,
-                quality TEXT NOT NULL,
-                duration REAL NOT NULL,
-                fps INTEGER NOT NULL,
-                resolution TEXT,
-                scene_context TEXT,
-                object_descriptions TEXT,
-                status TEXT DEFAULT 'completed',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                metadata TEXT
-            )
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_genesis_videos_created_at
-            ON genesis_videos(created_at DESC)
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_genesis_videos_quality
-            ON genesis_videos(quality)
-        """)
-
-        # Generated images table (similar to generated_videos)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS generated_images (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                prompt TEXT NOT NULL,
-                image_url TEXT NOT NULL,
-                model_id TEXT NOT NULL,
-                parameters TEXT NOT NULL,
-                status TEXT DEFAULT 'completed',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                collection TEXT,
-                metadata TEXT,
-                download_attempted BOOLEAN DEFAULT 0,
-                download_retries INTEGER DEFAULT 0,
-                download_error TEXT
-            )
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_images_created_at
-            ON generated_images(created_at DESC)
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_images_model
-            ON generated_images(model_id)
-        """)
-
-        # Add brief_id column to generated_images if it doesn't exist
-        try:
-            conn.execute("ALTER TABLE generated_images ADD COLUMN brief_id TEXT REFERENCES creative_briefs(id)")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_images_brief
-            ON generated_images(brief_id)
-        """)
-
-        # Creative briefs table for prompt parser integration
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS creative_briefs (
-                id TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                prompt_text TEXT,
-                image_url TEXT,
-                video_url TEXT,
-                image_data BLOB,
-                video_data BLOB,
-                creative_direction TEXT NOT NULL,
-                scenes TEXT NOT NULL,
-                confidence_score REAL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
-            )
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_briefs_user
-            ON creative_briefs(user_id)
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_briefs_created
-            ON creative_briefs(created_at DESC)
-        """)
-
-        # Add BLOB columns if table exists (for existing DB)
-        try:
-            conn.execute("ALTER TABLE creative_briefs ADD COLUMN image_data BLOB")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        try:
-            conn.execute("ALTER TABLE creative_briefs ADD COLUMN video_data BLOB")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Uploaded assets table for v2 API
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS uploaded_assets (
-                asset_id TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                filename TEXT NOT NULL,
-                file_path TEXT NOT NULL,
-                file_type TEXT NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_assets_user
-            ON uploaded_assets(user_id)
-        """)
-
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_assets_uploaded
-            ON uploaded_assets(uploaded_at DESC)
-        """)
-
-        conn.commit()
+    Uses the migration system to apply schema from schema.sql.
+    All migrations are idempotent - safe to run on every server startup.
+    """
+    from .migrate import run_migrations
+    run_migrations()
 
 @contextmanager
 def get_db():
@@ -466,14 +146,16 @@ def save_generated_video(
     collection: Optional[str] = None,
     metadata: Optional[dict] = None,
     status: str = "completed",
-    brief_id: Optional[str] = None
+    brief_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+    campaign_id: Optional[str] = None
 ) -> int:
     """Save a generated video to the database."""
     with get_db() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO generated_videos (prompt, video_url, model_id, parameters, collection, metadata, status, brief_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO generated_videos (prompt, video_url, model_id, parameters, collection, metadata, status, brief_id, client_id, campaign_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 prompt,
@@ -483,7 +165,9 @@ def save_generated_video(
                 collection,
                 json.dumps(metadata) if metadata else None,
                 status,
-                brief_id
+                brief_id,
+                client_id,
+                campaign_id
             )
         )
         conn.commit()
@@ -768,14 +452,16 @@ def save_generated_image(
     collection: Optional[str] = None,
     metadata: Optional[dict] = None,
     status: str = "completed",
-    brief_id: Optional[str] = None
+    brief_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+    campaign_id: Optional[str] = None
 ) -> int:
     """Save a generated image to the database."""
     with get_db() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO generated_images (prompt, image_url, model_id, parameters, collection, metadata, status, brief_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO generated_images (prompt, image_url, model_id, parameters, collection, metadata, status, brief_id, client_id, campaign_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 prompt,
@@ -785,7 +471,9 @@ def save_generated_image(
                 collection,
                 json.dumps(metadata) if metadata else None,
                 status,
-                brief_id
+                brief_id,
+                client_id,
+                campaign_id
             )
         )
         conn.commit()
@@ -1955,6 +1643,174 @@ def increment_estimated_cost(job_id: int, additional_cost: float) -> bool:
     except Exception as e:
         print(f"Error incrementing estimated cost for job {job_id}: {e}")
         return False
+
+def get_generated_images_by_client(client_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Get generated images for a specific client, optionally filtered by status.
+
+    Args:
+        client_id: The client identifier
+        status: Optional status filter
+        limit: Maximum number of records to return
+
+    Returns:
+        List of image dictionaries
+    """
+    try:
+        with get_db() as conn:
+            if status:
+                query = """
+                    SELECT * FROM generated_images
+                    WHERE client_id = ? AND status = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (client_id, status, limit)
+            else:
+                query = """
+                    SELECT * FROM generated_images
+                    WHERE client_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (client_id, limit)
+
+            rows = conn.execute(query, params).fetchall()
+
+            result = []
+            for row in rows:
+                result.append(dict(row))
+
+            return result
+    except Exception as e:
+        print(f"Error getting images for client {client_id}: {e}")
+        return []
+
+def get_generated_videos_by_client(client_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Get generated videos for a specific client, optionally filtered by status.
+
+    Args:
+        client_id: The client identifier
+        status: Optional status filter
+        limit: Maximum number of records to return
+
+    Returns:
+        List of video dictionaries
+    """
+    try:
+        with get_db() as conn:
+            if status:
+                query = """
+                    SELECT * FROM generated_videos
+                    WHERE client_id = ? AND status = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (client_id, status, limit)
+            else:
+                query = """
+                    SELECT * FROM generated_videos
+                    WHERE client_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (client_id, limit)
+
+            rows = conn.execute(query, params).fetchall()
+
+            result = []
+            for row in rows:
+                result.append(dict(row))
+
+            return result
+    except Exception as e:
+        print(f"Error getting videos for client {client_id}: {e}")
+        return []
+
+def get_generated_images_by_campaign(campaign_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Get generated images for a specific campaign, optionally filtered by status.
+
+    Args:
+        campaign_id: The campaign identifier
+        status: Optional status filter
+        limit: Maximum number of records to return
+
+    Returns:
+        List of image dictionaries
+    """
+    try:
+        with get_db() as conn:
+            if status:
+                query = """
+                    SELECT * FROM generated_images
+                    WHERE campaign_id = ? AND status = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (campaign_id, status, limit)
+            else:
+                query = """
+                    SELECT * FROM generated_images
+                    WHERE campaign_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (campaign_id, limit)
+
+            rows = conn.execute(query, params).fetchall()
+
+            result = []
+            for row in rows:
+                result.append(dict(row))
+
+            return result
+    except Exception as e:
+        print(f"Error getting images for campaign {campaign_id}: {e}")
+        return []
+
+def get_generated_videos_by_campaign(campaign_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    """
+    Get generated videos for a specific campaign, optionally filtered by status.
+
+    Args:
+        campaign_id: The campaign identifier
+        status: Optional status filter
+        limit: Maximum number of records to return
+
+    Returns:
+        List of video dictionaries
+    """
+    try:
+        with get_db() as conn:
+            if status:
+                query = """
+                    SELECT * FROM generated_videos
+                    WHERE campaign_id = ? AND status = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (campaign_id, status, limit)
+            else:
+                query = """
+                    SELECT * FROM generated_videos
+                    WHERE campaign_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                params = (campaign_id, limit)
+
+            rows = conn.execute(query, params).fetchall()
+
+            result = []
+            for row in rows:
+                result.append(dict(row))
+
+            return result
+    except Exception as e:
+        print(f"Error getting videos for campaign {campaign_id}: {e}")
+        return []
 
 # Initialize database on import
 init_db()

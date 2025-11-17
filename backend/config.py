@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = Field(8000, ge=1, le=65535)
     BASE_URL: str = "http://localhost:8000"  # Set to ngrok URL for local dev, or deployed URL for production
+    NGROK_URL: Optional[str] = None  # Public URL for external services (Replicate, webhooks)
 
     # AI/ML settings
     REPLICATE_API_KEY: Optional[str] = None
