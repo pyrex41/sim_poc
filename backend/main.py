@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Union
 from datetime import timedelta
 import uvicorn
 import os
@@ -14,6 +14,15 @@ import requests
 import asyncio
 from dotenv import load_dotenv
 from pathlib import Path
+
+# Import Asset Pydantic models
+from schemas.assets import (
+    Asset,
+    ImageAsset,
+    VideoAsset,
+    AudioAsset,
+    DocumentAsset,
+)
 
 # Note: replicate package has Python 3.14 compatibility issues
 # We only use HTTP API calls via requests library
@@ -2904,22 +2913,22 @@ async def upload_image(
 # V2 Asset Upload Endpoints
 # ============================================================================
 
-@app.post("/api/v2/upload-asset", tags=["Asset Management"])
+@app.post("/api/v2/upload-asset", tags=["Asset Management"], response_model=Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset])
 @limiter.limit("10/minute")
 async def upload_asset_v2(
     request: Request,
     file: UploadFile = File(...),
-    clientId: Optional[str] = Form(None),
+    clientId: str = Form(...),  # REQUIRED - every asset must be associated with a client
     campaignId: Optional[str] = Form(None),
     name: Optional[str] = Form(None),
     current_user: Dict = Depends(verify_auth)
-):
+) -> Asset:
     """
     Upload a media asset (image, video, audio, or document).
 
     Form-data parameters:
     - file: The binary file (required)
-    - clientId: Associate with a client (optional)
+    - clientId: Associate with a client (REQUIRED - every asset must have a client)
     - campaignId: Associate with a campaign (optional)
     - name: Custom display name (optional, defaults to filename)
 
@@ -3100,11 +3109,11 @@ async def get_asset_v2(
         raise HTTPException(status_code=404, detail="Asset not found")
 
     # Security: Verify ownership
-    if asset.get("userId") != current_user["id"]:
+    if asset.userId != str(current_user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Security: Validate and sanitize file format (prevents path traversal)
-    format_clean = validate_and_sanitize_format(asset['format'])
+    format_clean = validate_and_sanitize_format(asset.format)
 
     # Construct file path with sanitized format
     uploads_base = Path(__file__).parent / "DATA" / "assets"
@@ -3120,7 +3129,7 @@ async def get_asset_v2(
         'audio': 'audio',
         'document': 'application'
     }
-    base_type = type_map.get(asset['type'], 'application')
+    base_type = type_map.get(asset.type, 'application')
     media_type = f"{base_type}/{format_clean}"
 
     # Special cases
@@ -3134,7 +3143,7 @@ async def get_asset_v2(
     return FileResponse(
         path=str(file_path),
         media_type=media_type,
-        filename=asset["name"]
+        filename=asset.name
     )
 
 
@@ -3157,11 +3166,11 @@ async def get_asset_thumbnail_v2(
         raise HTTPException(status_code=404, detail="Asset not found")
 
     # Security: Verify ownership
-    if asset.get("userId") != current_user["id"]:
+    if asset.userId != str(current_user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Check if asset has a thumbnail
-    if not asset.get('thumbnailUrl'):
+    # Check if asset has a thumbnail (only VideoAsset and DocumentAsset have thumbnailUrl)
+    if not hasattr(asset, 'thumbnailUrl') or not asset.thumbnailUrl:
         raise HTTPException(status_code=404, detail="Asset does not have a thumbnail")
 
     # Security: Validate asset_id is a valid UUID (prevents path traversal)
@@ -3189,7 +3198,7 @@ async def get_asset_thumbnail_v2(
     return FileResponse(
         path=str(thumbnail_path),
         media_type="image/jpeg",
-        filename=f"{asset['name']}_thumbnail.jpg"
+        filename=f"{asset.name}_thumbnail.jpg"
     )
 
 @app.delete("/api/v2/assets/{asset_id}", tags=["Asset Management"])
@@ -3211,11 +3220,11 @@ async def delete_asset_v2(
         raise HTTPException(status_code=404, detail="Asset not found")
 
     # Verify ownership
-    if asset.get("userId") != current_user["id"]:
+    if asset.userId != str(current_user["id"]):
         raise HTTPException(status_code=403, detail="You don't have permission to delete this asset")
 
     # Security: Validate and sanitize file format (prevents path traversal)
-    format_clean = validate_and_sanitize_format(asset['format'])
+    format_clean = validate_and_sanitize_format(asset.format)
 
     # Security: Validate asset_id is a valid UUID (prevents path traversal)
     uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
@@ -3266,7 +3275,7 @@ async def delete_asset_v2(
         "message": f"Asset {asset_id} deleted successfully"
     }
 
-@app.get("/api/v2/assets", tags=["Asset Management"])
+@app.get("/api/v2/assets", tags=["Asset Management"], response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]])
 async def list_assets_v2(
     current_user: Dict = Depends(verify_auth),
     clientId: Optional[str] = Query(None),
@@ -3274,7 +3283,7 @@ async def list_assets_v2(
     asset_type: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0)
-):
+) -> List[Asset]:
     """
     List assets with optional filtering.
 
@@ -3300,6 +3309,79 @@ async def list_assets_v2(
     )
 
     return assets
+
+
+@app.get("/api/v2/clients/{client_id}/assets", tags=["Asset Management"], response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]])
+async def get_client_assets(
+    client_id: str,
+    current_user: Dict = Depends(verify_auth),
+    asset_type: Optional[str] = Query(None, description="Filter by type: image, video, audio, document"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum results"),
+    offset: int = Query(0, ge=0, description="Pagination offset")
+) -> List[Asset]:
+    """
+    Get all assets associated with a specific client.
+
+    Every asset MUST be associated with a client, so this endpoint
+    returns all assets for the given client.
+
+    Query parameters:
+    - asset_type: Optional filter by type ('image', 'video', 'audio', 'document')
+    - limit: Maximum results (default: 50, max: 100)
+    - offset: Pagination offset (default: 0)
+
+    Returns: Array of Asset objects (discriminated union)
+    """
+    from backend.database_helpers import list_assets as list_assets_helper
+
+    # Get all assets for this client
+    assets = list_assets_helper(
+        user_id=current_user["id"],
+        client_id=client_id,
+        campaign_id=None,  # Get all assets for client regardless of campaign
+        asset_type=asset_type,
+        limit=limit,
+        offset=offset
+    )
+
+    return assets
+
+
+@app.get("/api/v2/campaigns/{campaign_id}/assets", tags=["Asset Management"], response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]])
+async def get_campaign_assets(
+    campaign_id: str,
+    current_user: Dict = Depends(verify_auth),
+    asset_type: Optional[str] = Query(None, description="Filter by type: image, video, audio, document"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum results"),
+    offset: int = Query(0, ge=0, description="Pagination offset")
+) -> List[Asset]:
+    """
+    Get all assets associated with a specific campaign.
+
+    Assets may optionally be associated with a campaign, so this endpoint
+    returns only assets that have been tagged to the given campaign.
+
+    Query parameters:
+    - asset_type: Optional filter by type ('image', 'video', 'audio', 'document')
+    - limit: Maximum results (default: 50, max: 100)
+    - offset: Pagination offset (default: 0)
+
+    Returns: Array of Asset objects (discriminated union)
+    """
+    from backend.database_helpers import list_assets as list_assets_helper
+
+    # Get all assets for this campaign
+    assets = list_assets_helper(
+        user_id=current_user["id"],
+        client_id=None,  # Don't filter by client (campaign may have assets from different clients)
+        campaign_id=campaign_id,
+        asset_type=asset_type,
+        limit=limit,
+        offset=offset
+    )
+
+    return assets
+
 
 @app.post("/api/genesis/render")
 async def api_genesis_render(

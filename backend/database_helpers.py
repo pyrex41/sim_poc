@@ -5,15 +5,27 @@ This module provides CRUD operations for:
 - Client Assets (logos, brand documents)
 - Campaigns (marketing campaigns linked to clients)
 - Campaign Assets (campaign-specific media)
+- Assets (consolidated asset management with Pydantic models)
 """
 
 import sqlite3
 import json
 import uuid
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from contextlib import contextmanager
 from pathlib import Path
 import os
+from datetime import datetime
+
+# Import Pydantic asset models
+from schemas.assets import (
+    Asset,
+    AssetDB,
+    ImageAsset,
+    VideoAsset,
+    AudioAsset,
+    DocumentAsset,
+)
 
 # Get data directory from environment variable, default to ./DATA
 DATA_DIR = Path(os.getenv("DATA", "./DATA"))
@@ -223,7 +235,8 @@ def create_asset(
     thumbnail_url: Optional[str] = None,
     waveform_url: Optional[str] = None,
     page_count: Optional[int] = None,
-    asset_id: Optional[str] = None
+    asset_id: Optional[str] = None,
+    blob_data: Optional[bytes] = None
 ) -> str:
     """Create a new asset in the consolidated assets table.
 
@@ -244,6 +257,7 @@ def create_asset(
         waveform_url: For audio
         page_count: For documents
         asset_id: Optional pre-generated asset ID (if None, generates new UUID)
+        blob_data: Optional binary blob data for storing asset in database
 
     Returns:
         Asset ID (UUID string)
@@ -257,9 +271,9 @@ def create_asset(
             INSERT INTO assets (
                 id, user_id, client_id, campaign_id, name, asset_type, url,
                 size, format, tags, width, height, duration, thumbnail_url,
-                waveform_url, page_count
+                waveform_url, page_count, blob_data
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 asset_id,
@@ -277,23 +291,40 @@ def create_asset(
                 duration,
                 thumbnail_url,
                 waveform_url,
-                page_count
+                page_count,
+                blob_data
             )
         )
         conn.commit()
         return asset_id
 
 
-def get_asset_by_id(asset_id: str) -> Optional[Dict[str, Any]]:
-    """Get an asset by ID and return as discriminated union."""
+def get_asset_by_id(asset_id: str, include_blob: bool = False) -> Optional[Asset]:
+    """Get an asset by ID and return as Pydantic Asset model.
+
+    Args:
+        asset_id: Asset UUID
+        include_blob: If True, includes blob_data in the response (default False)
+
+    Returns:
+        Asset (ImageAsset | VideoAsset | AudioAsset | DocumentAsset) or None
+    """
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT * FROM assets WHERE id = ?",
-            (asset_id,)
-        ).fetchone()
+        # Select all columns except blob_data unless specifically requested
+        if include_blob:
+            query = "SELECT * FROM assets WHERE id = ?"
+        else:
+            query = """
+                SELECT id, user_id, client_id, campaign_id, name, asset_type, url,
+                       size, uploaded_at, format, tags, width, height, duration,
+                       thumbnail_url, waveform_url, page_count
+                FROM assets WHERE id = ?
+            """
+
+        row = conn.execute(query, (asset_id,)).fetchone()
 
         if row:
-            return _row_to_asset_dict(row)
+            return _row_to_asset_model(row)
     return None
 
 
@@ -304,7 +335,7 @@ def list_assets(
     asset_type: Optional[str] = None,
     limit: int = 100,
     offset: int = 0
-) -> List[Dict[str, Any]]:
+) -> List[Asset]:
     """List assets with optional filtering.
 
     Args:
@@ -316,7 +347,7 @@ def list_assets(
         offset: Pagination offset
 
     Returns:
-        List of asset dictionaries (discriminated union format)
+        List of Asset Pydantic models (ImageAsset | VideoAsset | AudioAsset | DocumentAsset)
     """
     with get_db() as conn:
         # Build dynamic query
@@ -342,15 +373,19 @@ def list_assets(
         where_clause = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         values.extend([limit, offset])
 
+        # Don't include blob_data in list queries for performance
         query = f"""
-            SELECT * FROM assets
+            SELECT id, user_id, client_id, campaign_id, name, asset_type, url,
+                   size, uploaded_at, format, tags, width, height, duration,
+                   thumbnail_url, waveform_url, page_count
+            FROM assets
             {where_clause}
             ORDER BY uploaded_at DESC
             LIMIT ? OFFSET ?
         """
 
         rows = conn.execute(query, values).fetchall()
-        return [_row_to_asset_dict(row) for row in rows]
+        return [_row_to_asset_model(row) for row in rows]
 
 
 def update_asset(
@@ -408,52 +443,65 @@ def delete_asset(asset_id: str) -> bool:
         return cursor.rowcount > 0
 
 
-def _row_to_asset_dict(row: sqlite3.Row) -> Dict[str, Any]:
-    """Convert a database row to an Asset discriminated union dict.
+def _row_to_asset_model(row: sqlite3.Row) -> Asset:
+    """Convert a database row to an Asset Pydantic model.
 
-    Returns the appropriate asset type with all its fields based on asset_type.
+    Returns the appropriate asset type (ImageAsset | VideoAsset | AudioAsset | DocumentAsset)
+    based on asset_type discriminator.
     """
+    # Parse tags from JSON string
+    tags_list = None
+    if row["tags"]:
+        try:
+            tags_list = json.loads(row["tags"])
+        except:
+            pass
+
     # Common fields for all asset types
-    base_dict = {
+    common = {
         "id": row["id"],
-        "userId": row["user_id"],
+        "userId": str(row["user_id"]) if row["user_id"] else "",
         "clientId": row["client_id"],
         "campaignId": row["campaign_id"],
         "name": row["name"],
         "url": row["url"],
         "size": row["size"],
-        "uploadedAt": row["uploaded_at"],
-        "tags": json.loads(row["tags"]) if row["tags"] else None,
-        "type": row["asset_type"],  # Discriminator field
-        "format": row["format"]
+        "uploadedAt": row["uploaded_at"],  # Will be formatted by Pydantic if datetime
+        "tags": tags_list,
+        "format": row["format"],
     }
 
-    # Add type-specific fields based on asset_type
+    # Create appropriate Asset type based on discriminator
     asset_type = row["asset_type"]
 
     if asset_type == "image":
-        # ImageAsset: has width, height
-        base_dict["width"] = row["width"]
-        base_dict["height"] = row["height"]
-
+        return ImageAsset(
+            **common,
+            width=row["width"] or 0,
+            height=row["height"] or 0,
+        )
     elif asset_type == "video":
-        # VideoAsset: has width, height, duration, thumbnailUrl
-        base_dict["width"] = row["width"]
-        base_dict["height"] = row["height"]
-        base_dict["duration"] = row["duration"]
-        base_dict["thumbnailUrl"] = row["thumbnail_url"]
-
+        return VideoAsset(
+            **common,
+            width=row["width"] or 0,
+            height=row["height"] or 0,
+            duration=row["duration"] or 0,
+            thumbnailUrl=row["thumbnail_url"] or "",
+        )
     elif asset_type == "audio":
-        # AudioAsset: has duration, waveformUrl
-        base_dict["duration"] = row["duration"]
-        base_dict["waveformUrl"] = row["waveform_url"]
-
+        return AudioAsset(
+            **common,
+            duration=row["duration"] or 0,
+            waveformUrl=row["waveform_url"],
+        )
     elif asset_type == "document":
-        # DocumentAsset: has pageCount, thumbnailUrl
-        base_dict["pageCount"] = row["page_count"]
-        base_dict["thumbnailUrl"] = row["thumbnail_url"]
-
-    return base_dict
+        return DocumentAsset(
+            **common,
+            pageCount=row["page_count"],
+            thumbnailUrl=row["thumbnail_url"],
+        )
+    else:
+        raise ValueError(f"Unknown asset type: {asset_type}")
 
 
 # ============================================================================
