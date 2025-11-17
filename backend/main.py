@@ -3623,10 +3623,10 @@ async def api_combine_videos(
     video_ids: List[int],
     current_user: Dict = Depends(verify_auth)
 ):
-    """Combine multiple videos into one using ffmpeg. Easy-peasy!"""
+    """Combine multiple videos into one using ffmpeg server-side with blob storage."""
     import tempfile
     import subprocess
-    from urllib.parse import urlparse
+    from .database import get_db
 
     if not video_ids or len(video_ids) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 videos to combine")
@@ -3637,25 +3637,26 @@ async def api_combine_videos(
             temp_path = Path(temp_dir)
             video_files = []
 
-            # Download each video
-            for idx, video_id in enumerate(video_ids):
-                video = get_video_by_id(video_id)
-                if not video:
-                    raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
+            # Fetch each video from database blob storage
+            with get_db() as conn:
+                for idx, video_id in enumerate(video_ids):
+                    # Get video data from database
+                    row = conn.execute(
+                        "SELECT video_data FROM generated_videos WHERE id = ?",
+                        (video_id,)
+                    ).fetchone()
 
-                video_url = video.get("video_url")
-                if not video_url:
-                    raise HTTPException(status_code=400, detail=f"Video {video_id} has no URL")
+                    if not row or not row["video_data"]:
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Video {video_id} not found in database blob storage"
+                        )
 
-                # Download video
-                print(f"Downloading video {video_id} from {video_url}")
-                response = requests.get(video_url, timeout=60)
-                response.raise_for_status()
-
-                # Save to temp file
-                video_file = temp_path / f"video_{idx}.mp4"
-                video_file.write_bytes(response.content)
-                video_files.append(video_file)
+                    # Write video data to temp file
+                    video_file = temp_path / f"video_{idx}.mp4"
+                    video_file.write_bytes(row["video_data"])
+                    video_files.append(video_file)
+                    print(f"Loaded video {video_id} from blob storage ({len(row['video_data'])} bytes)")
 
             # Create concat file for ffmpeg
             concat_file = temp_path / "concat.txt"
@@ -3663,7 +3664,7 @@ async def api_combine_videos(
                 for video_file in video_files:
                     f.write(f"file '{video_file.absolute()}'\n")
 
-            # Combine videos with ffmpeg
+            # Combine videos with ffmpeg (server-side)
             output_file = temp_path / "combined.mp4"
             cmd = [
                 "ffmpeg",
@@ -3674,7 +3675,7 @@ async def api_combine_videos(
                 str(output_file)
             ]
 
-            print(f"Running ffmpeg: {' '.join(cmd)}")
+            print(f"Running ffmpeg on server: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
@@ -3683,6 +3684,7 @@ async def api_combine_videos(
 
             # Read combined video
             combined_data = output_file.read_bytes()
+            print(f"Combined video created: {len(combined_data)} bytes")
 
             # Return the combined video
             from fastapi.responses import Response
