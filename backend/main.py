@@ -3267,6 +3267,91 @@ async def api_get_audio_data(
             }
         )
 
+@app.get("/api/audio-models")
+async def api_get_audio_models(
+    collection: Optional[str] = Query("text-to-audio", description="Collection slug: text-to-audio, etc.")
+):
+    """Get audio generation models from Replicate collections API."""
+    try:
+        if not ai_client:
+            # Fallback to demo models if no API key
+            return {"models": []}
+
+        headers = {
+            "Authorization": f"Bearer {ai_client['api_key']}",
+            "Content-Type": "application/json"
+        }
+
+        # Use collections API with the specified collection slug
+        url = f"https://api.replicate.com/v1/collections/{collection}"
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        # Format the models from the collection
+        models = []
+        for model_data in data.get("models", []):
+            model_id = f"{model_data.get('owner')}/{model_data.get('name')}"
+            models.append({
+                "id": model_id,
+                "name": model_data.get("name", ""),
+                "owner": model_data.get("owner", ""),
+                "description": model_data.get("description"),
+                "cover_image_url": model_data.get("cover_image_url"),
+                "latest_version": model_data.get("latest_version", {}).get("id") if model_data.get("latest_version") else None,
+                "run_count": model_data.get("run_count", 0),
+                "input_schema": None  # Will be fetched when model is selected
+            })
+
+        return {"models": models}
+    except Exception as e:
+        print(f"Error fetching audio models from collection '{collection}': {str(e)}")
+        import traceback
+        traceback.print_exc()
+        # Fallback to empty list
+        return {"models": []}
+
+@app.get("/api/audio-models/{model_owner}/{model_name}/schema")
+async def api_get_audio_model_schema(model_owner: str, model_name: str):
+    """Get the input schema for a specific audio model."""
+    try:
+        if not ai_client:
+            return {"input_schema": {"prompt": {"type": "string"}}}
+
+        headers = {
+            "Authorization": f"Bearer {ai_client['api_key']}",
+            "Content-Type": "application/json"
+        }
+
+        # Fetch model details including schema
+        url = f"https://api.replicate.com/v1/models/{model_owner}/{model_name}"
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        # Extract input schema from latest version
+        latest_version = data.get("latest_version") or {}
+        version_id = latest_version.get("id")
+        openapi_schema = latest_version.get("openapi_schema") or {}
+        input_schema = openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
+
+        # Extract properties and required fields
+        properties = input_schema.get("properties", {})
+        required = input_schema.get("required", [])
+
+        return {
+            "input_schema": {
+                "properties": properties,
+                "required": required,
+                "version_id": version_id
+            }
+        }
+    except Exception as e:
+        print(f"Error fetching schema for audio model {model_owner}/{model_name}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return {"input_schema": {"prompt": {"type": "string"}}}
+
 @app.get("/api/images/{image_id}/data")
 async def api_get_image_data(
     image_id: int
