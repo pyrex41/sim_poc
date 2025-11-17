@@ -25,6 +25,11 @@ RUN npm ci && npm run build
 # Stage 2: Python backend with uv
 FROM python:3.11-slim
 
+# Install ffmpeg and uv
+RUN apt-get update && \
+    apt-get install -y ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
+
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 

@@ -3618,6 +3618,89 @@ async def api_get_video_data(
         from fastapi.responses import Response
         return Response(content=row["video_data"], media_type="video/mp4")
 
+@app.post("/api/videos/combine")
+async def api_combine_videos(
+    video_ids: List[int],
+    current_user: Dict = Depends(verify_auth)
+):
+    """Combine multiple videos into one using ffmpeg. Easy-peasy!"""
+    import tempfile
+    import subprocess
+    from urllib.parse import urlparse
+
+    if not video_ids or len(video_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 videos to combine")
+
+    try:
+        # Create temp directory for processing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            video_files = []
+
+            # Download each video
+            for idx, video_id in enumerate(video_ids):
+                video = get_video_by_id(video_id)
+                if not video:
+                    raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
+
+                video_url = video.get("video_url")
+                if not video_url:
+                    raise HTTPException(status_code=400, detail=f"Video {video_id} has no URL")
+
+                # Download video
+                print(f"Downloading video {video_id} from {video_url}")
+                response = requests.get(video_url, timeout=60)
+                response.raise_for_status()
+
+                # Save to temp file
+                video_file = temp_path / f"video_{idx}.mp4"
+                video_file.write_bytes(response.content)
+                video_files.append(video_file)
+
+            # Create concat file for ffmpeg
+            concat_file = temp_path / "concat.txt"
+            with open(concat_file, "w") as f:
+                for video_file in video_files:
+                    f.write(f"file '{video_file.absolute()}'\n")
+
+            # Combine videos with ffmpeg
+            output_file = temp_path / "combined.mp4"
+            cmd = [
+                "ffmpeg",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_file),
+                "-c", "copy",
+                str(output_file)
+            ]
+
+            print(f"Running ffmpeg: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                print(f"FFmpeg error: {result.stderr}")
+                raise HTTPException(status_code=500, detail=f"FFmpeg failed: {result.stderr}")
+
+            # Read combined video
+            combined_data = output_file.read_bytes()
+
+            # Return the combined video
+            from fastapi.responses import Response
+            return Response(
+                content=combined_data,
+                media_type="video/mp4",
+                headers={"Content-Disposition": "attachment; filename=combined.mp4"}
+            )
+
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg subprocess error: {e}")
+        raise HTTPException(status_code=500, detail=f"FFmpeg processing failed: {str(e)}")
+    except Exception as e:
+        print(f"Error combining videos: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to combine videos: {str(e)}")
+
 @app.get("/api/admin/storage/stats")
 async def api_get_storage_stats(
     current_user: Dict = Depends(get_current_admin_user)
