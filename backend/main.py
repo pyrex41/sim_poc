@@ -3618,18 +3618,14 @@ async def api_get_video_data(
         from fastapi.responses import Response
         return Response(content=row["video_data"], media_type="video/mp4")
 
-@app.post("/api/videos/combine")
-async def api_combine_videos(
-    video_ids: List[int],
-    current_user: Dict = Depends(verify_auth)
+def process_video_combination_background(
+    video_id: int,
+    source_video_ids: List[int]
 ):
-    """Combine multiple videos into one using ffmpeg server-side with blob storage."""
+    """Background task to combine videos using ffmpeg and store in database."""
     import tempfile
     import subprocess
     from .database import get_db
-
-    if not video_ids or len(video_ids) < 2:
-        raise HTTPException(status_code=400, detail="Need at least 2 videos to combine")
 
     try:
         # Create temp directory for processing
@@ -3639,24 +3635,28 @@ async def api_combine_videos(
 
             # Fetch each video from database blob storage
             with get_db() as conn:
-                for idx, video_id in enumerate(video_ids):
+                for idx, source_id in enumerate(source_video_ids):
                     # Get video data from database
                     row = conn.execute(
                         "SELECT video_data FROM generated_videos WHERE id = ?",
-                        (video_id,)
+                        (source_id,)
                     ).fetchone()
 
                     if not row or not row["video_data"]:
-                        raise HTTPException(
-                            status_code=404,
-                            detail=f"Video {video_id} not found in database blob storage"
+                        # Mark as failed
+                        conn.execute(
+                            "UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?",
+                            (f"Source video {source_id} not found in blob storage", video_id)
                         )
+                        conn.commit()
+                        print(f"Failed: Source video {source_id} not found")
+                        return
 
                     # Write video data to temp file
                     video_file = temp_path / f"video_{idx}.mp4"
                     video_file.write_bytes(row["video_data"])
                     video_files.append(video_file)
-                    print(f"Loaded video {video_id} from blob storage ({len(row['video_data'])} bytes)")
+                    print(f"Loaded video {source_id} from blob storage ({len(row['video_data'])} bytes)")
 
             # Create concat file for ffmpeg
             concat_file = temp_path / "concat.txt"
@@ -3680,28 +3680,99 @@ async def api_combine_videos(
 
             if result.returncode != 0:
                 print(f"FFmpeg error: {result.stderr}")
-                raise HTTPException(status_code=500, detail=f"FFmpeg failed: {result.stderr}")
+                # Mark as failed
+                with get_db() as conn:
+                    conn.execute(
+                        "UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?",
+                        (f"FFmpeg failed: {result.stderr[:500]}", video_id)
+                    )
+                    conn.commit()
+                return
 
             # Read combined video
             combined_data = output_file.read_bytes()
             print(f"Combined video created: {len(combined_data)} bytes")
 
-            # Return the combined video
-            from fastapi.responses import Response
-            return Response(
-                content=combined_data,
-                media_type="video/mp4",
-                headers={"Content-Disposition": "attachment; filename=combined.mp4"}
-            )
+            # Store in database and mark as completed
+            with get_db() as conn:
+                conn.execute(
+                    """UPDATE generated_videos
+                       SET status = 'completed',
+                           video_data = ?,
+                           video_url = ?
+                       WHERE id = ?""",
+                    (combined_data, f"/api/videos/{video_id}/data", video_id)
+                )
+                conn.commit()
+                print(f"Video {video_id} completed and stored in database")
 
-    except subprocess.CalledProcessError as e:
-        print(f"FFmpeg subprocess error: {e}")
-        raise HTTPException(status_code=500, detail=f"FFmpeg processing failed: {str(e)}")
     except Exception as e:
         print(f"Error combining videos: {str(e)}")
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to combine videos: {str(e)}")
+        # Mark as failed
+        try:
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?",
+                    (str(e)[:500], video_id)
+                )
+                conn.commit()
+        except:
+            pass
+
+@app.post("/api/videos/combine")
+async def api_combine_videos(
+    video_ids: List[int],
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Combine multiple videos into one using ffmpeg server-side with blob storage.
+
+    Creates a new video entry immediately with status='processing',
+    combines videos in background, and adds to gallery when complete.
+    """
+    from .database import get_db, save_generated_video
+
+    if not video_ids or len(video_ids) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 videos to combine")
+
+    # Verify all source videos exist
+    with get_db() as conn:
+        for vid_id in video_ids:
+            row = conn.execute(
+                "SELECT id FROM generated_videos WHERE id = ?",
+                (vid_id,)
+            ).fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Video {vid_id} not found")
+
+    # Create database entry immediately with status='processing'
+    prompt = f"Combined video from sources: {', '.join(map(str, video_ids))}"
+    new_video_id = save_generated_video(
+        prompt=prompt,
+        video_url="",  # Will be set when processing completes
+        model_id="ffmpeg-concat",
+        parameters={"source_video_ids": video_ids},
+        status="processing",
+        metadata={"source_videos": video_ids, "combination_type": "concat"}
+    )
+
+    # Process in background
+    background_tasks.add_task(
+        process_video_combination_background,
+        new_video_id,
+        video_ids
+    )
+
+    # Return the new video ID immediately
+    return {
+        "id": new_video_id,
+        "status": "processing",
+        "message": "Video combination started. Check status at /api/videos/{id}",
+        "video_url": f"/api/videos/{new_video_id}/data",
+        "source_videos": video_ids
+    }
 
 @app.get("/api/admin/storage/stats")
 async def api_get_storage_stats(
