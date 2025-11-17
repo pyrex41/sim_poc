@@ -2921,6 +2921,8 @@ async def upload_asset_v2(
     clientId: str = Form(...),  # REQUIRED - every asset must be associated with a client
     campaignId: Optional[str] = Form(None),
     name: Optional[str] = Form(None),
+    type: Optional[str] = Form(None),  # Optional: "image", "video", "audio", or "document" - if empty, inferred from filetype
+    tags: Optional[str] = Form(None),  # Optional: JSON array string of tags, e.g., '["brand", "logo"]'
     current_user: Dict = Depends(verify_auth)
 ) -> Asset:
     """
@@ -2931,6 +2933,9 @@ async def upload_asset_v2(
     - clientId: Associate with a client (REQUIRED - every asset must have a client)
     - campaignId: Associate with a campaign (optional)
     - name: Custom display name (optional, defaults to filename)
+    - type: Asset type override (optional) - one of: "image", "video", "audio", "document"
+      If not provided, type is inferred from file content type (fallback: "document")
+    - tags: JSON array of tags as string (optional) - e.g., '["brand", "product"]'
 
     Supports: jpg, jpeg, png, gif, webp, mp4, mov, mp3, wav, pdf
     Max file size: 50MB
@@ -2940,9 +2945,41 @@ async def upload_asset_v2(
     """
     import uuid
     import mimetypes
+    import json
     from pathlib import Path
     from backend.database_helpers import create_asset
     from backend.asset_metadata import extract_file_metadata, generate_video_thumbnail
+
+    # Validate optional type parameter if provided
+    if type:
+        allowed_asset_types = {"image", "video", "audio", "document"}
+        if type not in allowed_asset_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid type: {type}. Must be one of: {', '.join(allowed_asset_types)}"
+            )
+
+    # Parse tags if provided
+    parsed_tags = None
+    if tags:
+        try:
+            parsed_tags = json.loads(tags)
+            if not isinstance(parsed_tags, list):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Tags must be a JSON array of strings, e.g., '[\"brand\", \"logo\"]'"
+                )
+            # Validate all tags are strings
+            if not all(isinstance(tag, str) for tag in parsed_tags):
+                raise HTTPException(
+                    status_code=400,
+                    detail="All tags must be strings"
+                )
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid tags format. Must be valid JSON array, e.g., '[\"brand\", \"logo\"]'"
+            )
 
     # Validate file type
     allowed_types = {
@@ -3031,9 +3068,12 @@ async def upload_asset_v2(
             'size': size_bytes
         }
 
+    # Use provided type parameter if given, otherwise use inferred type (fallback to 'document')
+    asset_type = type if type else metadata.get('asset_type', 'document')
+
     # Generate thumbnail for videos
     thumbnail_url = None
-    if metadata.get('asset_type') == 'video':
+    if asset_type == 'video':
         try:
             thumbnail_filename = f"{asset_id}_thumb.jpg"
             thumbnail_path = uploads_base / thumbnail_filename
@@ -3054,14 +3094,14 @@ async def upload_asset_v2(
     try:
         db_asset_id = create_asset(
             name=display_name,
-            asset_type=metadata.get('asset_type', 'document'),
+            asset_type=asset_type,  # Use the determined asset_type (from param or inferred)
             url=asset_url,
             format=metadata.get('format', file_ext.lstrip('.')),
             size=size_bytes,
             user_id=user_id,
             client_id=clientId,
             campaign_id=campaignId,
-            tags=None,
+            tags=parsed_tags,  # Pass the parsed tags array
             width=metadata.get('width'),
             height=metadata.get('height'),
             duration=metadata.get('duration'),
