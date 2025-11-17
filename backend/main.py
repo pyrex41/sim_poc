@@ -169,6 +169,9 @@ def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str)
     # Extract first 32 bytes for magic byte checking
     header = file_contents[:32]
 
+    # Log for debugging
+    logger.info(f"Validating file type: claimed={claimed_type}, magic_bytes={header[:16].hex()}")
+
     # Check common image formats
     if claimed_type.startswith('image/'):
         if header.startswith(b'\x89PNG'):
@@ -179,8 +182,10 @@ def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str)
             return claimed_type in ['image/gif']
         elif b'WEBP' in header[:16]:
             return claimed_type in ['image/webp']
+        elif header.startswith(b'<?xml') or header.startswith(b'<svg'):
+            return claimed_type in ['image/svg+xml', 'image/svg']
         else:
-            logger.warning(f"Unknown image magic bytes for claimed type {claimed_type}")
+            logger.warning(f"Unknown image magic bytes for claimed type {claimed_type}: {header[:16].hex()}")
             return False
 
     # Check video formats
