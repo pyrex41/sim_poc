@@ -3197,9 +3197,7 @@ async def get_asset_data_v2(
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    # Security: Verify ownership
-    if asset.userId != str(current_user["id"]):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # No ownership check - all dev team members can access all assets
 
     # Get blob data from database
     from backend.database import get_db
@@ -3441,9 +3439,8 @@ async def get_client_assets(
     """
     from backend.database_helpers import list_assets as list_assets_helper
 
-    # Get all assets for this client
+    # Get all assets for this client (no user filter - all dev team can access)
     assets = list_assets_helper(
-        user_id=current_user["id"],
         client_id=client_id,
         campaign_id=None,  # Get all assets for client regardless of campaign
         asset_type=asset_type,
@@ -3477,9 +3474,8 @@ async def get_campaign_assets(
     """
     from backend.database_helpers import list_assets as list_assets_helper
 
-    # Get all assets for this campaign
+    # Get all assets for this campaign (no user filter - all dev team can access)
     assets = list_assets_helper(
-        user_id=current_user["id"],
         client_id=None,  # Don't filter by client (campaign may have assets from different clients)
         campaign_id=campaign_id,
         asset_type=asset_type,
