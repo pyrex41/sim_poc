@@ -1,0 +1,1415 @@
+{me": "id","type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "user_id",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "client_id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "campaign_id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "name",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "asset_type",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "url",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 7,
+  "name": "size",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 8,
+  "name": "uploaded_at",
+  "type": "TIMESTAMP",
+  "notnull": true,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 9,
+  "name": "format",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 10,
+  "name": "tags",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 11,
+  "name": "width",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 12,
+  "name": "height",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 13,
+  "name": "duration",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 14,
+  "name": "thumbnail_url",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 15,
+  "name": "waveform_url",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 16,
+  "name": "page_count",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_assets_uploaded_at",
+  "unique": false
+},
+{
+  "name": "idx_assets_type",
+  "unique": false
+},
+{
+  "name": "idx_assets_campaign_id",
+  "unique": false
+},
+{
+  "name": "idx_assets_client_id",
+  "unique": false
+},
+{
+  "name": "idx_assets_user_id",
+  "unique": false
+},
+{
+  "name": "sqlite_autoindex_assets_1",
+  "unique": true
+}
+],
+"foreign_keys": [
+{
+  "id": 0,
+  "table": "campaigns",
+  "from": "campaign_id",
+  "to": "id"
+},
+{
+  "id": 1,
+  "table": "clients",
+  "from": "client_id",
+  "to": "id"
+},
+{
+  "id": 2,
+  "table": "users",
+  "from": "user_id",
+  "to": "id"
+}
+]
+},
+"campaigns": {
+"columns": [
+{
+  "cid": 0,
+  "name": "id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "client_id",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "user_id",
+  "type": "INTEGER",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "name",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "goal",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "status",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": "'draft'",
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "brief",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 7,
+  "name": "created_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 8,
+  "name": "updated_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_campaigns_status",
+  "unique": false
+},
+{
+  "name": "idx_campaigns_user_id",
+  "unique": false
+},
+{
+  "name": "idx_campaigns_client_id",
+  "unique": false
+},
+{
+  "name": "sqlite_autoindex_campaigns_1",
+  "unique": true
+}
+],
+"foreign_keys": [
+{
+  "id": 0,
+  "table": "users",
+  "from": "user_id",
+  "to": "id"
+},
+{
+  "id": 1,
+  "table": "clients",
+  "from": "client_id",
+  "to": "id"
+}
+]
+},
+"clients": {
+"columns": [
+{
+  "cid": 0,
+  "name": "id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "user_id",
+  "type": "INTEGER",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "name",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "description",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "brand_guidelines",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "created_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "updated_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_clients_name",
+  "unique": false
+},
+{
+  "name": "idx_clients_user_id",
+  "unique": false
+},
+{
+  "name": "sqlite_autoindex_clients_1",
+  "unique": true
+}
+],
+"foreign_keys": [
+{
+  "id": 0,
+  "table": "users",
+  "from": "user_id",
+  "to": "id"
+}
+]
+},
+"creative_briefs": {
+"columns": [
+{
+  "cid": 0,
+  "name": "id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "user_id",
+  "type": "INTEGER",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "prompt_text",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "image_url",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "video_url",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "image_data",
+  "type": "BLOB",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "video_data",
+  "type": "BLOB",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 7,
+  "name": "creative_direction",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 8,
+  "name": "scenes",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 9,
+  "name": "confidence_score",
+  "type": "REAL",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 10,
+  "name": "created_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 11,
+  "name": "updated_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_briefs_created",
+  "unique": false
+},
+{
+  "name": "idx_briefs_user",
+  "unique": false
+},
+{
+  "name": "sqlite_autoindex_creative_briefs_1",
+  "unique": true
+}
+],
+"foreign_keys": [
+{
+  "id": 0,
+  "table": "users",
+  "from": "user_id",
+  "to": "id"
+}
+]
+},
+"generated_images": {
+"columns": [
+{
+  "cid": 0,
+  "name": "id",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "prompt",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "image_url",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "model_id",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "parameters",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "status",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": "'completed'",
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "created_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 7,
+  "name": "collection",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 8,
+  "name": "metadata",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 9,
+  "name": "download_attempted",
+  "type": "BOOLEAN",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 10,
+  "name": "download_retries",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 11,
+  "name": "download_error",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 12,
+  "name": "image_data",
+  "type": "BLOB",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 13,
+  "name": "brief_id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_images_brief",
+  "unique": false
+},
+{
+  "name": "idx_images_model",
+  "unique": false
+},
+{
+  "name": "idx_images_created_at",
+  "unique": false
+}
+],
+"foreign_keys": [
+{
+  "id": 0,
+  "table": "creative_briefs",
+  "from": "brief_id",
+  "to": "id"
+}
+]
+},
+"generated_scenes": {
+"columns": [
+{
+  "cid": 0,
+  "name": "id",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "prompt",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "scene_data",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "model",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "created_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "metadata",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "brief_id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_scenes_brief",
+  "unique": false
+},
+{
+  "name": "idx_model",
+  "unique": false
+},
+{
+  "name": "idx_created_at",
+  "unique": false
+}
+],
+"foreign_keys": [
+{
+  "id": 0,
+  "table": "creative_briefs",
+  "from": "brief_id",
+  "to": "id"
+}
+]
+},
+"generated_videos": {
+"columns": [
+{
+  "cid": 0,
+  "name": "id",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "prompt",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "video_url",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "model_id",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "parameters",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "status",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": "'completed'",
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "created_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 7,
+  "name": "collection",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 8,
+  "name": "metadata",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 9,
+  "name": "download_attempted",
+  "type": "BOOLEAN",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 10,
+  "name": "download_retries",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 11,
+  "name": "download_error",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 12,
+  "name": "video_data",
+  "type": "BLOB",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 13,
+  "name": "brief_id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 14,
+  "name": "progress",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 15,
+  "name": "storyboard_data",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 16,
+  "name": "approved",
+  "type": "BOOLEAN",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 17,
+  "name": "approved_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 18,
+  "name": "estimated_cost",
+  "type": "REAL",
+  "notnull": false,
+  "default_value": "0.0",
+  "primary_key": false
+},
+{
+  "cid": 19,
+  "name": "actual_cost",
+  "type": "REAL",
+  "notnull": false,
+  "default_value": "0.0",
+  "primary_key": false
+},
+{
+  "cid": 20,
+  "name": "error_message",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 21,
+  "name": "download_count",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 22,
+  "name": "refinement_count",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 23,
+  "name": "client_id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 24,
+  "name": "campaign_id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 25,
+  "name": "format",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": "'16:9'",
+  "primary_key": false
+},
+{
+  "cid": 26,
+  "name": "duration",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": "30",
+  "primary_key": false
+},
+{
+  "cid": 27,
+  "name": "views",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 28,
+  "name": "clicks",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 29,
+  "name": "ctr",
+  "type": "REAL",
+  "notnull": false,
+  "default_value": "0.0",
+  "primary_key": false
+},
+{
+  "cid": 30,
+  "name": "conversions",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 31,
+  "name": "updated_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_videos_campaign_id",
+  "unique": false
+},
+{
+  "name": "idx_videos_brief",
+  "unique": false
+},
+{
+  "name": "idx_videos_model",
+  "unique": false
+},
+{
+  "name": "idx_videos_created_at",
+  "unique": false
+}
+],
+"foreign_keys": [
+{
+  "id": 0,
+  "table": "campaigns",
+  "from": "campaign_id",
+  "to": "id"
+},
+{
+  "id": 1,
+  "table": "creative_briefs",
+  "from": "brief_id",
+  "to": "id"
+}
+]
+},
+"genesis_videos": {
+"columns": [
+{
+  "cid": 0,
+  "name": "id",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "scene_data",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "video_path",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "quality",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "duration",
+  "type": "REAL",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "fps",
+  "type": "INTEGER",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "resolution",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 7,
+  "name": "scene_context",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 8,
+  "name": "object_descriptions",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 9,
+  "name": "status",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": "'completed'",
+  "primary_key": false
+},
+{
+  "cid": 10,
+  "name": "created_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 11,
+  "name": "metadata",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_genesis_videos_quality",
+  "unique": false
+},
+{
+  "name": "idx_genesis_videos_created_at",
+  "unique": false
+}
+],
+"foreign_keys": []
+},
+"sqlite_sequence": {
+"columns": [
+{
+  "cid": 0,
+  "name": "name",
+  "type": "",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 1,
+  "name": "seq",
+  "type": "",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+}
+],
+"indexes": [],
+"foreign_keys": []
+},
+"uploaded_assets": {
+"columns": [
+{
+  "cid": 0,
+  "name": "asset_id",
+  "type": "TEXT",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "user_id",
+  "type": "INTEGER",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "filename",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "file_path",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "file_type",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "size_bytes",
+  "type": "INTEGER",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "uploaded_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_assets_uploaded",
+  "unique": false
+},
+{
+  "name": "idx_assets_user",
+  "unique": false
+},
+{
+  "name": "sqlite_autoindex_uploaded_assets_1",
+  "unique": true
+}
+],
+"foreign_keys": [
+{
+  "id": 0,
+  "table": "users",
+  "from": "user_id",
+  "to": "id"
+}
+]
+},
+"users": {
+"columns": [
+{
+  "cid": 0,
+  "name": "id",
+  "type": "INTEGER",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": true
+},
+{
+  "cid": 1,
+  "name": "username",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 2,
+  "name": "email",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 3,
+  "name": "hashed_password",
+  "type": "TEXT",
+  "notnull": true,
+  "default_value": null,
+  "primary_key": false
+},
+{
+  "cid": 4,
+  "name": "is_active",
+  "type": "BOOLEAN",
+  "notnull": false,
+  "default_value": "1",
+  "primary_key": false
+},
+{
+  "cid": 5,
+  "name": "is_admin",
+  "type": "BOOLEAN",
+  "notnull": false,
+  "default_value": "0",
+  "primary_key": false
+},
+{
+  "cid": 6,
+  "name": "created_at",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": "CURRENT_TIMESTAMP",
+  "primary_key": false
+},
+{
+  "cid": 7,
+  "name": "last_login",
+  "type": "TIMESTAMP",
+  "notnull": false,
+  "default_value": null,
+  "primary_key": false
+}
+],
+"indexes": [
+{
+  "name": "idx_users_username",
+  "unique": false
+},
+{
+  "name": "sqlite_autoindex_users_2",
+  "unique": true
+},
+{
+  "name": "sqlite_autoindex_users_1",
+  "unique": true
+}
+],
+"foreign_keys": []
+}
+},
+"triggers": [
+{
+"name": "update_campaigns_timestamp",
+"table": "campaigns",
+"sql": "CREATE TRIGGER update_campaigns_timestamp\nAFTER UPDATE ON campaigns\nFOR EACH ROW\nBEGIN\n    UPDATE campaigns SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;\nEND"
+},
+{
+"name": "update_clients_timestamp",
+"table": "clients",
+"sql": "CREATE TRIGGER update_clients_timestamp\nAFTER UPDATE ON clients\nFOR EACH ROW\nBEGIN\n    UPDATE clients SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;\nEND"
+},
+{
+"name": "update_generated_videos_timestamp",
+"table": "generated_videos",
+"sql": "CREATE TRIGGER update_generated_videos_timestamp\nAFTER UPDATE ON generated_videos\nFOR EACH ROW\nBEGIN\n    UPDATE generated_videos\n    SET updated_at = CURRENT_TIMESTAMP\n    WHERE id = NEW.id;\nEND"
+}
+],
+"total_tables": 12
+}
+  "tables": {
+"api_keys": {
+"columns": [
+{
+"cid": 0,
+"name": "id",
+"type": "INTEGER",
+"notnull": false,
+"default_value": null,
+"primary_key": true
+},
+{
+"cid": 1,
+"name": "key_hash",
+"type": "TEXT",
+"notnull": true,
+"default_value": null,
+"primary_key": false
+},
+{
+"cid": 2,
+"name": "name",
+"type": "TEXT",
+"notnull": true,
+"default_value": null,
+"primary_key": false
+},
+{
+"cid": 3,
+"name": "user_id",
+"type": "INTEGER",
+"notnull": true,
+"default_value": null,
+"primary_key": false
+},
+{
+"cid": 4,
+"name": "is_active",
+"type": "BOOLEAN",
+"notnull": false,
+"default_value": "1",
+"primary_key": false
+},
+{
+"cid": 5,
+"name": "created_at",
+"type": "TIMESTAMP",
+"notnull": false,
+"default_value": "CURRENT_TIMESTAMP",
+"primary_key": false
+},
+{
+"cid": 6,
+"name": "last_used",
+"type": "TIMESTAMP",
+"notnull": false,
+"default_value": null,
+"primary_key": false
+},
+{
+"cid": 7,
+"name": "expires_at",
+"type": "TIMESTAMP",
+"notnull": false,
+"default_value": null,
+"primary_key": false
+}
+],
+"indexes": [
+{
+"name": "idx_api_keys_hash",
+"unique": false
+},
+{
+"name": "sqlite_autoindex_api_keys_1",
+"unique": true
+}
+],
+"foreign_keys": [
+{
+"id": 0,
+"table": "users",
+"from": "user_id",
+"to": "id"
+}
+]
+},
+"assets": {
+"columns": [
+{
+"cid": 0,
+          "na
