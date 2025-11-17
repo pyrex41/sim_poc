@@ -286,6 +286,7 @@ class PhysicsObject(BaseModel):
 class Scene(BaseModel):
     objects: Dict[str, PhysicsObject]
     selectedObject: Optional[str] = None
+    sceneContext: Optional[Dict] = None
 
 class GenerateRequest(BaseModel):
     prompt: str
@@ -879,7 +880,7 @@ class GenesisRenderRequest(BaseModel):
     resolution: tuple[int, int] = (1920, 1080)
     quality: str = "high"  # "draft", "high", "ultra"
     camera_config: Optional[Dict] = None
-    scene_context: Optional[str] = None
+    scene_context: Optional[Dict] = None  # SceneContext with environment, narrative, lighting
 
 def refine_scene(scene: Scene, prompt: str) -> Scene:
     """Refine an existing physics scene based on a text prompt using AI."""
@@ -1050,6 +1051,76 @@ async def api_refine_scene(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scene refinement failed: {str(e)}")
+
+class PopulateRequest(BaseModel):
+    scene: Scene
+    prompt: str
+    num_objects: int = 5
+    placement_strategy: str = "natural"  # "natural", "grid", "random"
+    bounds: Optional[Dict] = None
+
+class MotionRequest(BaseModel):
+    motion_prompt: str
+    objects: Dict[str, PhysicsObject]
+    duration: float = 5.0
+    fps: int = 60
+
+@app.post("/api/scene/populate")
+async def api_populate_scene(request: PopulateRequest):
+    """Populate scene with AI-generated objects based on natural language description."""
+    try:
+        from scene_populator import populate_scene_from_prompt
+
+        # Convert scene to dict
+        scene_data = request.scene.dict()
+
+        # Populate the scene
+        updated_scene_data = await populate_scene_from_prompt(
+            current_scene=scene_data,
+            prompt=request.prompt,
+            num_objects=request.num_objects,
+            placement_strategy=request.placement_strategy,
+            bounds=request.bounds
+        )
+
+        # Return updated scene
+        return updated_scene_data
+    except Exception as e:
+        print(f"Scene population error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Scene population failed: {str(e)}"
+        )
+
+@app.post("/api/motion/generate")
+async def api_generate_motion(request: MotionRequest):
+    """Generate animation parameters from natural language motion description."""
+    try:
+        from motion_interpreter import interpret_motion
+
+        # Convert objects to dict
+        objects_dict = {obj_id: obj.dict() for obj_id, obj in request.objects.items()}
+
+        # Generate motion parameters
+        motion_data = await interpret_motion(
+            motion_prompt=request.motion_prompt,
+            objects=objects_dict,
+            duration=request.duration,
+            fps=request.fps
+        )
+
+        # Return motion data
+        return motion_data
+    except Exception as e:
+        print(f"Motion generation error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Motion generation failed: {str(e)}"
+        )
 
 # Scene history endpoints
 @app.get("/api/scenes")
@@ -3327,6 +3398,9 @@ async def api_genesis_render(
             if "description" not in obj:
                 obj["description"] = ""
 
+        # Get sceneContext from scene data or request parameter
+        scene_context = scene_data.get("sceneContext") or request.scene_context
+
         # Create renderer with specified quality
         renderer = create_renderer(
             quality=request.quality,
@@ -3340,7 +3414,7 @@ async def api_genesis_render(
             fps=request.fps,
             resolution=request.resolution,
             camera_config=request.camera_config,
-            scene_context=request.scene_context
+            scene_context=scene_context
         )
 
         # Clean up
