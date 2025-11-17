@@ -19,7 +19,10 @@ def init_db():
     Uses the migration system to apply schema from schema.sql.
     All migrations are idempotent - safe to run on every server startup.
     """
-    from .migrate import run_migrations
+    try:
+        from .migrate import run_migrations
+    except ImportError:
+        from migrate import run_migrations
     run_migrations()
 
 @contextmanager
@@ -656,6 +659,174 @@ def delete_image(image_id: int) -> bool:
         cursor = conn.execute(
             "DELETE FROM generated_images WHERE id = ?",
             (image_id,)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+# Audio generation helper functions
+def save_generated_audio(
+    prompt: str,
+    audio_url: str,
+    model_id: str,
+    parameters: dict,
+    collection: Optional[str] = None,
+    metadata: Optional[dict] = None,
+    status: str = "completed",
+    brief_id: Optional[str] = None,
+    client_id: Optional[str] = None,
+    campaign_id: Optional[str] = None,
+    duration: Optional[float] = None
+) -> int:
+    """Save a generated audio to the database."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO generated_audio (prompt, audio_url, model_id, parameters, collection, metadata, status, brief_id, client_id, campaign_id, duration)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                prompt,
+                audio_url,
+                model_id,
+                json.dumps(parameters),
+                collection,
+                json.dumps(metadata) if metadata else None,
+                status,
+                brief_id,
+                client_id,
+                campaign_id,
+                duration
+            )
+        )
+        conn.commit()
+        return cursor.lastrowid or 0
+
+def update_audio_status(
+    audio_id: int,
+    status: str,
+    audio_url: Optional[str] = None,
+    metadata: Optional[dict] = None
+) -> None:
+    """Update the status and optionally the audio_url and metadata of an audio."""
+    with get_db() as conn:
+        if audio_url is not None:
+            conn.execute(
+                """
+                UPDATE generated_audio
+                SET status = ?, audio_url = ?, metadata = ?
+                WHERE id = ?
+                """,
+                (status, audio_url, json.dumps(metadata) if metadata else None, audio_id)
+            )
+        else:
+            if metadata is not None:
+                conn.execute(
+                    """
+                    UPDATE generated_audio
+                    SET status = ?, metadata = ?
+                    WHERE id = ?
+                    """,
+                    (status, json.dumps(metadata), audio_id)
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE generated_audio
+                    SET status = ?
+                    WHERE id = ?
+                    """,
+                    (status, audio_id)
+                )
+        conn.commit()
+
+def get_audio_by_id(audio_id: int) -> Optional[Dict[str, Any]]:
+    """Retrieve a specific audio by ID."""
+    import os
+    base_url = os.getenv("BASE_URL", "").strip()
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM generated_audio WHERE id = ?",
+            (audio_id,)
+        ).fetchone()
+
+        if row:
+            return {
+                "id": row["id"],
+                "prompt": row["prompt"],
+                "audio_url": _convert_to_full_url(row["audio_url"], base_url),
+                "model_id": row["model_id"],
+                "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                "collection": row["collection"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                "duration": row["duration"],
+                "brief_id": row["brief_id"],
+                "client_id": row["client_id"],
+                "campaign_id": row["campaign_id"]
+            }
+    return None
+
+def list_audio(
+    limit: int = 50,
+    offset: int = 0,
+    collection: Optional[str] = None,
+    status: Optional[str] = None,
+    client_id: Optional[str] = None,
+    campaign_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """List generated audio with optional filters."""
+    import os
+    base_url = os.getenv("BASE_URL", "").strip()
+
+    with get_db() as conn:
+        query = "SELECT * FROM generated_audio WHERE 1=1"
+        params: List[Any] = []
+
+        if collection:
+            query += " AND collection = ?"
+            params.append(collection)
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        if client_id:
+            query += " AND client_id = ?"
+            params.append(client_id)
+        if campaign_id:
+            query += " AND campaign_id = ?"
+            params.append(campaign_id)
+
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        rows = conn.execute(query, params).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "prompt": row["prompt"],
+                "audio_url": _convert_to_full_url(row["audio_url"], base_url),
+                "model_id": row["model_id"],
+                "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                "collection": row["collection"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                "duration": row["duration"],
+                "brief_id": row["brief_id"],
+                "client_id": row["client_id"],
+                "campaign_id": row["campaign_id"]
+            }
+            for row in rows
+        ]
+
+def delete_audio(audio_id: int) -> bool:
+    """Delete an audio by ID."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM generated_audio WHERE id = ?",
+            (audio_id,)
         )
         conn.commit()
         return cursor.rowcount > 0

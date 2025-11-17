@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, validator
 from typing import Dict, Optional, List, Any, Union
 from datetime import timedelta
+from enum import Enum
 import uvicorn
 import os
 import hashlib
@@ -45,6 +46,11 @@ from .database import (
     get_image_by_id,
     list_images,
     delete_image,
+    save_generated_audio,
+    update_audio_status,
+    get_audio_by_id,
+    list_audio,
+    delete_audio,
     create_api_key,
     list_api_keys,
     revoke_api_key,
@@ -920,6 +926,14 @@ class ImageGenerationRequest(BaseModel):
             raise ValueError('At least one of prompt, asset_id, image_id, or video_id must be provided')
         return v
 
+class VideoModel(str, Enum):
+    SEEDANCE = "bytedance/seedance-1-lite"
+    KLING = "kwaivgi/kling-v2.1"
+
+class AudioModel(str, Enum):
+    MUSICGEN = "meta/musicgen"
+    RIFFUSION = "riffusion/riffusion"
+
 class VideoGenerationRequest(BaseModel):
     prompt: Optional[str] = None
     asset_id: Optional[str] = None  # Reference to uploaded asset
@@ -927,6 +941,7 @@ class VideoGenerationRequest(BaseModel):
     video_id: Optional[int] = None  # Reference to generated video (use thumbnail)
     client_id: Optional[str] = None  # For tracking ownership
     campaign_id: str  # Required - link to campaign
+    model: VideoModel = VideoModel.SEEDANCE  # Default to seedance-1-lite
 
     @validator('prompt', 'asset_id', 'image_id', 'video_id', always=True)
     def check_at_least_one(cls, v, values):
@@ -939,6 +954,13 @@ class VideoGenerationRequest(BaseModel):
         if not any([has_prompt, has_asset, has_image, has_video]):
             raise ValueError('At least one of prompt, asset_id, image_id, or video_id must be provided')
         return v
+
+class AudioGenerationRequest(BaseModel):
+    prompt: str  # Required for audio generation
+    client_id: Optional[str] = None  # For tracking ownership
+    campaign_id: str  # Required - link to campaign
+    model: AudioModel = AudioModel.MUSICGEN  # Default to MusicGen
+    duration: Optional[int] = 8  # Duration in seconds (default 8)
 
 class GenesisRenderRequest(BaseModel):
     scene: Scene
@@ -2854,6 +2876,66 @@ async def api_get_image(
         raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
     return image
 
+@app.get("/api/audio")
+async def api_get_audio(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    model_id: Optional[str] = None,
+    collection: Optional[str] = None,
+    client_id: Optional[str] = None,
+    campaign_id: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Get generated audio/music. Requires authentication.
+
+    Query parameters:
+    - limit: Maximum number of audio files to return (1-100, default: 50)
+    - offset: Number of audio files to skip (default: 0)
+    - model_id: Filter by model ID (e.g., 'meta/musicgen', 'riffusion/riffusion')
+    - collection: Filter by collection name
+    - client_id: Filter by client ID
+    - campaign_id: Filter by campaign ID
+    - status: Filter by status (processing, completed, failed, canceled)
+    """
+    audio_files = list_audio(
+        limit=limit,
+        offset=offset,
+        collection=collection,
+        status=status,
+        client_id=client_id,
+        campaign_id=campaign_id
+    )
+
+    # Additional model_id filtering (since list_audio doesn't support it yet)
+    if model_id:
+        audio_files = [a for a in audio_files if a.get("model_id") == model_id]
+
+    return {"audio": audio_files, "count": len(audio_files)}
+
+@app.get("/api/audio/{audio_id}")
+async def api_get_audio_by_id(
+    audio_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Get a specific audio by ID. Requires authentication."""
+    audio = get_audio_by_id(audio_id)
+    if not audio:
+        raise HTTPException(status_code=404, detail=f"Audio {audio_id} not found")
+    return audio
+
+@app.delete("/api/audio/{audio_id}")
+async def api_delete_audio(
+    audio_id: int,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Delete an audio by ID. Requires authentication."""
+    if delete_audio(audio_id):
+        return {"success": True, "message": f"Audio {audio_id} deleted"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete audio from database")
+
 @app.get("/api/images/{image_id}/data")
 async def api_get_image_data(
     image_id: int
@@ -4699,7 +4781,11 @@ async def generate_video(
     current_user: Dict = Depends(verify_auth)
 ):
     """
-    Generate a video using kling-v2.1 model.
+    Generate a video using the selected model (default: bytedance/seedance-1-lite).
+
+    Supports:
+    - bytedance/seedance-1-lite (default)
+    - kwaivgi/kling-v2.1
 
     Requires a start_image. If only a prompt is provided, an image will be auto-generated first.
     At least one of (prompt, asset_id, image_id, video_id) must be provided.
@@ -4809,27 +4895,44 @@ async def generate_video(
             video_id=gen_request.video_id
         )
 
-        # Build kling-v2.1 input parameters
-        kling_input = {
-            "prompt": gen_request.prompt or "high quality video",
-            "start_image": start_image_url,
-            "mode": "pro",
-            "duration": 5,
-            "negative_prompt": ""
-        }
+        # Build model-specific input parameters
+        model_id = gen_request.model.value
+
+        if gen_request.model == VideoModel.SEEDANCE:
+            # ByteDance Seedance-1-lite parameters
+            model_input = {
+                "prompt": gen_request.prompt or "high quality video",
+                "image": start_image_url,
+                "duration": 5,  # 2-12 seconds, default 5
+                "resolution": "720p",  # 480p, 720p, or 1080p
+                "aspect_ratio": "16:9",  # 16:9, 4:3, 1:1, 3:4, 9:16, 21:9, 9:21
+                "fps": 24,  # Fixed at 24fps
+                "camera_fixed": False,  # Whether to fix camera position
+            }
+        elif gen_request.model == VideoModel.KLING:
+            # Kling v2.1 parameters
+            model_input = {
+                "prompt": gen_request.prompt or "high quality video",
+                "start_image": start_image_url,
+                "mode": "pro",
+                "duration": 5,
+                "negative_prompt": ""
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported model: {gen_request.model}")
 
         # Call Replicate for video generation
         base_url = settings.BASE_URL
         use_webhooks = base_url.startswith("https://")
 
         payload = {
-            "input": kling_input,
+            "input": model_input,
         }
         if use_webhooks:
             payload["webhook"] = f"{base_url}/api/webhooks/replicate"
             payload["webhook_events_filter"] = ["completed"]
 
-        url = "https://api.replicate.com/v1/models/kwaivgi/kling-v2.1/predictions"
+        url = f"https://api.replicate.com/v1/models/{model_id}/predictions"
         headers = {
             "Authorization": f"Token {settings.REPLICATE_API_KEY}",
             "Content-Type": "application/json"
@@ -4841,10 +4944,10 @@ async def generate_video(
 
         # Save to database with client_id and campaign_id
         video_id = save_generated_video(
-            prompt=kling_input["prompt"],
+            prompt=model_input["prompt"],
             video_url="pending",
-            model_id="kwaivgi/kling-v2.1",
-            parameters=kling_input,
+            model_id=model_id,
+            parameters=model_input,
             collection=None,
             metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
             status="processing",
@@ -4859,8 +4962,8 @@ async def generate_video(
             video_id=video_id,
             prediction_url=prediction.get("urls", {}).get("get"),
             api_key=settings.REPLICATE_API_KEY,
-            model_id="kwaivgi/kling-v2.1",
-            input_params=kling_input,
+            model_id=model_id,
+            input_params=model_input,
             collection=None
         )
 
@@ -4878,6 +4981,101 @@ async def generate_video(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate video: {str(e)}")
+
+@app.post("/api/v2/generate/audio")
+@limiter.limit("10/minute")
+async def generate_audio(
+    request: Request,
+    gen_request: AudioGenerationRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """
+    Generate audio/music using the selected model (default: meta/musicgen).
+
+    Supports:
+    - meta/musicgen (default)
+    - riffusion/riffusion
+
+    Rate limit: 10 requests per minute per user
+    """
+    try:
+        # Build model-specific input parameters
+        model_id = gen_request.model.value
+
+        if gen_request.model == AudioModel.MUSICGEN:
+            # MusicGen parameters
+            model_input = {
+                "prompt": gen_request.prompt,
+                "model_version": "stereo-melody-large",
+                "duration": gen_request.duration or 8,
+                "temperature": 1,
+                "top_k": 250,
+                "top_p": 0,
+                "classifier_free_guidance": 3,
+                "output_format": "mp3"
+            }
+        elif gen_request.model == AudioModel.RIFFUSION:
+            # Riffusion parameters
+            model_input = {
+                "prompt_a": gen_request.prompt,
+                "denoising": 0.75,
+                "num_inference_steps": 50,
+                "seed_image_id": "vibes"
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported model: {gen_request.model}")
+
+        # Call Replicate for audio generation
+        base_url = settings.BASE_URL
+        use_webhooks = base_url.startswith("https://")
+
+        payload = {
+            "input": model_input,
+        }
+        if use_webhooks:
+            payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+            payload["webhook_events_filter"] = ["completed"]
+
+        url = f"https://api.replicate.com/v1/models/{model_id}/predictions"
+        headers = {
+            "Authorization": f"Token {settings.REPLICATE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        response = requests.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        prediction = response.json()
+
+        # Save to database with client_id and campaign_id
+        audio_id = save_generated_audio(
+            prompt=model_input.get("prompt") or model_input.get("prompt_a"),
+            audio_url="pending",
+            model_id=model_id,
+            parameters=model_input,
+            collection=None,
+            metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
+            status="processing",
+            brief_id=None,
+            client_id=gen_request.client_id,
+            campaign_id=gen_request.campaign_id,
+            duration=gen_request.duration
+        )
+
+        # Queue background processing (we'll reuse similar logic to video processing)
+        # For now, we'll create a simple polling mechanism
+        logger.info(f"Audio generation started: audio_id={audio_id}, model={model_id}, replicate_id={prediction['id']}")
+
+        # Return immediately with audio ID
+        return {"audio_id": audio_id, "status": "processing", "model": model_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating audio: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate audio: {str(e)}")
 
 @app.get("/api/v2/clients/{client_id}/generated-images")
 async def get_client_generated_images(

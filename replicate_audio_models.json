@@ -1,0 +1,252 @@
+{
+  "text_to_speech": [
+    {
+      "model": "minimax/speech-02-turbo",
+      "description": "Text-to-Audio (T2A) with voice synthesis, emotional expression, and multilingual capabilities",
+      "category": "TTS",
+      "features": ["fast", "emotion", "multilingual"]
+    },
+    {
+      "model": "minimax/speech-02-hd",
+      "description": "Optimized for high-fidelity audio like voiceovers and audiobooks",
+      "category": "TTS",
+      "features": ["high-quality", "voiceover"]
+    },
+    {
+      "model": "resemble-ai/chatterbox-multilingual",
+      "description": "Supports 23 languages with instant voice cloning",
+      "category": "Voice Cloning",
+      "features": ["multilingual", "voice-cloning", "23-languages"]
+    },
+    {
+      "model": "resemble-ai/chatterbox",
+      "description": "Expressive speech with emotion control and voice cloning",
+      "category": "Voice Cloning",
+      "features": ["emotion-control", "voice-cloning", "expressive"]
+    },
+    {
+      "model": "resemble-ai/chatterbox-pro",
+      "description": "Professional version of Chatterbox",
+      "category": "Voice Cloning",
+      "features": ["professional", "emotion-control", "voice-cloning"]
+    },
+    {
+      "model": "jaaari/kokoro-82m",
+      "description": "Kokoro v1.0 - text-to-speech (82M params, based on StyleTTS2)",
+      "category": "TTS",
+      "features": ["lightweight", "82M-params"]
+    },
+    {
+      "model": "minimax/voice-cloning",
+      "description": "Voice cloning model",
+      "category": "Voice Cloning",
+      "features": ["voice-cloning"]
+    },
+    {
+      "model": "zsxkib/dia",
+      "description": "TTS model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "lucataco/csm-1b",
+      "description": "TTS model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "lucataco/orpheus-3b-0.1-ft",
+      "description": "TTS model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "cjwbw/voicecraft",
+      "description": "Voice generation model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "fermatresearch/spanish-f5-tts",
+      "description": "Spanish TTS model",
+      "category": "TTS",
+      "features": ["spanish"]
+    },
+    {
+      "model": "x-lance/f5-tts",
+      "description": "F5 TTS model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "platform-kit/mars5-tts",
+      "description": "Mars5 TTS model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "chenxwh/openvoice",
+      "description": "OpenVoice TTS",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "cjwbw/parler-tts",
+      "description": "Parler TTS model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "adirik/styletts2",
+      "description": "StyleTTS2 model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "lucataco/pheme",
+      "description": "Pheme TTS model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "lucataco/xtts-v2",
+      "description": "XTTS v2 model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "zsxkib/realistic-voice-cloning",
+      "description": "Realistic voice cloning",
+      "category": "Voice Cloning",
+      "features": ["voice-cloning", "realistic"]
+    },
+    {
+      "model": "cjwbw/seamless_communication",
+      "description": "Seamless communication model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "awerks/neon-tts",
+      "description": "Neon TTS model",
+      "category": "TTS",
+      "features": []
+    },
+    {
+      "model": "suno-ai/bark",
+      "description": "Popular voice generation model",
+      "category": "TTS",
+      "features": ["popular"]
+    },
+    {
+      "model": "afiaka87/tortoise-tts",
+      "description": "Tortoise TTS model",
+      "category": "TTS",
+      "features": []
+    }
+  ],
+  "music_generation": [
+    {
+      "model": "google/lyria-2",
+      "description": "Produces 48kHz stereo audio through text-based prompts",
+      "category": "Music",
+      "features": ["48khz", "stereo", "text-to-music"]
+    },
+    {
+      "model": "minimax/music-1.5",
+      "description": "Full-length songs up to 4 minutes with vocals and instrumentation",
+      "category": "Music",
+      "features": ["vocals", "4-minutes", "full-songs"]
+    },
+    {
+      "model": "minimax/music-01",
+      "description": "Generates up to 1 minute of music with vocals in reference track style",
+      "category": "Music",
+      "features": ["vocals", "1-minute", "style-transfer"]
+    },
+    {
+      "model": "stability-ai/stable-audio-2.5",
+      "description": "Generate high-quality music and sound from text prompts",
+      "category": "Music",
+      "features": ["high-quality", "text-to-music"]
+    },
+    {
+      "model": "meta/musicgen",
+      "description": "Generate music from a prompt or melody",
+      "category": "Music",
+      "features": ["prompt", "melody-based"]
+    },
+    {
+      "model": "sakemin/musicgen-stereo-chord",
+      "description": "Music generation restricted to chord sequences and tempo",
+      "category": "Music",
+      "features": ["chord-based", "stereo"]
+    },
+    {
+      "model": "lucataco/ace-step",
+      "description": "Text-to-music foundation model",
+      "category": "Music",
+      "features": ["foundation-model"]
+    },
+    {
+      "model": "zsxkib/flux-music",
+      "description": "Text-to-music with Rectified Flow Transformer",
+      "category": "Music",
+      "features": ["flow-transformer"]
+    },
+    {
+      "model": "sakemin/musicgen-remixer",
+      "description": "Remix music into different styles",
+      "category": "Music",
+      "features": ["remix", "style-transfer"]
+    },
+    {
+      "model": "lucataco/magnet",
+      "description": "Masked audio generation using transformer",
+      "category": "Music",
+      "features": ["transformer", "masked-generation"]
+    },
+    {
+      "model": "sakemin/musicgen-chord",
+      "description": "Music generation restricted to chord sequences",
+      "category": "Music",
+      "features": ["chord-based"]
+    },
+    {
+      "model": "riffusion/riffusion",
+      "description": "Stable diffusion for real-time music generation",
+      "category": "Music",
+      "features": ["real-time", "stable-diffusion"]
+    }
+  ],
+  "video_to_audio": [
+    {
+      "model": "zsxkib/mmaudio",
+      "description": "Add contextual audio to videos",
+      "category": "Video-to-Audio",
+      "features": ["video-synthesis", "contextual"]
+    }
+  ],
+  "sound_effects": [
+    {
+      "model": "haoheliu/audio-ldm",
+      "description": "Text-to-audio with latent diffusion",
+      "category": "Sound Effects",
+      "features": ["text-to-audio", "latent-diffusion"]
+    }
+  ],
+  "recommendations": {
+    "ad_voiceovers": ["minimax/speech-02-hd", "resemble-ai/chatterbox-pro"],
+    "background_music": ["minimax/music-1.5", "stability-ai/stable-audio-2.5"],
+    "character_voices": ["resemble-ai/chatterbox", "suno-ai/bark"],
+    "sound_effects": ["haoheliu/audio-ldm"],
+    "video_audio": ["zsxkib/mmaudio"],
+    "fast_tts": ["minimax/speech-02-turbo"],
+    "voice_cloning": ["resemble-ai/chatterbox", "zsxkib/realistic-voice-cloning"]
+  },
+  "metadata": {
+    "last_updated": "2025-11-17",
+    "total_models": 41,
+    "source": "Replicate API Collections"
+  }
+}

@@ -7,12 +7,20 @@ from typing import Optional, Dict, Any
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
-from .database import (
-    get_user_by_username,
-    update_user_last_login,
-    get_api_key_by_hash,
-    update_api_key_last_used
-)
+try:
+    from .database import (
+        get_user_by_username,
+        update_user_last_login,
+        get_api_key_by_hash,
+        update_api_key_last_used
+    )
+except ImportError:
+    from database import (
+        get_user_by_username,
+        update_user_last_login,
+        get_api_key_by_hash,
+        update_api_key_last_used
+    )
 
 # Configuration
 SECRET_KEY = os.getenv("SECRET_KEY", secrets.token_urlsafe(32))

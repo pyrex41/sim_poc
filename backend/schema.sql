@@ -220,6 +220,35 @@ CREATE INDEX IF NOT EXISTS idx_videos_model ON generated_videos(model_id);
 CREATE INDEX IF NOT EXISTS idx_videos_client ON generated_videos(client_id);
 CREATE INDEX IF NOT EXISTS idx_videos_campaign ON generated_videos(campaign_id);
 
+CREATE TABLE IF NOT EXISTS generated_audio (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prompt TEXT NOT NULL,
+    audio_url TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    parameters TEXT NOT NULL,
+    status TEXT DEFAULT 'completed',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    collection TEXT,
+    metadata TEXT,
+    download_attempted BOOLEAN DEFAULT 0,
+    download_retries INTEGER DEFAULT 0,
+    download_error TEXT,
+    audio_data BLOB,
+    duration REAL,
+    brief_id TEXT,
+    client_id TEXT,
+    campaign_id TEXT,
+    FOREIGN KEY (brief_id) REFERENCES creative_briefs(id),
+    FOREIGN KEY (client_id) REFERENCES clients(id),
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_audio_created_at ON generated_audio(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audio_model ON generated_audio(model_id);
+CREATE INDEX IF NOT EXISTS idx_audio_brief ON generated_audio(brief_id);
+CREATE INDEX IF NOT EXISTS idx_audio_client ON generated_audio(client_id);
+CREATE INDEX IF NOT EXISTS idx_audio_campaign ON generated_audio(campaign_id);
+
 CREATE TABLE IF NOT EXISTS genesis_videos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     scene_data TEXT NOT NULL,
