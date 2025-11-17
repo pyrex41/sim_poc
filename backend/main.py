@@ -3038,30 +3038,78 @@ async def upload_asset_v2(
 
     # Generate unique asset ID
     asset_id = str(uuid.uuid4())
-
-    # Create consolidated upload directory
     user_id = current_user["id"]
-    uploads_base = Path(__file__).parent / "DATA" / "assets"
-    uploads_base.mkdir(parents=True, exist_ok=True)
 
-    # Create file path
-    filename = f"{asset_id}{file_ext}"
-    file_path = uploads_base / filename
+    logger.info(f"Asset upload started: {asset_id} ({size_bytes} bytes) by user {user_id}")
 
-    # Save file
+    # Extract metadata from bytes (use temp file only for video/audio which need ffprobe)
+    metadata = {}
+    temp_file_path = None
+
     try:
-        with open(file_path, "wb") as f:
-            f.write(contents)
+        # Determine asset type from content type
+        from backend.asset_metadata import determine_asset_type, get_file_format
 
-        logger.info(f"Asset uploaded: {file_path} ({size_bytes} bytes) by user {user_id}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+        file_format = get_file_format("", file.content_type)
+        if file_ext:
+            file_format = file_ext.lstrip('.')
 
-    # Extract metadata from the file
-    try:
-        metadata = extract_file_metadata(str(file_path), file.content_type)
+        inferred_asset_type = determine_asset_type(file.content_type, file_format)
+
+        metadata = {
+            'asset_type': inferred_asset_type,
+            'format': file_format,
+            'size': size_bytes
+        }
+
+        # Extract type-specific metadata
+        if inferred_asset_type == 'image':
+            # Extract image metadata from bytes using PIL
+            try:
+                from PIL import Image
+                from io import BytesIO
+
+                img = Image.open(BytesIO(contents))
+                width, height = img.size
+                metadata['width'] = width
+                metadata['height'] = height
+                img.close()
+                logger.info(f"Extracted image metadata: {width}x{height}")
+            except Exception as e:
+                logger.warning(f"Failed to extract image metadata: {e}")
+
+        elif inferred_asset_type in ['video', 'audio']:
+            # For video/audio, we need a temp file for ffprobe
+            # Create temp file, extract metadata, then delete
+            import tempfile
+
+            try:
+                with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as temp_file:
+                    temp_file.write(contents)
+                    temp_file_path = temp_file.name
+
+                # Extract metadata using the temp file
+                if inferred_asset_type == 'video':
+                    from backend.asset_metadata import extract_video_metadata
+                    video_meta = extract_video_metadata(temp_file_path)
+                    metadata.update(video_meta)
+                    logger.info(f"Extracted video metadata: {video_meta}")
+                else:  # audio
+                    from backend.asset_metadata import extract_audio_metadata
+                    audio_meta = extract_audio_metadata(temp_file_path)
+                    metadata.update(audio_meta)
+                    logger.info(f"Extracted audio metadata: {audio_meta}")
+
+            except Exception as e:
+                logger.warning(f"Failed to extract {inferred_asset_type} metadata: {e}")
+            finally:
+                # Clean up temp file
+                if temp_file_path and Path(temp_file_path).exists():
+                    Path(temp_file_path).unlink()
+                    temp_file_path = None
+
     except Exception as e:
-        logger.warning(f"Failed to extract metadata: {e}")
+        logger.warning(f"Metadata extraction failed: {e}")
         metadata = {
             'asset_type': 'document',
             'format': file_ext.lstrip('.'),
@@ -3071,25 +3119,17 @@ async def upload_asset_v2(
     # Use provided type parameter if given, otherwise use inferred type (fallback to 'document')
     asset_type = type if type else metadata.get('asset_type', 'document')
 
-    # Generate thumbnail for videos
+    # Note: Thumbnail generation for videos is skipped in blob-only mode
+    # Videos are stored entirely in database, thumbnails would require complex temp file handling
+    # TODO: Implement thumbnail extraction from blob_data if needed
     thumbnail_url = None
-    if asset_type == 'video':
-        try:
-            thumbnail_filename = f"{asset_id}_thumb.jpg"
-            thumbnail_path = uploads_base / thumbnail_filename
-            if generate_video_thumbnail(str(file_path), str(thumbnail_path)):
-                base_url = settings.BASE_URL
-                thumbnail_url = f"{base_url}/api/v2/assets/{asset_id}/thumbnail"
-                logger.info(f"Video thumbnail generated: {thumbnail_path}")
-        except Exception as e:
-            logger.warning(f"Failed to generate video thumbnail: {e}")
 
     # Determine display name
-    display_name = name or file.filename or filename
+    display_name = name or file.filename or (f"{asset_id}{file_ext}")
 
-    # Save to database using new consolidated assets table
+    # Save to database with blob storage (NO filesystem storage)
     base_url = settings.BASE_URL
-    asset_url = f"{base_url}/api/v2/assets/{asset_id}"
+    asset_url = f"{base_url}/api/v2/assets/{asset_id}/data"  # Serve from blob endpoint
 
     try:
         db_asset_id = create_asset(
@@ -3108,15 +3148,15 @@ async def upload_asset_v2(
             thumbnail_url=thumbnail_url,
             waveform_url=None,  # TODO: Implement waveform generation for audio
             page_count=metadata.get('pageCount'),
-            asset_id=asset_id  # Pass the pre-generated asset_id so file and DB match
+            asset_id=asset_id,  # Pass the pre-generated asset_id
+            blob_data=contents  # CRITICAL: Store file contents in database BLOB
         )
+
+        logger.info(f"Asset saved to database: {asset_id} (blob: {len(contents)} bytes)")
     except Exception as e:
-        # Clean up file if database save fails
-        if file_path.exists():
-            file_path.unlink()
-        if thumbnail_url and Path(uploads_base / f"{asset_id}_thumb.jpg").exists():
-            Path(uploads_base / f"{asset_id}_thumb.jpg").unlink()
-        raise HTTPException(status_code=500, detail=f"Failed to save asset metadata: {str(e)}")
+        # No filesystem cleanup needed - everything is in memory/database
+        logger.error(f"Failed to save asset to database: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save asset: {str(e)}")
 
     # Fetch the created asset to return full discriminated union object
     from backend.database_helpers import get_asset_by_id as get_asset_by_id_helper
@@ -3127,24 +3167,24 @@ async def upload_asset_v2(
 
     return created_asset
 
-@app.get("/api/v2/assets/{asset_id}", tags=["Asset Management"])
-async def get_asset_v2(
+@app.get("/api/v2/assets/{asset_id}/data", tags=["Asset Management"])
+async def get_asset_data_v2(
     asset_id: str,
     current_user: Dict = Depends(verify_auth)
 ):
     """
-    Serve an uploaded asset file.
-    Requires authentication - only asset owner can access.
+    Serve uploaded asset binary data from database blob storage.
 
-    For public asset sharing (e.g., in campaigns), consider implementing
-    a separate public endpoint with signed URLs or access tokens.
+    This endpoint serves assets stored entirely in the database (blob_data column).
+    NO filesystem storage - all assets are stored as BLOBs.
+
+    Requires authentication - only asset owner can access.
     """
-    from fastapi.responses import FileResponse
-    import mimetypes
+    from fastapi.responses import Response
     from backend.database_helpers import get_asset_by_id as get_asset_helper
 
-    # Get asset metadata from new assets table
-    asset = get_asset_helper(asset_id)
+    # Get asset metadata AND blob data from database
+    asset = get_asset_helper(asset_id, include_blob=True)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
@@ -3152,15 +3192,21 @@ async def get_asset_v2(
     if asset.userId != str(current_user["id"]):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Security: Validate and sanitize file format (prevents path traversal)
-    format_clean = validate_and_sanitize_format(asset.format)
+    # Get blob data from database
+    from backend.database import get_db
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT blob_data FROM assets WHERE id = ?",
+            (asset_id,)
+        ).fetchone()
 
-    # Construct file path with sanitized format
-    uploads_base = Path(__file__).parent / "DATA" / "assets"
-    file_path = uploads_base / f"{asset_id}.{format_clean}"
+        if not row or not row["blob_data"]:
+            raise HTTPException(
+                status_code=404,
+                detail="Asset binary data not found in database. Asset may have been uploaded before blob storage migration."
+            )
 
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Asset file not found on disk")
+        blob_data = row["blob_data"]
 
     # Determine media type from asset type and format
     type_map = {
@@ -3170,20 +3216,32 @@ async def get_asset_v2(
         'document': 'application'
     }
     base_type = type_map.get(asset.type, 'application')
-    media_type = f"{base_type}/{format_clean}"
 
-    # Special cases
-    if format_clean == 'jpg' or format_clean == 'jpeg':
-        media_type = 'image/jpeg'
-    elif format_clean == 'pdf':
-        media_type = 'application/pdf'
-    elif format_clean == 'mp3':
-        media_type = 'audio/mpeg'
+    # Format-specific media types
+    format_lower = asset.format.lower()
+    media_type_map = {
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'gif': 'image/gif',
+        'webp': 'image/webp',
+        'mp4': 'video/mp4',
+        'mov': 'video/quicktime',
+        'mp3': 'audio/mpeg',
+        'wav': 'audio/wav',
+        'pdf': 'application/pdf',
+    }
 
-    return FileResponse(
-        path=str(file_path),
+    media_type = media_type_map.get(format_lower, f"{base_type}/{format_lower}")
+
+    # Return binary data with appropriate headers
+    return Response(
+        content=blob_data,
         media_type=media_type,
-        filename=asset.name
+        headers={
+            "Content-Disposition": f'inline; filename="{asset.name}"',
+            "Cache-Control": "public, max-age=31536000",  # Cache for 1 year
+        }
     )
 
 
