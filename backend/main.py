@@ -174,18 +174,26 @@ def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str)
 
     # Check common image formats
     if claimed_type.startswith('image/'):
+        # PNG: starts with \x89PNG
         if header.startswith(b'\x89PNG'):
-            return claimed_type in ['image/png']
+            return claimed_type in ['image/png', 'image/x-png']
+        # JPEG: starts with \xff\xd8\xff
         elif header.startswith(b'\xff\xd8\xff'):
-            return claimed_type in ['image/jpeg', 'image/jpg']
+            return claimed_type in ['image/jpeg', 'image/jpg', 'image/pjpeg']
+        # GIF
         elif header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):
             return claimed_type in ['image/gif']
-        elif b'WEBP' in header[:16]:
+        # WebP: RIFF....WEBP
+        elif header.startswith(b'RIFF') and b'WEBP' in header[:16]:
             return claimed_type in ['image/webp']
+        # SVG
         elif header.startswith(b'<?xml') or header.startswith(b'<svg'):
             return claimed_type in ['image/svg+xml', 'image/svg']
         else:
-            logger.warning(f"Unknown image magic bytes for claimed type {claimed_type}: {header[:16].hex()}")
+            # Log the actual bytes to help debug
+            logger.warning(f"Unknown image magic bytes for claimed type {claimed_type}")
+            logger.warning(f"  Hex: {header[:16].hex()}")
+            logger.warning(f"  ASCII: {header[:16]}")
             return False
 
     # Check video formats
@@ -3005,6 +3013,10 @@ async def upload_asset_v2(
         contents = await file.read()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
+
+    # Log upload details for debugging
+    logger.info(f"Upload: filename={file.filename}, content_type={file.content_type}, size={len(contents)} bytes")
+    logger.info(f"First 16 bytes (hex): {contents[:16].hex()}")
 
     # Security: Validate file type with magic bytes (prevents file type spoofing)
     if not validate_file_type_with_magic_bytes(contents, file.content_type):
