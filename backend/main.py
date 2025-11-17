@@ -3403,9 +3403,8 @@ async def list_assets_v2(
     """
     from backend.database_helpers import list_assets as list_assets_helper
 
-    # Get filtered assets
+    # Get filtered assets (no user filter - all dev team can access)
     assets = list_assets_helper(
-        user_id=current_user["id"],
         client_id=clientId,
         campaign_id=campaignId,
         asset_type=asset_type,
