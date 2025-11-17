@@ -3339,12 +3339,11 @@ async def api_get_audio_model_schema(model_owner: str, model_name: str):
         properties = input_schema.get("properties", {})
         required = input_schema.get("required", [])
 
+        # Return schema with version ID for reliable predictions (matching video endpoint format)
         return {
-            "input_schema": {
-                "properties": properties,
-                "required": required,
-                "version_id": version_id
-            }
+            "input_schema": properties,
+            "required": required,
+            "version": version_id  # Include version ID for predictions
         }
     except Exception as e:
         print(f"Error fetching schema for audio model {model_owner}/{model_name}: {str(e)}")
