@@ -906,6 +906,13 @@ class RunImageRequest(BaseModel):
     version: Optional[str] = None  # Model version ID for reliable predictions
     brief_id: Optional[str] = None  # Link to creative brief for context
 
+class RunAudioRequest(BaseModel):
+    model_id: str
+    input: Dict[str, Any]  # Accepts strings, numbers, bools, etc.
+    collection: Optional[str] = None
+    version: Optional[str] = None  # Model version ID for reliable predictions
+    brief_id: Optional[str] = None  # Link to creative brief for context
+
 class ImageGenerationRequest(BaseModel):
     prompt: Optional[str] = None
     asset_id: Optional[str] = None  # Reference to uploaded asset
@@ -2762,6 +2769,174 @@ async def api_run_image_model(
         raise
     except Exception as e:
         print(f"Error initiating image generation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@app.post("/api/run-audio-model")
+async def api_run_audio_model(
+    request: RunAudioRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Initiate audio generation and return immediately with an audio ID. Requires authentication.
+
+    This endpoint handles all audio generation models from Replicate collections:
+    - ai-music-generation (music generation models)
+    - text-to-speech (TTS models)
+
+    Note: Input validation is handled by the frontend (Elm) which validates required fields
+    against the model schema before submission. Replicate API also validates and will return
+    clear error messages if inputs are invalid.
+    """
+    try:
+        if not ai_client:
+            # Demo response - create a pending audio
+            audio_id = save_generated_audio(
+                prompt=request.input.get("prompt", ""),
+                audio_url="",
+                model_id=request.model_id,
+                parameters=request.input,
+                collection=request.collection,
+                status="processing"
+            )
+            return {"audio_id": audio_id, "status": "processing"}
+
+        # Basic validation: ensure we have at least a prompt parameter
+        if not request.input.get("prompt") and not request.input.get("text"):
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required input: must provide either 'prompt' or 'text'"
+            )
+
+        headers = {
+            "Authorization": f"Bearer {ai_client['api_key']}",
+            "Content-Type": "application/json"
+        }
+
+        # Convert parameter types (string to int/float where appropriate)
+        converted_input = {}
+        for key, value in request.input.items():
+            if isinstance(value, str):
+                # Skip empty strings
+                if not value.strip():
+                    continue
+
+                # Try to convert to int
+                try:
+                    converted_input[key] = int(value)
+                    continue
+                except ValueError:
+                    pass
+
+                # Try to convert to float
+                try:
+                    converted_input[key] = float(value)
+                    continue
+                except ValueError:
+                    pass
+
+                # Keep as string
+                converted_input[key] = value
+            else:
+                converted_input[key] = value
+
+        # Get the base URL for webhooks
+        base_url = settings.BASE_URL
+
+        # Only use webhooks if we have an HTTPS URL (production)
+        use_webhooks = base_url.startswith("https://")
+
+        # Create prediction using HTTP API
+        if request.version:
+            payload = {
+                "version": request.version,
+                "input": converted_input,
+            }
+            if use_webhooks:
+                payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+                payload["webhook_events_filter"] = ["completed"]
+            url = "https://api.replicate.com/v1/predictions"
+            print(f"DEBUG: Sending to Replicate API (version-based) for audio:")
+            print(f"  Model: {request.model_id}")
+            print(f"  Version: {request.version}")
+        else:
+            payload = {
+                "input": converted_input,
+            }
+            if use_webhooks:
+                payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+                payload["webhook_events_filter"] = ["completed"]
+            url = f"https://api.replicate.com/v1/models/{request.model_id}/predictions"
+            print(f"DEBUG: Sending to Replicate API (model-based) for audio:")
+            print(f"  Model: {request.model_id}")
+
+        print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
+        if use_webhooks:
+            print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
+        else:
+            print(f"  Webhook: Disabled (local development - using polling only)")
+
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+
+        # Log the detailed error if request fails
+        if response.status_code != 201:
+            error_detail = response.text
+            print(f"Replicate API Error ({response.status_code}): {error_detail}")
+
+            try:
+                error_json = response.json()
+                error_msg = error_json.get("detail", error_detail)
+            except:
+                error_msg = error_detail
+
+            raise HTTPException(status_code=400, detail=f"Replicate API error: {error_msg}")
+
+        result = response.json()
+
+        # Get the prediction URL
+        prediction_url = result.get("urls", {}).get("get")
+        if not prediction_url:
+            raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
+
+        # Get prompt from input
+        prompt = request.input.get("prompt") or request.input.get("text", "")
+        metadata = {"replicate_id": result.get("id"), "prediction_url": prediction_url}
+
+        if request.brief_id:
+            metadata["brief_id"] = request.brief_id
+
+        # Create audio record with "processing" status
+        audio_id = save_generated_audio(
+            prompt=prompt,
+            audio_url="",  # Will be filled in when complete and downloaded
+            model_id=request.model_id,
+            parameters=request.input,
+            collection=request.collection,
+            status="processing",
+            metadata=metadata,
+            brief_id=request.brief_id
+        )
+
+        # Start background task to poll for completion (fallback if webhook fails)
+        background_tasks.add_task(
+            process_audio_generation_background,
+            audio_id=audio_id,
+            prediction_url=prediction_url,
+            api_key=ai_client['api_key'],
+            model_id=request.model_id,
+            input_params=request.input,
+            collection=request.collection
+        )
+
+        # Return immediately with audio ID
+        return {"audio_id": audio_id, "status": "processing"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error initiating audio generation: {str(e)}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

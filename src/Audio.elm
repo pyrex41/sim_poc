@@ -607,7 +607,7 @@ generateAudio modelId parameters collection maybeVersion =
     in
     -- Cookies are sent automatically, no need for Authorization header
     Http.post
-        { url = "/api/v2/generate/audio"
+        { url = "/api/run-audio-model"
         , body = Http.jsonBody (Encode.object requestFields)
         , expect = Http.expectJson AudioGenerated audioResponseDecoder
         }
