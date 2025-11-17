@@ -35,6 +35,47 @@ def run_migrations():
     conn.row_factory = sqlite3.Row
 
     try:
+        # STEP 1: Add missing columns to existing tables
+        # These ALTER TABLE statements are idempotent - they'll fail silently if column exists
+        print("Running pre-migration column additions...")
+
+        # Add client_id and campaign_id to generated_images if missing
+        try:
+            conn.execute("ALTER TABLE generated_images ADD COLUMN client_id TEXT")
+            print("  ✓ Added client_id to generated_images")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_images ADD COLUMN campaign_id TEXT")
+            print("  ✓ Added campaign_id to generated_images")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Add client_id and campaign_id to generated_videos if missing
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN client_id TEXT")
+            print("  ✓ Added client_id to generated_videos")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN campaign_id TEXT")
+            print("  ✓ Added campaign_id to generated_videos")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Add blob_data to assets if missing
+        try:
+            conn.execute("ALTER TABLE assets ADD COLUMN blob_data BLOB")
+            print("  ✓ Added blob_data to assets")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        conn.commit()
+        print("✓ Pre-migration column additions complete")
+
+        # STEP 2: Execute main schema
         # Execute schema using executescript for proper multi-statement handling
         # executescript handles triggers, transactions, etc. properly
         conn.executescript(schema_sql)
