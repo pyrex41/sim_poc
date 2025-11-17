@@ -1884,10 +1884,11 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
             print("No replicate_id in webhook")
             return {"status": "ignored"}
 
-        # Find the video or image by replicate_id in metadata
+        # Find the video, image, or audio by replicate_id in metadata
         from .database import get_db
         video_id = None
         image_id = None
+        audio_id = None
 
         with get_db() as conn:
             # Check videos first
@@ -1913,9 +1914,21 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
 
                 if row:
                     image_id = row["id"]
+                else:
+                    # Check audio
+                    row = conn.execute(
+                        """
+                        SELECT id FROM generated_audio
+                        WHERE json_extract(metadata, '$.replicate_id') = ?
+                        """,
+                        (replicate_id,)
+                    ).fetchone()
 
-            if not video_id and not image_id:
-                print(f"No video or image found for replicate_id: {replicate_id}")
+                    if row:
+                        audio_id = row["id"]
+
+            if not video_id and not image_id and not audio_id:
+                print(f"No video, image, or audio found for replicate_id: {replicate_id}")
                 return {"status": "ignored"}
 
         if video_id:
@@ -2000,6 +2013,55 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 error = request.get("error", "Unknown error")
                 update_image_status(
                     image_id=image_id,
+                    status=status,
+                    metadata={"error": error, "replicate_id": replicate_id}
+                )
+
+        elif audio_id:
+            print(f"Found audio_id: {audio_id} for replicate_id: {replicate_id}")
+
+            if status == "succeeded" and output:
+                # Get audio URL from output (handle different formats)
+                audio_url = None
+                if isinstance(output, str):
+                    audio_url = output
+                elif isinstance(output, list) and len(output) > 0:
+                    audio_url = output[0]
+                elif isinstance(output, dict):
+                    audio_url = output.get("audio") or output.get("file") or output.get("output")
+
+                if audio_url:
+                    # Download and save audio in background with race condition prevention
+                    def download_audio_task():
+                        from .database import mark_audio_download_attempted, mark_audio_download_failed
+
+                        # Prevent race condition: check if download already attempted
+                        if not mark_audio_download_attempted(audio_id):
+                            print(f"Audio {audio_id} download already attempted by another process (webhook), skipping")
+                            return
+
+                        try:
+                            db_url = download_and_save_audio(audio_url, audio_id)
+                            # Update database with DB URL
+                            update_audio_status(
+                                audio_id=audio_id,
+                                status="completed",
+                                audio_url=db_url,
+                                metadata={"replicate_id": replicate_id, "original_url": audio_url}
+                            )
+                            print(f"Audio {audio_id} saved to database via webhook")
+                        except Exception as e:
+                            # Download failed after all retries - mark as permanently failed
+                            error_msg = f"Failed to download audio after retries: {str(e)}"
+                            print(f"Webhook: {error_msg}")
+                            mark_audio_download_failed(audio_id, error_msg)
+
+                    background_tasks.add_task(download_audio_task)
+
+            elif status in ["failed", "canceled"]:
+                error = request.get("error", "Unknown error")
+                update_audio_status(
+                    audio_id=audio_id,
                     status=status,
                     metadata={"error": error, "replicate_id": replicate_id}
                 )
@@ -2352,6 +2414,137 @@ def process_image_generation_background(
         # Update database with error
         update_image_status(
             image_id=image_id,
+            status="failed",
+            metadata={"error": str(e)}
+        )
+
+def process_audio_generation_background(
+    audio_id: int,
+    prediction_url: str,
+    api_key: str,
+    model_id: str,
+    input_params: dict,
+    collection: str
+):
+    """Background task to poll Replicate for audio generation completion."""
+    import time
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    prompt = input_params.get("prompt", "")
+    max_attempts = 180  # 6 minutes (2 seconds * 180) - audio generation can take longer
+
+    try:
+        for attempt in range(max_attempts):
+            pred_response = requests.get(prediction_url, headers=headers)
+            pred_response.raise_for_status()
+            pred_data = pred_response.json()
+
+            status = pred_data.get("status")
+
+            if status == "succeeded":
+                output = pred_data.get("output")
+
+                # Handle different output formats
+                audio_url = None
+                if isinstance(output, str):
+                    audio_url = output
+                elif isinstance(output, list) and len(output) > 0:
+                    audio_url = output[0]
+                elif isinstance(output, dict):
+                    # Some models return output as dict with 'audio' or 'file' key
+                    audio_url = output.get("audio") or output.get("file") or output.get("output")
+
+                if audio_url:
+                    # Prevent race condition: check if download already attempted
+                    from .database import mark_audio_download_attempted, mark_audio_download_failed
+
+                    if not mark_audio_download_attempted(audio_id):
+                        print(f"Audio {audio_id} download already attempted by another process, skipping")
+                        return
+
+                    # Download and save audio to database
+                    try:
+                        db_url = download_and_save_audio(audio_url, audio_id)
+
+                        # Extract duration if available
+                        duration = pred_data.get("metrics", {}).get("predict_time")
+
+                        metadata = {
+                            "replicate_id": pred_data.get("id"),
+                            "prediction_url": prediction_url,
+                            "original_url": audio_url,
+                            "metrics": pred_data.get("metrics", {})
+                        }
+
+                        # Update database with completed audio
+                        update_audio_status(
+                            audio_id=audio_id,
+                            status="completed",
+                            audio_url=db_url,
+                            metadata=metadata
+                        )
+                        print(f"Audio {audio_id} completed successfully")
+                        return
+
+                    except Exception as e:
+                        # Download failed after all retries - mark as permanently failed
+                        error_msg = f"Failed to download audio after retries: {str(e)}"
+                        print(error_msg)
+                        mark_audio_download_failed(audio_id, error_msg)
+                        return
+                else:
+                    # No audio URL in response
+                    metadata = {
+                        "replicate_id": pred_data.get("id"),
+                        "prediction_url": prediction_url,
+                        "error": "No audio URL in Replicate response"
+                    }
+                    update_audio_status(
+                        audio_id=audio_id,
+                        status="failed",
+                        metadata=metadata
+                    )
+                    print(f"Audio {audio_id} failed: no output URL")
+                    return
+
+            elif status in ["failed", "canceled"]:
+                error = pred_data.get("error", "Unknown error")
+                metadata = {
+                    "error": error,
+                    "replicate_id": pred_data.get("id")
+                }
+
+                # Update database with failure
+                update_audio_status(
+                    audio_id=audio_id,
+                    status=status,
+                    metadata=metadata
+                )
+                print(f"Audio {audio_id} {status}: {error}")
+                return
+
+            time.sleep(2)
+
+        # Timeout
+        update_audio_status(
+            audio_id=audio_id,
+            status="timeout",
+            metadata={"error": "Audio generation timed out"}
+        )
+        print(f"Audio {audio_id} timed out")
+
+    except Exception as e:
+        print(f"Error processing audio {audio_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+        # Update database with error
+        update_audio_status(
+            audio_id=audio_id,
             status="failed",
             metadata={"error": str(e)}
         )
@@ -2725,7 +2918,7 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
             from .database import get_db
             with get_db() as conn:
                 conn.execute(
-                    "UPDATE generated_images SET image_data = ? WHERE id = ?",
+                    "UPDATE generated_images SET image_data = ?, status = 'completed' WHERE id = ?",
                     (bytes(image_binary_data), image_id)
                 )
                 conn.commit()
@@ -2762,6 +2955,104 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
 
     # All retries failed
     raise Exception(f"Failed to download image after {max_retries} attempts. Last error: {str(last_error)}")
+
+def download_and_save_audio(audio_url: str, audio_id: int, max_retries: int = 3) -> str:
+    """
+    Download an audio file from Replicate and save it locally with retry logic.
+
+    Args:
+        audio_url: URL of the audio file to download
+        audio_id: ID of the audio in the database
+        max_retries: Maximum number of download attempts (default: 3)
+
+    Returns:
+        str: Local database URL of the downloaded audio
+    """
+    import time
+    from .database import increment_audio_download_retries
+
+    audio_dir = Path(__file__).parent / "DATA" / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine file extension from URL
+    ext = ".mp3"  # Default extension
+    if "." in audio_url:
+        url_ext = audio_url.split(".")[-1].split("?")[0].lower()
+        if url_ext in ["mp3", "wav", "ogg", "m4a", "flac"]:
+            ext = f".{url_ext}"
+
+    filename = f"audio_{audio_id}{ext}"
+    file_path = audio_dir / filename
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            print(f"Downloading audio {audio_id} (attempt {attempt + 1}/{max_retries}): {audio_url}")
+
+            # Download with timeout
+            response = requests.get(audio_url, timeout=120, stream=True)
+            response.raise_for_status()
+
+            # Verify it's an audio file
+            content_type = response.headers.get("content-type", "")
+            if not (content_type.startswith("audio/") or content_type == "application/octet-stream"):
+                raise ValueError(f"Invalid content type: {content_type}, expected audio/*")
+
+            # Download to temp file and collect binary data
+            audio_binary_data = bytearray()
+            with open(file_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+                    audio_binary_data.extend(chunk)
+
+            # Verify file was created and has content
+            if not file_path.exists():
+                raise FileNotFoundError(f"File was not created: {file_path}")
+
+            file_size = file_path.stat().st_size
+            if file_size == 0:
+                raise ValueError("Downloaded audio file is empty")
+
+            # Store binary data in database
+            from .database import get_db
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE generated_audio SET audio_data = ?, status = 'completed' WHERE id = ?",
+                    (bytes(audio_binary_data), audio_id)
+                )
+                conn.commit()
+
+            # Delete temp file - we only store in database now
+            file_path.unlink()
+
+            print(f"Audio {audio_id} downloaded successfully: {file_size} bytes stored in DB")
+            # Return a database URL instead of file path
+            base_url = os.getenv("BASE_URL", "").strip()
+            if base_url:
+                return f"{base_url}/api/audio/{audio_id}/data"
+            else:
+                return f"/api/audio/{audio_id}/data"
+
+        except Exception as e:
+            last_error = e
+            print(f"Audio {audio_id} download attempt {attempt + 1} failed: {str(e)}")
+
+            # Clean up partial file if it exists
+            if file_path.exists():
+                file_path.unlink()
+
+            # Increment retry counter in database
+            retry_count = increment_audio_download_retries(audio_id)
+            print(f"Audio {audio_id} retry count: {retry_count}")
+
+            # Wait before retrying (exponential backoff)
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # 1s, 2s, 4s, etc.
+                print(f"Waiting {wait_time}s before retry...")
+                time.sleep(wait_time)
+
+    # All retries failed
+    raise Exception(f"Failed to download audio after {max_retries} attempts. Last error: {str(last_error)}")
 
 @app.get("/api/images")
 async def api_get_images(
@@ -2935,6 +3226,41 @@ async def api_delete_audio(
         return {"success": True, "message": f"Audio {audio_id} deleted"}
     else:
         raise HTTPException(status_code=500, detail="Failed to delete audio from database")
+
+@app.get("/api/audio/{audio_id}/data")
+async def api_get_audio_data(
+    audio_id: int
+):
+    """Get the binary audio data from database. Public endpoint for audio playback."""
+    from .database import get_db
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT audio_data, model_id FROM generated_audio WHERE id = ?",
+            (audio_id,)
+        ).fetchone()
+
+        if not row or not row["audio_data"]:
+            raise HTTPException(status_code=404, detail=f"Audio data not found for ID {audio_id}")
+
+        # Determine media type from model or default to mp3
+        media_type = "audio/mpeg"  # Default to MP3
+        model_id = row.get("model_id", "")
+
+        # Riffusion might output WAV, MusicGen outputs MP3
+        if "riffusion" in model_id.lower():
+            media_type = "audio/wav"
+
+        # Return binary audio data
+        from fastapi.responses import Response
+        return Response(
+            content=row["audio_data"],
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f"inline; filename=audio_{audio_id}.mp3",
+                "Accept-Ranges": "bytes"
+            }
+        )
 
 @app.get("/api/images/{image_id}/data")
 async def api_get_image_data(
@@ -5062,8 +5388,17 @@ async def generate_audio(
             duration=gen_request.duration
         )
 
-        # Queue background processing (we'll reuse similar logic to video processing)
-        # For now, we'll create a simple polling mechanism
+        # Launch background task to poll for completion and download audio
+        background_tasks.add_task(
+            process_audio_generation_background,
+            audio_id=audio_id,
+            prediction_url=prediction.get("urls", {}).get("get"),
+            api_key=settings.REPLICATE_API_KEY,
+            model_id=model_id,
+            input_params=model_input,
+            collection=None
+        )
+
         logger.info(f"Audio generation started: audio_id={audio_id}, model={model_id}, replicate_id={prediction['id']}")
 
         # Return immediately with audio ID

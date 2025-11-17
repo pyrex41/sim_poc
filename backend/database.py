@@ -831,6 +831,55 @@ def delete_audio(audio_id: int) -> bool:
         conn.commit()
         return cursor.rowcount > 0
 
+def mark_audio_download_attempted(audio_id: int) -> bool:
+    """Mark that a download has been attempted for an audio. Returns False if already attempted."""
+    with get_db() as conn:
+        # Check if already attempted
+        row = conn.execute(
+            "SELECT download_attempted FROM generated_audio WHERE id = ?",
+            (audio_id,)
+        ).fetchone()
+
+        if row and row["download_attempted"]:
+            return False  # Already attempted
+
+        # Mark as attempted
+        conn.execute(
+            "UPDATE generated_audio SET download_attempted = 1 WHERE id = ?",
+            (audio_id,)
+        )
+        conn.commit()
+        return True
+
+def increment_audio_download_retries(audio_id: int) -> int:
+    """Increment the download retry counter for an audio and return the new count."""
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE generated_audio SET download_retries = download_retries + 1 WHERE id = ?",
+            (audio_id,)
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT download_retries FROM generated_audio WHERE id = ?",
+            (audio_id,)
+        ).fetchone()
+
+        return row["download_retries"] if row else 0
+
+def mark_audio_download_failed(audio_id: int, error: str) -> None:
+    """Mark an audio download as permanently failed."""
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE generated_audio
+            SET status = 'failed', download_error = ?
+            WHERE id = ?
+            """,
+            (error, audio_id)
+        )
+        conn.commit()
+
 # Authentication helper functions
 def create_user(username: str, email: str, hashed_password: str, is_admin: bool = False) -> int:
     """Create a new user."""
