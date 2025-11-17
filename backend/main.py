@@ -3269,7 +3269,7 @@ async def api_get_audio_data(
 
 @app.get("/api/audio-models")
 async def api_get_audio_models(
-    collection: Optional[str] = Query("text-to-audio", description="Collection slug: text-to-audio, etc.")
+    collection: Optional[str] = Query("ai-music-generation", description="Collection slug: ai-music-generation, text-to-speech, etc.")
 ):
     """Get audio generation models from Replicate collections API."""
     try:

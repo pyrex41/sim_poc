@@ -69,13 +69,13 @@ init =
       , outputAudio = Nothing
       , error = Nothing
       , searchQuery = ""
-      , selectedCollection = "text-to-audio"
+      , selectedCollection = "ai-music-generation"
       , requiredFields = []
       , pollingAudioId = Nothing
       , audioStatus = ""
       , selectedVersion = Nothing
       }
-    , fetchModels "text-to-audio"
+    , fetchModels "ai-music-generation"
     )
 
 
