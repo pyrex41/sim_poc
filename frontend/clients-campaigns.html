@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client & Campaign Management</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div x-data="app()" x-init="init()" class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow">
+            <div class="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between">
+                    <h1 class="text-3xl font-bold text-gray-900">Client & Campaign Management</h1>
+                    <div class="flex gap-2">
+                        <button
+                            @click="currentView = 'clients'"
+                            :class="currentView === 'clients' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                            class="px-4 py-2 rounded-lg font-medium transition">
+                            Clients
+                        </button>
+                        <button
+                            @click="currentView = 'campaigns'"
+                            :class="currentView === 'campaigns' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'"
+                            class="px-4 py-2 rounded-lg font-medium transition">
+                            Campaigns
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+            <!-- Clients View -->
+            <div x-show="currentView === 'clients'" x-transition>
+                <!-- Client Actions -->
+                <div class="mb-6 flex justify-between items-center">
+                    <div class="flex gap-2 flex-1 max-w-md">
+                        <input
+                            type="text"
+                            x-model="clientSearch"
+                            @input="debounceLoadClients()"
+                            placeholder="Search clients..."
+                            class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    </div>
+                    <button
+                        @click="openClientModal()"
+                        class="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition">
+                        + New Client
+                    </button>
+                </div>
+
+                <!-- Clients List -->
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <template x-if="loading">
+                        <div class="p-8 text-center text-gray-500">Loading...</div>
+                    </template>
+
+                    <template x-if="!loading && clients.length === 0">
+                        <div class="p-8 text-center text-gray-500">
+                            No clients found. Create your first client to get started.
+                        </div>
+                    </template>
+
+                    <template x-if="!loading && clients.length > 0">
+                        <div class="divide-y divide-gray-200">
+                            <template x-for="client in clients" :key="client.id">
+                                <div class="p-6 hover:bg-gray-50 transition">
+                                    <div class="flex justify-between items-start">
+                                        <div class="flex-1">
+                                            <h3 class="text-lg font-semibold text-gray-900" x-text="client.name"></h3>
+                                            <p class="text-gray-600 mt-1" x-text="client.description || 'No description'"></p>
+                                            <div class="mt-2 text-sm text-gray-500">
+                                                <span x-text="'Created: ' + formatDate(client.created_at)"></span>
+                                            </div>
+                                        </div>
+                                        <div class="flex gap-2 ml-4">
+                                            <button
+                                                @click="viewClientCampaigns(client)"
+                                                class="text-blue-600 hover:text-blue-800 font-medium px-3 py-1 rounded border border-blue-600 hover:bg-blue-50">
+                                                Campaigns
+                                            </button>
+                                            <button
+                                                @click="openClientModal(client)"
+                                                class="text-gray-600 hover:text-gray-800 font-medium px-3 py-1 rounded border border-gray-300 hover:bg-gray-50">
+                                                Edit
+                                            </button>
+                                            <button
+                                                @click="deleteClient(client)"
+                                                class="text-red-600 hover:text-red-800 font-medium px-3 py-1 rounded border border-red-600 hover:bg-red-50">
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Campaigns View -->
+            <div x-show="currentView === 'campaigns'" x-transition>
+                <!-- Campaign Actions -->
+                <div class="mb-6 flex justify-between items-center gap-4">
+                    <div class="flex gap-2 flex-1 max-w-2xl">
+                        <input
+                            type="text"
+                            x-model="campaignSearch"
+                            @input="debounceLoadCampaigns()"
+                            placeholder="Search campaigns..."
+                            class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        <select
+                            x-model="campaignStatusFilter"
+                            @change="loadCampaigns()"
+                            class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <option value="">All Statuses</option>
+                            <option value="active">Active</option>
+                            <option value="draft">Draft</option>
+                            <option value="archived">Archived</option>
+                        </select>
+                    </div>
+                    <button
+                        @click="openCampaignModal()"
+                        class="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition">
+                        + New Campaign
+                    </button>
+                </div>
+
+                <!-- Campaigns List -->
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                    <template x-if="loading">
+                        <div class="p-8 text-center text-gray-500">Loading...</div>
+                    </template>
+
+                    <template x-if="!loading && campaigns.length === 0">
+                        <div class="p-8 text-center text-gray-500">
+                            No campaigns found. Create your first campaign to get started.
+                        </div>
+                    </template>
+
+                    <template x-if="!loading && campaigns.length > 0">
+                        <div class="divide-y divide-gray-200">
+                            <template x-for="campaign in campaigns" :key="campaign.id">
+                                <div class="p-6 hover:bg-gray-50 transition">
+                                    <div class="flex justify-between items-start">
+                                        <div class="flex-1">
+                                            <div class="flex items-center gap-3">
+                                                <h3 class="text-lg font-semibold text-gray-900" x-text="campaign.name"></h3>
+                                                <span
+                                                    :class="{
+                                                        'bg-green-100 text-green-800': campaign.status === 'active',
+                                                        'bg-yellow-100 text-yellow-800': campaign.status === 'draft',
+                                                        'bg-gray-100 text-gray-800': campaign.status === 'archived'
+                                                    }"
+                                                    class="px-2 py-1 text-xs font-medium rounded-full"
+                                                    x-text="campaign.status.toUpperCase()">
+                                                </span>
+                                            </div>
+                                            <p class="text-gray-600 mt-1"><strong>Goal:</strong> <span x-text="campaign.goal"></span></p>
+                                            <p class="text-gray-600 mt-1" x-text="campaign.brief || 'No brief provided'"></p>
+                                            <div class="mt-2 text-sm text-gray-500">
+                                                <span x-text="'Client: ' + getClientName(campaign.client_id)"></span> •
+                                                <span x-text="'Created: ' + formatDate(campaign.created_at)"></span>
+                                            </div>
+                                        </div>
+                                        <div class="flex gap-2 ml-4">
+                                            <button
+                                                @click="openCampaignModal(campaign)"
+                                                class="text-gray-600 hover:text-gray-800 font-medium px-3 py-1 rounded border border-gray-300 hover:bg-gray-50">
+                                                Edit
+                                            </button>
+                                            <button
+                                                @click="deleteCampaign(campaign)"
+                                                class="text-red-600 hover:text-red-800 font-medium px-3 py-1 rounded border border-red-600 hover:bg-red-50">
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </main>
+
+        <!-- Client Modal -->
+        <div x-show="showClientModal"
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+             @click.self="showClientModal = false">
+            <div class="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-lg bg-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold" x-text="editingClient ? 'Edit Client' : 'New Client'"></h3>
+                    <button @click="showClientModal = false" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <form @submit.prevent="saveClient()">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Client Name *</label>
+                            <input
+                                type="text"
+                                x-model="clientForm.name"
+                                required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                            <textarea
+                                x-model="clientForm.description"
+                                rows="3"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Brand Guidelines</label>
+                            <textarea
+                                x-model="clientForm.brand_guidelines"
+                                rows="4"
+                                placeholder="Style preferences, color schemes, tone of voice, etc."
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            @click="showClientModal = false"
+                            class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Save Client
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Campaign Modal -->
+        <div x-show="showCampaignModal"
+             x-transition:enter="transition ease-out duration-300"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+             @click.self="showCampaignModal = false">
+            <div class="relative top-20 mx-auto p-5 border w-full max-w-2xl shadow-lg rounded-lg bg-white">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-bold" x-text="editingCampaign ? 'Edit Campaign' : 'New Campaign'"></h3>
+                    <button @click="showCampaignModal = false" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <form @submit.prevent="saveCampaign()">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Client *</label>
+                            <select
+                                x-model="campaignForm.client_id"
+                                required
+                                :disabled="editingCampaign"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100">
+                                <option value="">Select a client</option>
+                                <template x-for="client in clients" :key="client.id">
+                                    <option :value="client.id" x-text="client.name"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Campaign Name *</label>
+                            <input
+                                type="text"
+                                x-model="campaignForm.name"
+                                required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Goal *</label>
+                            <input
+                                type="text"
+                                x-model="campaignForm.goal"
+                                required
+                                placeholder="e.g., Increase brand awareness, Launch new product"
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Status *</label>
+                            <select
+                                x-model="campaignForm.status"
+                                required
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <option value="draft">Draft</option>
+                                <option value="active">Active</option>
+                                <option value="archived">Archived</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Brief</label>
+                            <textarea
+                                x-model="campaignForm.brief"
+                                rows="4"
+                                placeholder="Campaign objectives, target audience, key messages, etc."
+                                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-6 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            @click="showCampaignModal = false"
+                            class="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            Save Campaign
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function app() {
+            return {
+                // API Configuration
+                apiBase: 'http://localhost:8000/api/v3',
+
+                // State
+                currentView: 'clients',
+                loading: false,
+                clients: [],
+                campaigns: [],
+
+                // Filters
+                clientSearch: '',
+                campaignSearch: '',
+                campaignStatusFilter: '',
+
+                // Modals
+                showClientModal: false,
+                showCampaignModal: false,
+
+                // Forms
+                clientForm: {
+                    name: '',
+                    description: '',
+                    brand_guidelines: ''
+                },
+                campaignForm: {
+                    client_id: '',
+                    name: '',
+                    goal: '',
+                    status: 'draft',
+                    brief: ''
+                },
+
+                // Editing state
+                editingClient: null,
+                editingCampaign: null,
+
+                // Search debounce timer
+                searchTimer: null,
+
+                // Initialize
+                async init() {
+                    await this.loadClients();
+                    await this.loadCampaigns();
+                },
+
+                // API Methods
+                async apiRequest(endpoint, method = 'GET', data = null) {
+                    const options = {
+                        method,
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    };
+
+                    if (data) {
+                        options.body = JSON.stringify(data);
+                    }
+
+                    const response = await fetch(`${this.apiBase}${endpoint}`, options);
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Request failed');
+                    }
+
+                    if (method === 'DELETE') {
+                        return null;
+                    }
+
+                    return await response.json();
+                },
+
+                // Client Methods
+                async loadClients() {
+                    this.loading = true;
+                    try {
+                        const params = new URLSearchParams();
+                        if (this.clientSearch) {
+                            params.append('search', this.clientSearch);
+                        }
+                        const response = await this.apiRequest(`/clients?${params}`);
+                        this.clients = response.items;
+                    } catch (error) {
+                        alert('Failed to load clients: ' + error.message);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                debounceLoadClients() {
+                    clearTimeout(this.searchTimer);
+                    this.searchTimer = setTimeout(() => this.loadClients(), 300);
+                },
+
+                openClientModal(client = null) {
+                    this.editingClient = client;
+                    if (client) {
+                        this.clientForm = {
+                            name: client.name,
+                            description: client.description || '',
+                            brand_guidelines: client.brand_guidelines || ''
+                        };
+                    } else {
+                        this.clientForm = {
+                            name: '',
+                            description: '',
+                            brand_guidelines: ''
+                        };
+                    }
+                    this.showClientModal = true;
+                },
+
+                async saveClient() {
+                    try {
+                        if (this.editingClient) {
+                            await this.apiRequest(`/clients/${this.editingClient.id}`, 'PATCH', this.clientForm);
+                        } else {
+                            await this.apiRequest('/clients', 'POST', this.clientForm);
+                        }
+                        this.showClientModal = false;
+                        await this.loadClients();
+                    } catch (error) {
+                        alert('Failed to save client: ' + error.message);
+                    }
+                },
+
+                async deleteClient(client) {
+                    if (!confirm(`Are you sure you want to delete "${client.name}"? This will also delete all associated campaigns.`)) {
+                        return;
+                    }
+                    try {
+                        await this.apiRequest(`/clients/${client.id}`, 'DELETE');
+                        await this.loadClients();
+                        await this.loadCampaigns();
+                    } catch (error) {
+                        alert('Failed to delete client: ' + error.message);
+                    }
+                },
+
+                viewClientCampaigns(client) {
+                    this.currentView = 'campaigns';
+                    this.campaignStatusFilter = '';
+                    this.campaignSearch = '';
+                    // Filter campaigns by client (done in loadCampaigns)
+                    this.loadCampaigns();
+                },
+
+                // Campaign Methods
+                async loadCampaigns() {
+                    this.loading = true;
+                    try {
+                        const params = new URLSearchParams();
+                        if (this.campaignSearch) {
+                            params.append('search', this.campaignSearch);
+                        }
+                        if (this.campaignStatusFilter) {
+                            params.append('status', this.campaignStatusFilter);
+                        }
+                        const response = await this.apiRequest(`/campaigns?${params}`);
+                        this.campaigns = response.items;
+                    } catch (error) {
+                        alert('Failed to load campaigns: ' + error.message);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                debounceLoadCampaigns() {
+                    clearTimeout(this.searchTimer);
+                    this.searchTimer = setTimeout(() => this.loadCampaigns(), 300);
+                },
+
+                openCampaignModal(campaign = null) {
+                    // Make sure we have clients loaded
+                    if (this.clients.length === 0) {
+                        alert('Please create a client first');
+                        return;
+                    }
+
+                    this.editingCampaign = campaign;
+                    if (campaign) {
+                        this.campaignForm = {
+                            client_id: campaign.client_id,
+                            name: campaign.name,
+                            goal: campaign.goal,
+                            status: campaign.status,
+                            brief: campaign.brief || ''
+                        };
+                    } else {
+                        this.campaignForm = {
+                            client_id: '',
+                            name: '',
+                            goal: '',
+                            status: 'draft',
+                            brief: ''
+                        };
+                    }
+                    this.showCampaignModal = true;
+                },
+
+                async saveCampaign() {
+                    try {
+                        if (this.editingCampaign) {
+                            await this.apiRequest(`/campaigns/${this.editingCampaign.id}`, 'PATCH', {
+                                name: this.campaignForm.name,
+                                goal: this.campaignForm.goal,
+                                status: this.campaignForm.status,
+                                brief: this.campaignForm.brief
+                            });
+                        } else {
+                            await this.apiRequest('/campaigns', 'POST', this.campaignForm);
+                        }
+                        this.showCampaignModal = false;
+                        await this.loadCampaigns();
+                    } catch (error) {
+                        alert('Failed to save campaign: ' + error.message);
+                    }
+                },
+
+                async deleteCampaign(campaign) {
+                    if (!confirm(`Are you sure you want to delete "${campaign.name}"?`)) {
+                        return;
+                    }
+                    try {
+                        await this.apiRequest(`/campaigns/${campaign.id}`, 'DELETE');
+                        await this.loadCampaigns();
+                    } catch (error) {
+                        alert('Failed to delete campaign: ' + error.message);
+                    }
+                },
+
+                // Helper Methods
+                getClientName(clientId) {
+                    const client = this.clients.find(c => c.id === clientId);
+                    return client ? client.name : 'Unknown Client';
+                },
+
+                formatDate(dateStr) {
+                    return new Date(dateStr).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric'
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>

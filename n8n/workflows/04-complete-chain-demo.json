@@ -1,0 +1,185 @@
+{
+  "name": "Complete Chain: Image → Upscale → Video",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [100, 400]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "image_prompt",
+              "value": "A majestic lion standing on a cliff at sunset"
+            },
+            {
+              "name": "video_prompt",
+              "value": "The lion turns its head slowly, mane flowing in the wind"
+            },
+            {
+              "name": "aspect_ratio",
+              "value": "16:9"
+            }
+          ]
+        }
+      },
+      "id": "config",
+      "name": "📝 Configure Prompts",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [300, 400],
+      "notes": "Edit both prompts here"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/image",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"prompt\": \"{{$json.image_prompt}}\", \"model\": \"flux\", \"aspect_ratio\": \"{{$json.aspect_ratio}}\"}",
+        "options": {}
+      },
+      "id": "gen_image",
+      "name": "1️⃣ Generate Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "wait1",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_image",
+      "name": "Get Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 400],
+      "notes": "Image URL is in $json.url"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/process/utility",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"tool\": \"upscale\", \"image\": \"{{$json.url}}\", \"scale\": 2, \"creativity\": 0.35, \"dynamic\": 6}",
+        "options": {}
+      },
+      "id": "upscale",
+      "name": "2️⃣ Upscale 2x",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1100, 400],
+      "notes": "Uses $json.url from previous step"
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "id": "wait2",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1300, 400]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_upscaled",
+      "name": "Get Upscaled",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1500, 400],
+      "notes": "Upscaled image is in $json.output_url"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/video",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"prompt\": \"{{$node['📝 Configure Prompts'].json.video_prompt}}\", \"model\": \"minimax\", \"image\": \"{{$json.output_url}}\"}",
+        "options": {}
+      },
+      "id": "gen_video",
+      "name": "3️⃣ Generate Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1700, 400],
+      "notes": "Uses upscaled image from $json.output_url"
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "wait3",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1900, 400]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_video",
+      "name": "✅ Final Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2100, 400],
+      "notes": "Video URL is in $json.url"
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{"node": "📝 Configure Prompts", "type": "main", "index": 0}]]
+    },
+    "📝 Configure Prompts": {
+      "main": [[{"node": "1️⃣ Generate Image", "type": "main", "index": 0}]]
+    },
+    "1️⃣ Generate Image": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Wait": {
+      "main": [[{"node": "Get Image", "type": "main", "index": 0}]]
+    },
+    "Get Image": {
+      "main": [[{"node": "2️⃣ Upscale 2x", "type": "main", "index": 0}]]
+    },
+    "2️⃣ Upscale 2x": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Get Upscaled": {
+      "main": [[{"node": "3️⃣ Generate Video", "type": "main", "index": 0}]]
+    },
+    "3️⃣ Generate Video": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "✅ Final Video": {
+      "main": []
+    }
+  },
+  "settings": {}
+}

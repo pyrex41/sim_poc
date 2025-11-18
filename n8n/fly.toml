@@ -1,0 +1,41 @@
+# Fly.io configuration for n8n workflow automation
+app = "your-app-n8n"  # Change this to your app name
+primary_region = "sjc"  # Change to your preferred region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  N8N_PORT = "5678"
+  N8N_PROTOCOL = "https"
+  NODE_ENV = "production"
+  WEBHOOK_URL = "https://your-app-n8n.fly.dev/"  # Change to your actual URL
+  GENERIC_TIMEZONE = "America/Los_Angeles"
+
+  # Connect to your generation API
+  GENERATION_API_URL = "http://localhost:8000"  # Change to your API URL
+
+[http_service]
+  internal_port = 5678
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/healthz"
+
+[mounts]
+  source = "n8n_data"
+  destination = "/home/node/.n8n"
+  initial_size = "1GB"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 512

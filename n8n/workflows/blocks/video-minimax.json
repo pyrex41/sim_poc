@@ -1,0 +1,76 @@
+{
+  "name": "🎬 MiniMax Video-01",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "prompt",
+              "value": "Camera movement and motion description"
+            },
+            {
+              "name": "image_url",
+              "value": "={{$node['Previous Step'].json.url}}"
+            }
+          ]
+        }
+      },
+      "id": "set_video_params",
+      "name": "Set Video Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "Edit prompt here. image_url comes from previous node's $json.url"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/video",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"prompt\": \"{{$json.prompt}}\", \"model\": \"minimax\", \"image\": \"{{$json.image_url}}\"}",
+        "options": {}
+      },
+      "id": "minimax_generate",
+      "name": "Generate Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "video_wait",
+      "name": "Wait for Video",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "video_result",
+      "name": "Get Video URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "notes": "Output: $json.url contains the video URL"
+    }
+  ],
+  "connections": {
+    "Set Video Parameters": {
+      "main": [[{"node": "Generate Video", "type": "main", "index": 0}]]
+    },
+    "Generate Video": {
+      "main": [[{"node": "Wait for Video", "type": "main", "index": 0}]]
+    },
+    "Wait for Video": {
+      "main": [[{"node": "Get Video URL", "type": "main", "index": 0}]]
+    }
+  }
+}

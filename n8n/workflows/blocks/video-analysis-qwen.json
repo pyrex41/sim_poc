@@ -1,0 +1,76 @@
+{
+  "name": "📹 Video to Text (Qwen2-VL)",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "video_url",
+              "value": "={{$node['Previous Step'].json.url}}"
+            },
+            {
+              "name": "prompt",
+              "value": "Describe this video in detail"
+            }
+          ]
+        }
+      },
+      "id": "set_analysis_params",
+      "name": "Set Analysis Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "prompt: what to ask about the video (e.g., 'What happens in this video?')"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/analyze/video",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"video\": \"{{$json.video_url}}\", \"model\": \"qwen2-vl\", \"prompt\": \"{{$json.prompt}}\"}",
+        "options": {}
+      },
+      "id": "analyze_video",
+      "name": "Analyze Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "amount": 30,
+        "unit": "seconds"
+      },
+      "id": "analysis_wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_analysis",
+      "name": "Get Description",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "notes": "Output: $json.text contains video description"
+    }
+  ],
+  "connections": {
+    "Set Analysis Parameters": {
+      "main": [[{"node": "Analyze Video", "type": "main", "index": 0}]]
+    },
+    "Analyze Video": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Wait": {
+      "main": [[{"node": "Get Description", "type": "main", "index": 0}]]
+    }
+  }
+}

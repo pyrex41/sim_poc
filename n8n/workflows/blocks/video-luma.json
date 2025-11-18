@@ -1,0 +1,86 @@
+{
+  "name": "🎬 Luma Ray",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "prompt",
+              "value": "Video motion description"
+            },
+            {
+              "name": "image_url",
+              "value": "={{$node['Previous Step'].json.url}}"
+            }
+          ],
+          "number": [
+            {
+              "name": "duration",
+              "value": 5
+            }
+          ],
+          "boolean": [
+            {
+              "name": "loop",
+              "value": false
+            }
+          ]
+        }
+      },
+      "id": "set_luma_params",
+      "name": "Set Video Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/video",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"prompt\": \"{{$json.prompt}}\", \"model\": \"luma\", \"image\": \"{{$json.image_url}}\", \"duration\": {{$json.duration}}, \"loop\": {{$json.loop}}}",
+        "options": {}
+      },
+      "id": "luma_generate",
+      "name": "Generate with Luma",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "luma_wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "luma_result",
+      "name": "Get Video URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300]
+    }
+  ],
+  "connections": {
+    "Set Video Parameters": {
+      "main": [[{"node": "Generate with Luma", "type": "main", "index": 0}]]
+    },
+    "Generate with Luma": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Wait": {
+      "main": [[{"node": "Get Video URL", "type": "main", "index": 0}]]
+    }
+  }
+}

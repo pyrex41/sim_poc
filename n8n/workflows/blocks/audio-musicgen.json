@@ -1,0 +1,82 @@
+{
+  "name": "🎵 MusicGen",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "prompt",
+              "value": "Upbeat electronic music with drums and bass"
+            },
+            {
+              "name": "model_version",
+              "value": "large"
+            }
+          ],
+          "number": [
+            {
+              "name": "duration",
+              "value": 8
+            }
+          ]
+        }
+      },
+      "id": "set_audio_params",
+      "name": "Set Audio Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "model_version: small, medium, large, melody"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/audio",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"prompt\": \"{{$json.prompt}}\", \"model\": \"musicgen\", \"model_version\": \"{{$json.model_version}}\", \"duration\": {{$json.duration}}}",
+        "options": {}
+      },
+      "id": "musicgen_generate",
+      "name": "Generate Music",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "id": "audio_wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "audio_result",
+      "name": "Get Audio URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "notes": "Output: $json.url contains the audio file URL"
+    }
+  ],
+  "connections": {
+    "Set Audio Parameters": {
+      "main": [[{"node": "Generate Music", "type": "main", "index": 0}]]
+    },
+    "Generate Music": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Wait": {
+      "main": [[{"node": "Get Audio URL", "type": "main", "index": 0}]]
+    }
+  }
+}

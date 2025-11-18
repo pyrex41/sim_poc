@@ -1,0 +1,86 @@
+{
+  "name": "⚡ Upscale Image",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "image_url",
+              "value": "={{$node['Previous Step'].json.url}}"
+            }
+          ],
+          "number": [
+            {
+              "name": "scale",
+              "value": 2
+            },
+            {
+              "name": "creativity",
+              "value": 0.35
+            },
+            {
+              "name": "dynamic",
+              "value": 6
+            }
+          ]
+        }
+      },
+      "id": "set_upscale_params",
+      "name": "Set Upscale Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "image_url from previous node, adjust scale (2, 4) and creativity (0-1)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/process/utility",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"tool\": \"upscale\", \"image\": \"{{$json.image_url}}\", \"scale\": {{$json.scale}}, \"creativity\": {{$json.creativity}}, \"dynamic\": {{$json.dynamic}}}",
+        "options": {}
+      },
+      "id": "upscale_process",
+      "name": "Upscale",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "id": "upscale_wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "upscale_result",
+      "name": "Get Upscaled Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "notes": "Output: $json.output_url contains upscaled image"
+    }
+  ],
+  "connections": {
+    "Set Upscale Parameters": {
+      "main": [[{"node": "Upscale", "type": "main", "index": 0}]]
+    },
+    "Upscale": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Wait": {
+      "main": [[{"node": "Get Upscaled Image", "type": "main", "index": 0}]]
+    }
+  }
+}

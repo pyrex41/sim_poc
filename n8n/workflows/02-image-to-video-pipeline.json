@@ -1,0 +1,128 @@
+{
+  "name": "Image to Video Pipeline",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 400]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "prompt",
+              "value": "A photorealistic cyberpunk cityscape at night, neon lights, rain"
+            }
+          ]
+        }
+      },
+      "id": "set_prompt",
+      "name": "Set Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [450, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/image",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"prompt\": \"{{$json.prompt}}\", \"model\": \"flux\", \"aspect_ratio\": \"16:9\"}",
+        "options": {}
+      },
+      "id": "generate_image",
+      "name": "1. Generate Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "wait_image",
+      "name": "Wait for Image",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_image",
+      "name": "2. Get Image Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/video",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"prompt\": \"{{$node['Set Prompt'].json.prompt}}\", \"model\": \"minimax\", \"image\": \"{{$json.url}}\", \"duration\": 5}",
+        "options": {}
+      },
+      "id": "generate_video",
+      "name": "3. Generate Video from Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "wait_video",
+      "name": "Wait for Video",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1450, 400]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_video",
+      "name": "4. Get Video Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1650, 400]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{"node": "Set Prompt", "type": "main", "index": 0}]]
+    },
+    "Set Prompt": {
+      "main": [[{"node": "1. Generate Image", "type": "main", "index": 0}]]
+    },
+    "1. Generate Image": {
+      "main": [[{"node": "Wait for Image", "type": "main", "index": 0}]]
+    },
+    "Wait for Image": {
+      "main": [[{"node": "2. Get Image Result", "type": "main", "index": 0}]]
+    },
+    "2. Get Image Result": {
+      "main": [[{"node": "3. Generate Video from Image", "type": "main", "index": 0}]]
+    },
+    "3. Generate Video from Image": {
+      "main": [[{"node": "Wait for Video", "type": "main", "index": 0}]]
+    },
+    "Wait for Video": {
+      "main": [[{"node": "4. Get Video Result", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {}
+}

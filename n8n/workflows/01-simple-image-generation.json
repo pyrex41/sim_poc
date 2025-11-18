@@ -1,0 +1,123 @@
+{
+  "name": "Simple Image Generation",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "When clicking 'Test workflow'",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/image",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "A serene mountain landscape at sunset with dramatic clouds"
+            },
+            {
+              "name": "model",
+              "value": "flux"
+            },
+            {
+              "name": "aspect_ratio",
+              "value": "16:9"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "generate_image",
+      "name": "Generate Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait",
+      "name": "Wait 5 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "webhookId": "wait-webhook"
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}",
+        "options": {}
+      },
+      "id": "check_status",
+      "name": "Check Task Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.status}}",
+              "value2": "succeeded"
+            }
+          ]
+        }
+      },
+      "id": "if_complete",
+      "name": "IF Complete",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_result",
+      "name": "Get Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 200]
+    }
+  ],
+  "connections": {
+    "When clicking 'Test workflow'": {
+      "main": [[{"node": "Generate Image", "type": "main", "index": 0}]]
+    },
+    "Generate Image": {
+      "main": [[{"node": "Wait 5 Seconds", "type": "main", "index": 0}]]
+    },
+    "Wait 5 Seconds": {
+      "main": [[{"node": "Check Task Status", "type": "main", "index": 0}]]
+    },
+    "Check Task Status": {
+      "main": [[{"node": "IF Complete", "type": "main", "index": 0}]]
+    },
+    "IF Complete": {
+      "main": [
+        [{"node": "Get Result", "type": "main", "index": 0}],
+        [{"node": "Wait 5 Seconds", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {}
+}

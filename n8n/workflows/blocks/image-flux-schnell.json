@@ -1,0 +1,82 @@
+{
+  "name": "🎨 Flux Schnell (Fast)",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "prompt",
+              "value": "Your image prompt here"
+            },
+            {
+              "name": "aspect_ratio",
+              "value": "16:9"
+            }
+          ],
+          "number": [
+            {
+              "name": "num_outputs",
+              "value": 1
+            }
+          ]
+        }
+      },
+      "id": "set_flux_params",
+      "name": "Set Image Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "Edit prompt and aspect_ratio here"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/image",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"prompt\": \"{{$json.prompt}}\", \"model\": \"flux\", \"aspect_ratio\": \"{{$json.aspect_ratio}}\", \"num_outputs\": {{$json.num_outputs}}}",
+        "options": {}
+      },
+      "id": "flux_generate",
+      "name": "Generate with Flux",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "flux_wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "flux_result",
+      "name": "Get Image URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "notes": "Output: $json.url contains the image URL"
+    }
+  ],
+  "connections": {
+    "Set Image Parameters": {
+      "main": [[{"node": "Generate with Flux", "type": "main", "index": 0}]]
+    },
+    "Generate with Flux": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Wait": {
+      "main": [[{"node": "Get Image URL", "type": "main", "index": 0}]]
+    }
+  }
+}

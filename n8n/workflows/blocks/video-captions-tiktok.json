@@ -1,0 +1,86 @@
+{
+  "name": "📹 Add TikTok Captions",
+  "nodes": [
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "video_url",
+              "value": "={{$node['Previous Step'].json.url}}"
+            },
+            {
+              "name": "font",
+              "value": "Arial"
+            },
+            {
+              "name": "color",
+              "value": "white"
+            }
+          ],
+          "number": [
+            {
+              "name": "fontsize",
+              "value": 48
+            }
+          ]
+        }
+      },
+      "id": "set_caption_params",
+      "name": "Set Caption Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "notes": "Customize font, size, and color"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/analyze/video",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"video\": \"{{$json.video_url}}\", \"model\": \"tiktok-short-captions\", \"font\": \"{{$json.font}}\", \"fontsize\": {{$json.fontsize}}, \"color\": \"{{$json.color}}\"}",
+        "options": {}
+      },
+      "id": "add_captions",
+      "name": "Add Captions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "amount": 40,
+        "unit": "seconds"
+      },
+      "id": "caption_wait",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_captioned_video",
+      "name": "Get Captioned Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 300],
+      "notes": "Output: $json.video_url contains video with captions"
+    }
+  ],
+  "connections": {
+    "Set Caption Parameters": {
+      "main": [[{"node": "Add Captions", "type": "main", "index": 0}]]
+    },
+    "Add Captions": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Wait": {
+      "main": [[{"node": "Get Captioned Video", "type": "main", "index": 0}]]
+    }
+  }
+}

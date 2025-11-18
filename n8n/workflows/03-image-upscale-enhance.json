@@ -1,0 +1,156 @@
+{
+  "name": "Image Generation + Upscale + Enhance",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [250, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/generate/image",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "{\"prompt\": \"A portrait of a wise old wizard with a long white beard\", \"model\": \"flux\"}",
+        "options": {}
+      },
+      "id": "gen_image",
+      "name": "Generate Base Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [450, 400]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "wait1",
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_image",
+      "name": "Get Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [850, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/process/utility",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"tool\": \"upscale\", \"image\": \"{{$json.url}}\", \"scale\": 2, \"dynamic\": 6, \"creativity\": 0.35}",
+        "options": {}
+      },
+      "id": "upscale",
+      "name": "Upscale 2x",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "id": "wait2",
+      "name": "Wait for Upscale",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1250, 400]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_upscaled",
+      "name": "Get Upscaled Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1450, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:9090/api/v3/process/utility",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"tool\": \"restore-face\", \"image\": \"{{$json.output_url}}\", \"version\": \"v1.4\"}",
+        "options": {}
+      },
+      "id": "restore_face",
+      "name": "Enhance Face",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 550]
+    },
+    {
+      "parameters": {
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "id": "wait3",
+      "name": "Wait for Enhancement",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1250, 550]
+    },
+    {
+      "parameters": {
+        "url": "=http://host.docker.internal:9090/api/v3/tasks/{{$json.id}}/result",
+        "options": {}
+      },
+      "id": "get_enhanced",
+      "name": "Get Final Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1450, 550]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [[{"node": "Generate Base Image", "type": "main", "index": 0}]]
+    },
+    "Generate Base Image": {
+      "main": [[{"node": "Wait", "type": "main", "index": 0}]]
+    },
+    "Wait": {
+      "main": [[{"node": "Get Image", "type": "main", "index": 0}]]
+    },
+    "Get Image": {
+      "main": [
+        [
+          {"node": "Upscale 2x", "type": "main", "index": 0},
+          {"node": "Enhance Face", "type": "main", "index": 0}
+        ]
+      ]
+    },
+    "Upscale 2x": {
+      "main": [[{"node": "Wait for Upscale", "type": "main", "index": 0}]]
+    },
+    "Wait for Upscale": {
+      "main": [[{"node": "Get Upscaled Image", "type": "main", "index": 0}]]
+    },
+    "Enhance Face": {
+      "main": [[{"node": "Wait for Enhancement", "type": "main", "index": 0}]]
+    },
+    "Wait for Enhancement": {
+      "main": [[{"node": "Get Final Result", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {}
+}

@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=development
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=America/Los_Angeles
+      - N8N_LOG_LEVEL=debug
+
+      # Connect to your local generation API
+      - GENERATION_API_URL=http://host.docker.internal:9090
+
+      # Disable user management for local dev (optional)
+      - N8N_USER_MANAGEMENT_DISABLED=true
+
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/home/node/.n8n/workflows
+      - ./custom-nodes:/home/node/.n8n/custom
+    restart: unless-stopped
+    networks:
+      - n8n-network
+
+  # Optional: Add your generation API service here
+  # generation-api:
+  #   build: ../backend
+  #   ports:
+  #     - "9090:9090"
+  #   environment:
+  #     - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+  #   networks:
+  #     - n8n-network
+
+volumes:
+  n8n_data:
+
+networks:
+  n8n-network:
+    driver: bridge
