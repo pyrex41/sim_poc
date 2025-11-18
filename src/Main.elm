@@ -24,6 +24,8 @@ import ImageGallery
 import Audio
 import AudioDetail
 import AudioGallery
+import VideoToText
+import VideoToTextGallery
 import Auth
 import CreativeBriefEditor
 import BriefGallery
@@ -69,6 +71,8 @@ type alias Model =
     , audioModel : Audio.Model
     , audioDetailModel : Maybe AudioDetail.Model
     , audioGalleryModel : AudioGallery.Model
+    , videoToTextModel : VideoToText.Model
+    , videoToTextGalleryModel : VideoToTextGallery.Model
     , authModel : Auth.Auth
     , pendingVideoFromImage : Maybe { modelId : String, imageUrl : String }
     , creativeBriefEditorModel : CreativeBriefEditor.Model
@@ -169,6 +173,12 @@ init _ url key =
         ( audioGalleryModel, audioGalleryCmd ) =
             AudioGallery.init
 
+        ( videoToTextModel, videoToTextCmd ) =
+            VideoToText.init
+
+        ( videoToTextGalleryModel, videoToTextGalleryCmd ) =
+            VideoToTextGallery.init
+
         ( creativeBriefEditorModel, creativeBriefEditorCmd ) =
             CreativeBriefEditor.init key
 
@@ -198,6 +208,8 @@ init _ url key =
       , audioModel = audioModel
       , audioDetailModel = Nothing
       , audioGalleryModel = audioGalleryModel
+      , videoToTextModel = videoToTextModel
+      , videoToTextGalleryModel = videoToTextGalleryModel
       , authModel = Auth.init
       , pendingVideoFromImage = Nothing
       , creativeBriefEditorModel = creativeBriefEditorModel
@@ -211,6 +223,8 @@ init _ url key =
         , Cmd.map ImageGalleryMsg imageGalleryCmd
         , Cmd.map AudioMsg audioCmd
         , Cmd.map AudioGalleryMsg audioGalleryCmd
+        , Cmd.map VideoToTextMsg videoToTextCmd
+        , Cmd.map VideoToTextGalleryMsg videoToTextGalleryCmd
         , Cmd.map CreativeBriefEditorMsg creativeBriefEditorCmd
         , Cmd.map BriefGalleryMsg briefGalleryCmd
         , Cmd.map AuthMsg Auth.checkAuth
@@ -259,6 +273,8 @@ type Msg
     | AudioMsg Audio.Msg
     | AudioDetailMsg AudioDetail.Msg
     | AudioGalleryMsg AudioGallery.Msg
+    | VideoToTextMsg VideoToText.Msg
+    | VideoToTextGalleryMsg VideoToTextGallery.Msg
     | AuthMsg Auth.Msg
     | CreativeBriefEditorMsg CreativeBriefEditor.Msg
     | BriefGalleryMsg BriefGallery.Msg
@@ -359,6 +375,14 @@ update msg model =
                         _ ->
                             Cmd.none
 
+                videoToTextGalleryCmd =
+                    case newRoute of
+                        Just Route.VideoToTextGallery ->
+                            Task.perform (always (VideoToTextGalleryMsg VideoToTextGallery.FetchVideos)) (Task.succeed ())
+
+                        _ ->
+                            Cmd.none
+
                 videoPrefillCmd =
                     case ( newRoute, model.pendingVideoFromImage ) of
                         ( Just Route.Videos, Just { modelId, imageUrl } ) ->
@@ -400,7 +424,7 @@ update msg model =
                             Cmd.none
             in
             ( { model | url = url, route = newRoute, videoDetailModel = videoDetailModel, imageDetailModel = imageDetailModel, audioDetailModel = audioDetailModel, creativeBriefEditorModel = creativeBriefEditorModel, briefGalleryModel = briefGalleryModel, pendingVideoFromImage = clearedPending }
-            , Cmd.batch [ videoDetailCmd, imageDetailCmd, audioDetailCmd, creativeBriefEditorCmd, briefGalleryCmd, galleryCmd, imageGalleryCmd, audioGalleryCmd, videoPrefillCmd ]
+            , Cmd.batch [ videoDetailCmd, imageDetailCmd, audioDetailCmd, creativeBriefEditorCmd, briefGalleryCmd, galleryCmd, imageGalleryCmd, audioGalleryCmd, videoToTextGalleryCmd, videoPrefillCmd ]
             )
 
         UpdateTextInput text ->
@@ -929,6 +953,22 @@ update msg model =
             in
             ( { model | audioGalleryModel = updatedAudioGalleryModel }, Cmd.map AudioGalleryMsg audioGalleryCmd )
 
+        VideoToTextMsg videoToTextMsg ->
+            let
+                ( updatedVideoToTextModel, videoToTextCmd ) =
+                    VideoToText.update videoToTextMsg model.videoToTextModel
+            in
+            ( { model | videoToTextModel = updatedVideoToTextModel }
+            , Cmd.map VideoToTextMsg videoToTextCmd
+            )
+
+        VideoToTextGalleryMsg videoToTextGalleryMsg ->
+            let
+                ( updatedVideoToTextGalleryModel, videoToTextGalleryCmd ) =
+                    VideoToTextGallery.update videoToTextGalleryMsg model.videoToTextGalleryModel
+            in
+            ( { model | videoToTextGalleryModel = updatedVideoToTextGalleryModel }, Cmd.map VideoToTextGalleryMsg videoToTextGalleryCmd )
+
         AuthMsg authMsg ->
             let
                 ( updatedAuthModel, authCmd ) =
@@ -943,6 +983,7 @@ update msg model =
                                 , Cmd.map SimulationGalleryMsg (Task.perform (always SimulationGallery.FetchVideos) (Task.succeed ()))
                                 , Cmd.map ImageGalleryMsg (Task.perform (always ImageGallery.FetchImages) (Task.succeed ()))
                                 , Cmd.map AudioGalleryMsg (Task.perform (always AudioGallery.FetchAudio) (Task.succeed ()))
+                                , Cmd.map VideoToTextGalleryMsg (Task.perform (always VideoToTextGallery.FetchVideos) (Task.succeed ()))
                                 ]
 
                         _ ->
@@ -1105,6 +1146,14 @@ viewMainContent model =
                 AudioGallery.view model.audioGalleryModel
                     |> Html.map AudioGalleryMsg
 
+            Just Route.VideoToText ->
+                VideoToText.view model.videoToTextModel
+                    |> Html.map VideoToTextMsg
+
+            Just Route.VideoToTextGallery ->
+                VideoToTextGallery.view model.videoToTextGalleryModel
+                    |> Html.map VideoToTextGalleryMsg
+
             Just Route.Auth ->
                 Html.map AuthMsg (Auth.view model.authModel)
 
@@ -1159,6 +1208,16 @@ viewTabs model =
             , class (if model.route == Just Route.AudioGallery then "active" else "")
             ]
             [ text "Audio Gallery" ]
+        , a
+            [ href "/video-to-text"
+            , class (if model.route == Just Route.VideoToText then "active" else "")
+            ]
+            [ text "Video to Text" ]
+        , a
+            [ href "/video-to-text-gallery"
+            , class (if model.route == Just Route.VideoToTextGallery then "active" else "")
+            ]
+            [ text "VTT Gallery" ]
         , a
             [ href "/simulations"
             , class (if model.route == Just Route.SimulationGallery then "active" else "")
@@ -1463,6 +1522,14 @@ subscriptions model =
                 _ ->
                     Sub.none
 
+        videoToTextGallerySub =
+            case model.route of
+                Just Route.VideoToTextGallery ->
+                    Sub.map VideoToTextGalleryMsg (VideoToTextGallery.subscriptions model.videoToTextGalleryModel)
+
+                _ ->
+                    Sub.none
+
         creativeBriefEditorSub =
             case model.route of
                 Just Route.CreativeBriefEditor ->
@@ -1492,6 +1559,7 @@ subscriptions model =
         , imageDetailSub
         , audioGallerySub
         , audioDetailSub
+        , videoToTextGallerySub
         , creativeBriefEditorSub
         , briefGallerySub
         ]

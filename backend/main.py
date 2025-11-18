@@ -3003,6 +3003,167 @@ async def api_run_audio_model(
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
+@app.post("/api/run-video-to-text-model")
+async def api_run_video_to_text_model(
+    request: RunAudioRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Initiate video-to-text generation and return immediately with a video ID. Requires authentication.
+
+    This endpoint handles all video-to-text models from Replicate collections.
+    The output is stored as text in the video record's metadata.
+
+    Note: Input validation is handled by the frontend (Elm) which validates required fields
+    against the model schema before submission. Replicate API also validates and will return
+    clear error messages if inputs are invalid.
+    """
+    try:
+        if not ai_client:
+            # Demo response - create a pending video-to-text result
+            video_id = save_generated_video(
+                prompt="Video-to-text processing",
+                video_url="",
+                model_id=request.model_id,
+                parameters=request.input,
+                collection=request.collection,
+                status="processing"
+            )
+            return {"video_id": video_id, "status": "processing"}
+
+        headers = {
+            "Authorization": f"Bearer {ai_client['api_key']}",
+            "Content-Type": "application/json"
+        }
+
+        # Convert parameter types (string to int/float where appropriate)
+        converted_input = {}
+        for key, value in request.input.items():
+            if isinstance(value, str):
+                # Skip empty strings
+                if not value.strip():
+                    continue
+
+                # Try to convert to int
+                try:
+                    converted_input[key] = int(value)
+                    continue
+                except ValueError:
+                    pass
+
+                # Try to convert to float
+                try:
+                    converted_input[key] = float(value)
+                    continue
+                except ValueError:
+                    pass
+
+                # Keep as string
+                converted_input[key] = value
+            else:
+                converted_input[key] = value
+
+        # Get the base URL for webhooks
+        base_url = settings.BASE_URL
+
+        # Only use webhooks if we have an HTTPS URL (production)
+        use_webhooks = base_url.startswith("https://")
+
+        # Create prediction using HTTP API
+        if request.version:
+            payload = {
+                "version": request.version,
+                "input": converted_input,
+            }
+            if use_webhooks:
+                payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+                payload["webhook_events_filter"] = ["completed"]
+            url = "https://api.replicate.com/v1/predictions"
+            print(f"DEBUG: Sending to Replicate API (version-based) for video-to-text:")
+            print(f"  Model: {request.model_id}")
+            print(f"  Version: {request.version}")
+        else:
+            payload = {
+                "input": converted_input,
+            }
+            if use_webhooks:
+                payload["webhook"] = f"{base_url}/api/webhooks/replicate"
+                payload["webhook_events_filter"] = ["completed"]
+            url = f"https://api.replicate.com/v1/models/{request.model_id}/predictions"
+            print(f"DEBUG: Sending to Replicate API (model-based) for video-to-text:")
+            print(f"  Model: {request.model_id}")
+
+        print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
+        if use_webhooks:
+            print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
+        else:
+            print(f"  Webhook: Disabled (local development - using polling only)")
+
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+
+        # Log the detailed error if request fails
+        if response.status_code != 201:
+            error_detail = response.text
+            print(f"Replicate API Error ({response.status_code}): {error_detail}")
+
+            try:
+                error_json = response.json()
+                error_msg = error_json.get("detail", error_detail)
+            except:
+                error_msg = error_detail
+
+            raise HTTPException(status_code=400, detail=f"Replicate API error: {error_msg}")
+
+        result = response.json()
+
+        # Get the prediction URL
+        prediction_url = result.get("urls", {}).get("get")
+        if not prediction_url:
+            raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
+
+        # Get prompt from input (video_url or video parameter)
+        prompt = f"Video-to-text: {request.model_id}"
+        metadata = {"replicate_id": result.get("id"), "prediction_url": prediction_url}
+
+        if request.brief_id:
+            metadata["brief_id"] = request.brief_id
+
+        # Create video record with "processing" status
+        # The text output will be stored in metadata when the prediction completes
+        video_id = save_generated_video(
+            prompt=prompt,
+            video_url="",  # No video output - text output will be in metadata
+            model_id=request.model_id,
+            parameters=request.input,
+            collection=request.collection,
+            status="processing",
+            metadata=metadata,
+            brief_id=request.brief_id
+        )
+
+        # Start background task to poll for completion (fallback if webhook fails)
+        background_tasks.add_task(
+            process_video_generation_background,
+            video_id=video_id,
+            prediction_url=prediction_url,
+            api_key=ai_client['api_key'],
+            model_id=request.model_id,
+            input_params=request.input,
+            collection=request.collection
+        )
+
+        # Return immediately with video ID
+        return {"video_id": video_id, "status": "processing"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error initiating video-to-text generation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
 @app.post("/api/generate-images-from-brief")
 async def api_generate_images_from_brief(
     request: Dict,
@@ -4113,6 +4274,83 @@ async def upload_image(
         if file_path.exists():
             file_path.unlink()
         raise HTTPException(status_code=500, detail=f"Failed to upload image: {str(e)}")
+
+
+@app.post("/api/upload-video")
+async def upload_video(
+    file: UploadFile = File(...),
+    current_user: Dict = Depends(verify_auth)
+):
+    """Upload a video file and return its URL. Requires authentication."""
+    import uuid
+    from pathlib import Path
+
+    # Validate file type
+    allowed_types = ["video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/x-matroska", "video/webm"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {file.content_type}. Allowed types: {', '.join(allowed_types)}"
+        )
+
+    # Create uploads directory
+    uploads_dir = Path(__file__).parent / "DATA" / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate unique filename
+    file_ext = Path(file.filename).suffix.lower()
+    if not file_ext:
+        file_ext = ".mp4"  # Default extension
+
+    unique_filename = f"video_upload_{uuid.uuid4().hex[:12]}{file_ext}"
+    file_path = uploads_dir / unique_filename
+
+    # Save file
+    try:
+        contents = await file.read()
+
+        # Validate file size (max 100MB for videos)
+        max_size = 100 * 1024 * 1024  # 100MB
+        if len(contents) > max_size:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB"
+            )
+
+        with open(file_path, "wb") as f:
+            f.write(contents)
+
+        # Return full URL (required for Replicate API)
+        base_url = settings.BASE_URL
+
+        # For local development, return data URL since Replicate can't access localhost
+        # For production (HTTPS), return HTTP URL
+        if base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
+            import base64
+            # Create data URL for Replicate API (works in local dev)
+            data_url = f"data:{file.content_type};base64,{base64.b64encode(contents).decode()}"
+            print(f"Uploaded video (local dev): {file_path} -> data URL ({len(contents)} bytes)")
+            return {
+                "success": True,
+                "url": data_url,
+                "filename": unique_filename
+            }
+        else:
+            # Production: return HTTP URL
+            video_url = f"{base_url}/data/uploads/{unique_filename}"
+            print(f"Uploaded video: {file_path} -> {video_url}")
+            return {
+                "success": True,
+                "url": video_url,
+                "filename": unique_filename
+            }
+
+    except Exception as e:
+        # Clean up file if it was created
+        if file_path.exists():
+            file_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Failed to upload video: {str(e)}")
+
 
 # ============================================================================
 # V2 Asset Upload Endpoints

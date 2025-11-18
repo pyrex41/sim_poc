@@ -16,6 +16,8 @@ type Route
     | Audio
     | AudioDetail Int
     | AudioGallery
+    | VideoToText
+    | VideoToTextGallery
     | Auth
     | BriefGallery
     | CreativeBriefEditor
@@ -36,6 +38,8 @@ parser =
         , Parser.map Audio (s "audio")
         , Parser.map AudioDetail (s "audio" </> int)
         , Parser.map AudioGallery (s "audio-gallery")
+        , Parser.map VideoToText (s "video-to-text")
+        , Parser.map VideoToTextGallery (s "video-to-text-gallery")
         , Parser.map Auth (s "auth")
         , Parser.map BriefGallery (s "briefs")
         , Parser.map CreativeBriefEditor (s "creative")
@@ -87,6 +91,12 @@ toHref route =
 
         AudioGallery ->
             "/audio-gallery"
+
+        VideoToText ->
+            "/video-to-text"
+
+        VideoToTextGallery ->
+            "/video-to-text-gallery"
 
         Auth ->
             "/auth"

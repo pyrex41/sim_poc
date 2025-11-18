@@ -762,9 +762,14 @@ def list_videos_by_campaign(
 ) -> List[Dict[str, Any]]:
     """List all videos for a campaign."""
     with get_db() as conn:
+        # Exclude video_data BLOB to avoid loading large binary data for gallery listing
         rows = conn.execute(
             """
-            SELECT * FROM generated_videos
+            SELECT id, prompt, video_url, model_id, parameters, status,
+                   created_at, collection, metadata, campaign_id, format,
+                   duration, views, clicks, ctr, conversions, actual_cost,
+                   updated_at, storyboard_data, progress
+            FROM generated_videos
             WHERE campaign_id = ?
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
