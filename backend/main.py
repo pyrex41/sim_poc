@@ -1352,6 +1352,107 @@ async def api_get_model_schema(model_owner: str, model_name: str):
         traceback.print_exc()
         return {"input_schema": {"prompt": {"type": "string"}}}
 
+def process_video_to_text_background(
+    video_id: int,
+    prediction_url: str,
+    api_key: str,
+    model_id: str,
+    input_params: dict,
+    collection: str
+):
+    """Background task to poll Replicate for video-to-text completion."""
+    import time
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    max_attempts = 120  # 4 minutes (2 seconds * 120)
+
+    try:
+        for attempt in range(max_attempts):
+            pred_response = requests.get(prediction_url, headers=headers)
+            pred_response.raise_for_status()
+            pred_data = pred_response.json()
+
+            status = pred_data.get("status")
+
+            if status == "succeeded":
+                # For video-to-text, output is text, not a URL
+                output = pred_data.get("output", "")
+                if isinstance(output, list):
+                    output = output[0] if output else ""
+
+                if output:
+                    # Store text output in metadata
+                    metadata = {
+                        "replicate_id": pred_data.get("id"),
+                        "prediction_url": prediction_url,
+                        "text_output": output
+                    }
+
+                    # Update database with completed text generation
+                    update_video_status(
+                        video_id=video_id,
+                        status="completed",
+                        video_url="",  # No video URL for text output
+                        metadata=metadata
+                    )
+                    print(f"Video-to-text {video_id} completed successfully: {output[:100]}...")
+                    return
+                else:
+                    # No text output in response
+                    metadata = {
+                        "replicate_id": pred_data.get("id"),
+                        "prediction_url": prediction_url,
+                        "error": "No text output in Replicate response"
+                    }
+                    update_video_status(
+                        video_id=video_id,
+                        status="failed",
+                        metadata=metadata
+                    )
+                    print(f"Video-to-text {video_id} failed: no output")
+                    return
+
+            elif status in ["failed", "canceled"]:
+                error = pred_data.get("error", "Unknown error")
+                metadata = {
+                    "error": error,
+                    "replicate_id": pred_data.get("id")
+                }
+
+                # Update database with failure
+                update_video_status(
+                    video_id=video_id,
+                    status=status,
+                    metadata=metadata
+                )
+                print(f"Video-to-text {video_id} {status}: {error}")
+                return
+
+            time.sleep(2)
+
+        # Timed out waiting for completion
+        print(f"Video-to-text {video_id} timed out after {max_attempts * 2} seconds")
+        update_video_status(
+            video_id=video_id,
+            status="failed",
+            metadata={"error": "Timeout waiting for Replicate completion"}
+        )
+
+    except Exception as e:
+        print(f"Error polling video-to-text {video_id}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        update_video_status(
+            video_id=video_id,
+            status="failed",
+            metadata={"error": f"Polling error: {str(e)}"}
+        )
+
+
 def process_video_generation_background(
     video_id: int,
     prediction_url: str,
@@ -2229,6 +2330,21 @@ async def api_list_videos(
                 print(f"Auto-retry error for video {vid_id}: {e}")
 
         background_tasks.add_task(auto_retry_task, video_id, prediction_url)
+
+    # For video-to-text collection, extract text_output from metadata
+    if collection == "video-to-text":
+        for video in videos:
+            metadata = video.get("metadata", {})
+            if isinstance(metadata, str):
+                try:
+                    import json
+                    metadata = json.loads(metadata)
+                except:
+                    metadata = {}
+
+            # Extract text_output from metadata and add it as a top-level field
+            text_output = metadata.get("text_output", "")
+            video["output_text"] = text_output
 
     return {"videos": videos, "total": total}
 
@@ -3143,7 +3259,7 @@ async def api_run_video_to_text_model(
 
         # Start background task to poll for completion (fallback if webhook fails)
         background_tasks.add_task(
-            process_video_generation_background,
+            process_video_to_text_background,
             video_id=video_id,
             prediction_url=prediction_url,
             api_key=ai_client['api_key'],
