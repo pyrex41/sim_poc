@@ -1481,6 +1481,12 @@ def process_video_generation_background(
             status = pred_data.get("status")
 
             if status == "succeeded":
+                # Check if this is a video-to-text collection
+                # Video-to-text should be handled by process_video_to_text_background or webhook
+                if collection == "video-to-text":
+                    print(f"Video {video_id} is video-to-text, skipping video generation background task (will be handled by video-to-text task or webhook)")
+                    return
+
                 output = pred_data.get("output", [])
                 if isinstance(output, str):
                     output = [output]
@@ -2047,7 +2053,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
             # Check videos first
             row = conn.execute(
                 """
-                SELECT id FROM generated_videos
+                SELECT id, collection FROM generated_videos
                 WHERE json_extract(metadata, '$.replicate_id') = ?
                 """,
                 (replicate_id,)
@@ -2055,6 +2061,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
 
             if row:
                 video_id = row["id"]
+                video_collection = row["collection"]
             else:
                 # Check images
                 row = conn.execute(
@@ -2085,39 +2092,59 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 return {"status": "ignored"}
 
         if video_id:
-            print(f"Found video_id: {video_id} for replicate_id: {replicate_id}")
+            print(f"Found video_id: {video_id} for replicate_id: {replicate_id}, collection: {video_collection}")
 
             if status == "succeeded" and output:
-                # Get video URL from output
-                video_url = output[0] if isinstance(output, list) else output
+                # Check if this is a video-to-text collection
+                if video_collection == "video-to-text":
+                    # For video-to-text, output is text, not a URL
+                    text_output = output[0] if isinstance(output, list) else output
 
-                if video_url:
-                    # Download and save video in background with race condition prevention
-                    def download_video_task():
-                        from .database import mark_download_attempted, mark_download_failed
+                    # Store text output in metadata
+                    metadata = {
+                        "replicate_id": replicate_id,
+                        "text_output": text_output
+                    }
 
-                        # Prevent race condition: check if download already attempted
-                        if not mark_download_attempted(video_id):
-                            print(f"Video {video_id} download already attempted by another process (webhook), skipping")
-                            return
+                    # Update database with text output
+                    update_video_status(
+                        video_id=video_id,
+                        status="completed",
+                        video_url="",  # No video URL for text output
+                        metadata=metadata
+                    )
+                    print(f"Video-to-text {video_id} completed via webhook: {text_output[:100]}...")
+                else:
+                    # Regular video generation - download video
+                    video_url = output[0] if isinstance(output, list) else output
 
-                        try:
-                            db_url = download_and_save_video(video_url, video_id)
-                            # Update database with DB URL
-                            update_video_status(
-                                video_id=video_id,
-                                status="completed",
-                                video_url=db_url,
-                                metadata={"replicate_id": replicate_id, "original_url": video_url}
-                            )
-                            print(f"Video {video_id} saved to database via webhook")
-                        except Exception as e:
-                            # Download failed after all retries - mark as permanently failed
-                            error_msg = f"Failed to download video after retries: {str(e)}"
-                            print(f"Webhook: {error_msg}")
-                            mark_download_failed(video_id, error_msg)
+                    if video_url:
+                        # Download and save video in background with race condition prevention
+                        def download_video_task():
+                            from .database import mark_download_attempted, mark_download_failed
 
-                    background_tasks.add_task(download_video_task)
+                            # Prevent race condition: check if download already attempted
+                            if not mark_download_attempted(video_id):
+                                print(f"Video {video_id} download already attempted by another process (webhook), skipping")
+                                return
+
+                            try:
+                                db_url = download_and_save_video(video_url, video_id)
+                                # Update database with DB URL
+                                update_video_status(
+                                    video_id=video_id,
+                                    status="completed",
+                                    video_url=db_url,
+                                    metadata={"replicate_id": replicate_id, "original_url": video_url}
+                                )
+                                print(f"Video {video_id} saved to database via webhook")
+                            except Exception as e:
+                                # Download failed after all retries - mark as permanently failed
+                                error_msg = f"Failed to download video after retries: {str(e)}"
+                                print(f"Webhook: {error_msg}")
+                                mark_download_failed(video_id, error_msg)
+
+                        background_tasks.add_task(download_video_task)
 
             elif status in ["failed", "canceled"]:
                 error = request.get("error", "Unknown error")
@@ -3240,6 +3267,9 @@ async def api_run_video_to_text_model(
         # Get prompt from input (video_url or video parameter)
         prompt = f"Video-to-text: {request.model_id}"
         metadata = {"replicate_id": result.get("id"), "prediction_url": prediction_url}
+
+        # Debug: log the collection value
+        print(f"DEBUG: Video-to-text request collection = '{request.collection}'")
 
         if request.brief_id:
             metadata["brief_id"] = request.brief_id
@@ -4397,9 +4427,8 @@ async def upload_video(
     file: UploadFile = File(...),
     current_user: Dict = Depends(verify_auth)
 ):
-    """Upload a video file and return its URL. Requires authentication."""
-    import uuid
-    from pathlib import Path
+    """Upload a video file, store in database as blob, and return its URL. Requires authentication."""
+    from .database import get_db
 
     # Validate file type
     allowed_types = ["video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/x-matroska", "video/webm"]
@@ -4409,19 +4438,7 @@ async def upload_video(
             detail=f"Invalid file type: {file.content_type}. Allowed types: {', '.join(allowed_types)}"
         )
 
-    # Create uploads directory
-    uploads_dir = Path(__file__).parent / "DATA" / "uploads"
-    uploads_dir.mkdir(parents=True, exist_ok=True)
-
-    # Generate unique filename
-    file_ext = Path(file.filename).suffix.lower()
-    if not file_ext:
-        file_ext = ".mp4"  # Default extension
-
-    unique_filename = f"video_upload_{uuid.uuid4().hex[:12]}{file_ext}"
-    file_path = uploads_dir / unique_filename
-
-    # Save file
+    # Read file contents
     try:
         contents = await file.read()
 
@@ -4433,38 +4450,61 @@ async def upload_video(
                 detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB"
             )
 
-        with open(file_path, "wb") as f:
-            f.write(contents)
+        # Store video in database as blob with collection "upload"
+        # This creates a temporary video record that we can serve via /api/videos/{id}/data
+        with get_db() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO generated_videos
+                (prompt, video_url, model_id, parameters, collection, status, video_data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"Uploaded video: {file.filename}",
+                    "",  # Will be set after we get the ID
+                    "upload",
+                    "{}",
+                    "upload",  # Special collection for uploaded videos
+                    "completed",
+                    contents
+                )
+            )
+            upload_id = cursor.lastrowid
+
+            # Update video_url to point to the blob endpoint
+            video_url = f"/api/videos/{upload_id}/data"
+            conn.execute(
+                "UPDATE generated_videos SET video_url = ? WHERE id = ?",
+                (video_url, upload_id)
+            )
+            conn.commit()
 
         # Return full URL (required for Replicate API)
         base_url = settings.BASE_URL
 
         # For local development, return data URL since Replicate can't access localhost
-        # For production (HTTPS), return HTTP URL
+        # For production (HTTPS), return HTTP URL that serves from database
         if base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
             import base64
             # Create data URL for Replicate API (works in local dev)
             data_url = f"data:{file.content_type};base64,{base64.b64encode(contents).decode()}"
-            print(f"Uploaded video (local dev): {file_path} -> data URL ({len(contents)} bytes)")
+            print(f"Uploaded video (local dev, blob ID {upload_id}): data URL ({len(contents)} bytes)")
             return {
                 "success": True,
                 "url": data_url,
-                "filename": unique_filename
+                "id": upload_id
             }
         else:
-            # Production: return HTTP URL
-            video_url = f"{base_url}/data/uploads/{unique_filename}"
-            print(f"Uploaded video: {file_path} -> {video_url}")
+            # Production: return HTTP URL that serves blob from database
+            full_video_url = f"{base_url}{video_url}"
+            print(f"Uploaded video to database (blob ID {upload_id}): {full_video_url} ({len(contents)} bytes)")
             return {
                 "success": True,
-                "url": video_url,
-                "filename": unique_filename
+                "url": full_video_url,
+                "id": upload_id
             }
 
     except Exception as e:
-        # Clean up file if it was created
-        if file_path.exists():
-            file_path.unlink()
         raise HTTPException(status_code=500, detail=f"Failed to upload video: {str(e)}")
 
 
