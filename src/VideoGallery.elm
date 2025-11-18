@@ -18,6 +18,9 @@ type alias Model =
     , error : Maybe String
     , selectedVideo : Maybe VideoRecord
     , showRawData : Bool
+    , currentPage : Int
+    , totalVideos : Int
+    , pageSize : Int
     }
 
 
@@ -25,6 +28,7 @@ type alias VideoRecord =
     { id : Int
     , prompt : String
     , videoUrl : String
+    , thumbnailUrl : String
     , modelId : String
     , createdAt : String
     , collection : Maybe String
@@ -41,8 +45,11 @@ init =
       , error = Nothing
       , selectedVideo = Nothing
       , showRawData = False
+      , currentPage = 1
+      , totalVideos = 0
+      , pageSize = 20
       }
-    , fetchVideos
+    , fetchVideos 20 0
     )
 
 
@@ -52,11 +59,14 @@ init =
 type Msg
     = NoOp
     | FetchVideos
-    | VideosFetched (Result Http.Error (List VideoRecord))
+    | VideosFetched (Result Http.Error (List VideoRecord, Int))
     | SelectVideo VideoRecord
     | CloseVideo
     | ToggleRawData
     | Tick Time.Posix
+    | NextPage
+    | PrevPage
+    | GoToPage Int
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -66,16 +76,19 @@ update msg model =
             ( model, Cmd.none )
 
         FetchVideos ->
-            ( { model | loading = True }, fetchVideos )
+            let
+                offset = (model.currentPage - 1) * model.pageSize
+            in
+            ( { model | loading = True }, fetchVideos model.pageSize offset )
 
         VideosFetched result ->
             case result of
-                Ok videos ->
+                Ok (videos, total) ->
                     -- Only update if videos actually changed
                     if videos == model.videos then
-                        ( { model | loading = False }, Cmd.none )
+                        ( { model | loading = False, totalVideos = total }, Cmd.none )
                     else
-                        ( { model | videos = videos, loading = False, error = Nothing }, Cmd.none )
+                        ( { model | videos = videos, loading = False, error = Nothing, totalVideos = total }, Cmd.none )
 
                 Err error ->
                     -- Don't show 401 errors (authentication issues are handled by login screen)
@@ -101,7 +114,33 @@ update msg model =
 
         Tick _ ->
             -- Don't set loading=True on background refresh to prevent flicker
-            ( model, fetchVideos )
+            let
+                offset = (model.currentPage - 1) * model.pageSize
+            in
+            ( model, fetchVideos model.pageSize offset )
+
+        NextPage ->
+            let
+                maxPage = ceiling (toFloat model.totalVideos / toFloat model.pageSize)
+                newPage = Basics.min (model.currentPage + 1) maxPage
+                offset = (newPage - 1) * model.pageSize
+            in
+            ( { model | currentPage = newPage, loading = True }, fetchVideos model.pageSize offset )
+
+        PrevPage ->
+            let
+                newPage = Basics.max (model.currentPage - 1) 1
+                offset = (newPage - 1) * model.pageSize
+            in
+            ( { model | currentPage = newPage, loading = True }, fetchVideos model.pageSize offset )
+
+        GoToPage page ->
+            let
+                maxPage = ceiling (toFloat model.totalVideos / toFloat model.pageSize)
+                newPage = clamp 1 maxPage page
+                offset = (newPage - 1) * model.pageSize
+            in
+            ( { model | currentPage = newPage, loading = True }, fetchVideos model.pageSize offset )
 
 
 -- VIEW
@@ -109,6 +148,11 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
+    let
+        maxPage = ceiling (toFloat model.totalVideos / toFloat model.pageSize)
+        hasNextPage = model.currentPage < maxPage
+        hasPrevPage = model.currentPage > 1
+    in
     div [ class "video-gallery-page" ]
         [ h1 [] [ text "Generated Videos" ]
         , button [ onClick FetchVideos, disabled model.loading, class "refresh-button" ]
@@ -126,8 +170,11 @@ view model =
             div [ class "empty-state" ] [ text "No videos generated yet. Go to the Video Models page to generate some!" ]
 
           else
-            div [ class "videos-grid" ]
-                (List.map viewVideoCard model.videos)
+            div []
+                [ div [ class "videos-grid" ]
+                    (List.map viewVideoCard model.videos)
+                , viewPagination model.currentPage maxPage hasPrevPage hasNextPage
+                ]
         , case model.selectedVideo of
             Just video ->
                 viewVideoModal model video
@@ -167,7 +214,7 @@ viewVideoCard videoRecord =
                             text ""
                     ]
               else
-                video [ src videoRecord.videoUrl, attribute "preload" "metadata" ] []
+                img [ src videoRecord.thumbnailUrl, style "width" "100%", style "height" "100%", style "object-fit" "cover" ] []
             ]
         , div [ class "video-card-info" ]
             [ div [ class "video-prompt" ] [ text videoRecord.prompt ]
@@ -205,7 +252,15 @@ viewVideoModal model videoRecord =
                 Nothing ->
                     text ""
             , if not (String.isEmpty videoRecord.videoUrl) then
-                video [ src videoRecord.videoUrl, controls True, attribute "width" "100%", class "modal-video" ] []
+                video
+                    [ src videoRecord.videoUrl
+                    , controls True
+                    , attribute "width" "100%"
+                    , attribute "preload" "metadata"  -- Only load metadata initially, not full video
+                    , attribute "poster" videoRecord.thumbnailUrl  -- Show thumbnail while loading
+                    , class "modal-video"
+                    ]
+                    []
               else
                 div
                     [ style "background" "#333"
@@ -310,45 +365,74 @@ truncateString maxLength str =
         String.left (maxLength - 3) str ++ "..."
 
 
+viewPagination : Int -> Int -> Bool -> Bool -> Html Msg
+viewPagination currentPage maxPage hasPrevPage hasNextPage =
+    div [ class "pagination" ]
+        [ button
+            [ onClick PrevPage
+            , disabled (not hasPrevPage)
+            , class "pagination-button"
+            ]
+            [ text "← Previous" ]
+        , div [ class "pagination-info" ]
+            [ text ("Page " ++ String.fromInt currentPage ++ " of " ++ String.fromInt maxPage) ]
+        , button
+            [ onClick NextPage
+            , disabled (not hasNextPage)
+            , class "pagination-button"
+            ]
+            [ text "Next →" ]
+        ]
+
+
 -- HTTP
 
 
-fetchVideos : Cmd Msg
-fetchVideos =
+fetchVideos : Int -> Int -> Cmd Msg
+fetchVideos limit offset =
     -- Cookies are sent automatically, no need for Authorization header
     Http.get
-        { url = "/api/videos?limit=50"
-        , expect = Http.expectJson VideosFetched (Decode.field "videos" (Decode.list videoDecoder))
+        { url = "/api/videos?limit=" ++ String.fromInt limit ++ "&offset=" ++ String.fromInt offset
+        , expect = Http.expectJson VideosFetched videosResponseDecoder
         }
+
+
+videosResponseDecoder : Decode.Decoder (List VideoRecord, Int)
+videosResponseDecoder =
+    Decode.map2 Tuple.pair
+        (Decode.field "videos" (Decode.list videoDecoder))
+        (Decode.field "total" Decode.int)
 
 
 videoDecoder : Decode.Decoder VideoRecord
 videoDecoder =
     Decode.map8
-        (\id prompt videoUrl modelId createdAt collection parameters metadata ->
+        (\id prompt videoUrl thumbnailUrl modelId createdAt collection parameters ->
             { id = id
             , prompt = prompt
             , videoUrl = videoUrl
+            , thumbnailUrl = thumbnailUrl
             , modelId = modelId
             , createdAt = createdAt
             , collection = collection
             , parameters = parameters
-            , metadata = metadata
+            , metadata = Nothing
             , status = "completed"  -- Default, will be overridden below
             }
         )
         (Decode.field "id" Decode.int)
         (Decode.field "prompt" Decode.string)
         (Decode.field "video_url" Decode.string)
+        (Decode.field "thumbnail_url" Decode.string)
         (Decode.field "model_id" Decode.string)
         (Decode.field "created_at" Decode.string)
         (Decode.maybe (Decode.field "collection" Decode.string))
         (Decode.maybe (Decode.field "parameters" Decode.value))
-        (Decode.maybe (Decode.field "metadata" Decode.value))
         |> Decode.andThen
             (\record ->
-                Decode.map
-                    (\status -> { record | status = status })
+                Decode.map2
+                    (\metadata status -> { record | metadata = metadata, status = status })
+                    (Decode.maybe (Decode.field "metadata" Decode.value))
                     (Decode.oneOf
                         [ Decode.field "status" Decode.string
                         , Decode.succeed "completed"

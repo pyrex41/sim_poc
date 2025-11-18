@@ -190,6 +190,7 @@ CREATE TABLE IF NOT EXISTS generated_videos (
     download_retries INTEGER DEFAULT 0,
     download_error TEXT,
     video_data BLOB,
+    thumbnail_data BLOB,
     progress TEXT,
     storyboard_data TEXT,
     approved BOOLEAN DEFAULT 0,

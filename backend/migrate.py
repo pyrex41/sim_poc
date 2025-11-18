@@ -72,6 +72,13 @@ def run_migrations():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Add thumbnail_data to generated_videos if missing
+        try:
+            conn.execute("ALTER TABLE generated_videos ADD COLUMN thumbnail_data BLOB")
+            print("  ✓ Added thumbnail_data to generated_videos")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         conn.commit()
         print("✓ Pre-migration column additions complete")
 

@@ -1841,13 +1841,58 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
             with open(temp_path, 'rb') as f:
                 video_binary_data = f.read()
 
-            # Store binary data in database
+            # Generate thumbnail from video data
+            thumbnail_data = None
+            try:
+                import subprocess
+                import os
+
+                thumb_temp_path = file_path.with_suffix('.jpg')
+
+                # Extract frame at 1 second using ffmpeg
+                cmd = [
+                    'ffmpeg',
+                    '-i', str(temp_path),
+                    '-ss', '1.0',  # Seek to 1 second
+                    '-vframes', '1',  # Extract 1 frame
+                    '-vf', 'scale=400:-1',  # Resize to 400px width, maintain aspect ratio
+                    '-q:v', '2',  # High quality JPEG
+                    '-y',
+                    str(thumb_temp_path)
+                ]
+
+                result = subprocess.run(cmd, capture_output=True, timeout=10)
+
+                if result.returncode == 0:
+                    # Read thumbnail
+                    with open(thumb_temp_path, 'rb') as f:
+                        thumbnail_data = f.read()
+                    print(f"Generated thumbnail: {len(thumbnail_data)} bytes")
+                else:
+                    print(f"Warning: Failed to generate thumbnail for video {video_id}")
+
+                # Clean up thumbnail temp file
+                try:
+                    thumb_temp_path.unlink()
+                except:
+                    pass
+
+            except Exception as e:
+                print(f"Warning: Error generating thumbnail for video {video_id}: {e}")
+
+            # Store binary data in database (video + thumbnail)
             from .database import get_db
             with get_db() as conn:
-                conn.execute(
-                    "UPDATE generated_videos SET video_data = ? WHERE id = ?",
-                    (video_binary_data, video_id)
-                )
+                if thumbnail_data:
+                    conn.execute(
+                        "UPDATE generated_videos SET video_data = ?, thumbnail_data = ? WHERE id = ?",
+                        (video_binary_data, thumbnail_data, video_id)
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE generated_videos SET video_data = ? WHERE id = ?",
+                        (video_binary_data, video_id)
+                    )
                 conn.commit()
 
             # Delete temp file - we only store in database now
@@ -2095,10 +2140,11 @@ async def api_list_videos(
 
     Automatically retries fetching videos stuck in 'processing' status when gallery refreshes.
     """
-    from .database import list_videos
+    from .database import list_videos, count_videos
     from datetime import datetime, timedelta
 
     videos = list_videos(limit=limit, offset=offset, model_id=model_id, collection=collection)
+    total = count_videos(model_id=model_id, collection=collection)
 
     # Auto-retry any videos in 'processing' status on gallery refresh
     for video in videos:
@@ -2184,7 +2230,7 @@ async def api_list_videos(
 
         background_tasks.add_task(auto_retry_task, video_id, prediction_url)
 
-    return {"videos": videos}
+    return {"videos": videos, "total": total}
 
 @app.get("/api/videos/{video_id}")
 async def api_get_video(
@@ -3598,11 +3644,110 @@ async def api_get_image_thumbnail(
         from fastapi.responses import Response
         return Response(content=thumbnail_data, media_type="image/jpeg")
 
-@app.get("/api/videos/{video_id}/data")
-async def api_get_video_data(
+@app.get("/api/videos/{video_id}/thumbnail")
+async def api_get_video_thumbnail(
     video_id: int
 ):
-    """Get the binary video data from database. Public endpoint for external services."""
+    """Return cached thumbnail or generate on-the-fly if not cached. Public endpoint for gallery."""
+    import tempfile
+    import subprocess
+    import asyncio
+    from .database import get_db
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT video_data, thumbnail_data FROM generated_videos WHERE id = ?",
+            (video_id,)
+        ).fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Video not found for ID {video_id}")
+
+        # Return cached thumbnail if available
+        if row["thumbnail_data"]:
+            from fastapi.responses import Response
+            return Response(content=row["thumbnail_data"], media_type="image/jpeg")
+
+        # Fallback: generate thumbnail on-the-fly if not cached
+        if not row["video_data"]:
+            raise HTTPException(status_code=404, detail=f"Video data not found for ID {video_id}")
+
+        video_data = row["video_data"]
+
+    # Generate thumbnail using ffmpeg (run in thread pool for concurrency)
+    def generate_thumbnail():
+        """Blocking thumbnail generation - runs in thread pool"""
+        import os
+
+        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as video_file:
+            video_file.write(video_data)
+            video_path = video_file.name
+
+        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as thumb_file:
+            thumb_path = thumb_file.name
+
+        try:
+            # Extract frame at 1 second using ffmpeg
+            cmd = [
+                'ffmpeg',
+                '-i', video_path,
+                '-ss', '1.0',  # Seek to 1 second
+                '-vframes', '1',  # Extract 1 frame
+                '-vf', 'scale=400:-1',  # Resize to 400px width, maintain aspect ratio
+                '-q:v', '2',  # High quality JPEG
+                '-y',
+                thumb_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, timeout=10)
+
+            if result.returncode != 0:
+                raise Exception("FFmpeg failed to generate thumbnail")
+
+            # Read thumbnail
+            with open(thumb_path, 'rb') as f:
+                thumbnail_bytes = f.read()
+
+            # Cache the generated thumbnail in the database for future requests
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE generated_videos SET thumbnail_data = ? WHERE id = ?",
+                    (thumbnail_bytes, video_id)
+                )
+                conn.commit()
+
+            return thumbnail_bytes
+
+        finally:
+            # Clean up temp files
+            try:
+                os.unlink(video_path)
+            except:
+                pass
+            try:
+                os.unlink(thumb_path)
+            except:
+                pass
+
+    try:
+        # Run thumbnail generation in thread pool to avoid blocking event loop
+        thumbnail_data = await asyncio.to_thread(generate_thumbnail)
+
+        from fastapi.responses import Response
+        return Response(content=thumbnail_data, media_type="image/jpeg")
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Thumbnail generation timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating thumbnail: {str(e)}")
+
+
+@app.get("/api/videos/{video_id}/data")
+async def api_get_video_data(
+    video_id: int,
+    request: Request
+):
+    """Get the binary video data from database with HTTP Range support for streaming."""
     from .database import get_db
 
     with get_db() as conn:
@@ -3614,9 +3759,53 @@ async def api_get_video_data(
         if not row or not row["video_data"]:
             raise HTTPException(status_code=404, detail=f"Video data not found for ID {video_id}")
 
-        # Return binary video data
+        video_data = row["video_data"]
+        file_size = len(video_data)
+
+        # Parse Range header if present
+        range_header = request.headers.get("range")
+
+        if range_header:
+            # Parse range header (format: "bytes=start-end")
+            try:
+                range_match = range_header.replace("bytes=", "").split("-")
+                start = int(range_match[0]) if range_match[0] else 0
+                end = int(range_match[1]) if range_match[1] else file_size - 1
+
+                # Validate range
+                if start >= file_size or end >= file_size or start > end:
+                    raise HTTPException(status_code=416, detail="Requested range not satisfiable")
+
+                # Extract requested chunk
+                chunk = video_data[start:end + 1]
+                chunk_size = len(chunk)
+
+                # Return 206 Partial Content with range headers
+                from fastapi.responses import Response
+                return Response(
+                    content=chunk,
+                    status_code=206,
+                    media_type="video/mp4",
+                    headers={
+                        "Content-Range": f"bytes {start}-{end}/{file_size}",
+                        "Accept-Ranges": "bytes",
+                        "Content-Length": str(chunk_size),
+                    }
+                )
+            except (ValueError, IndexError):
+                # Invalid range format, fall through to full file response
+                pass
+
+        # Return full video data (200 OK) if no range or invalid range
         from fastapi.responses import Response
-        return Response(content=row["video_data"], media_type="video/mp4")
+        return Response(
+            content=video_data,
+            media_type="video/mp4",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+            }
+        )
 
 def process_video_combination_background(
     video_id: int,

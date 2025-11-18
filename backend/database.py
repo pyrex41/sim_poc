@@ -284,7 +284,11 @@ def list_videos(
     brief_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """List generated videos with pagination and optional filters."""
-    query = "SELECT * FROM generated_videos WHERE 1=1"
+    # Include thumbnail_data for single-query optimization
+    query = """SELECT id, prompt, video_url, model_id, parameters, status,
+                      created_at, collection, metadata, brief_id, error_message,
+                      client_id, campaign_id, thumbnail_data
+               FROM generated_videos WHERE 1=1"""
     params = []
 
     if model_id:
@@ -301,11 +305,21 @@ def list_videos(
     with get_db() as conn:
         rows = conn.execute(query, params).fetchall()
 
-        return [
-            {
+        import base64
+        results = []
+        for row in rows:
+            # Use data URI for thumbnails if cached, otherwise fallback to endpoint
+            thumbnail_url = f"/api/videos/{row['id']}/thumbnail"
+            if row["thumbnail_data"]:
+                # Encode as base64 data URI for immediate display without additional HTTP requests
+                thumbnail_b64 = base64.b64encode(row["thumbnail_data"]).decode('utf-8')
+                thumbnail_url = f"data:image/jpeg;base64,{thumbnail_b64}"
+
+            results.append({
                 "id": row["id"],
                 "prompt": row["prompt"],
                 "video_url": row["video_url"],
+                "thumbnail_url": thumbnail_url,
                 "model_id": row["model_id"],
                 "parameters": json.loads(row["parameters"]),
                 "status": row["status"],
@@ -313,9 +327,35 @@ def list_videos(
                 "collection": row["collection"],
                 "brief_id": row["brief_id"],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else None
-            }
-            for row in rows
-        ]
+            })
+
+        return results
+
+def count_videos(
+    model_id: Optional[str] = None,
+    collection: Optional[str] = None,
+    brief_id: Optional[str] = None
+) -> int:
+    """Count total number of videos with optional filters."""
+    query = """SELECT COUNT(*) as total FROM generated_videos WHERE 1=1"""
+    params = []
+
+    if model_id:
+        query += " AND model_id = ?"
+        params.append(model_id)
+
+    if collection:
+        query += " AND collection = ?"
+        params.append(collection)
+
+    if brief_id:
+        query += " AND brief_id = ?"
+        params.append(brief_id)
+
+    with get_db() as conn:
+        row = conn.execute(query, params).fetchone()
+        return row["total"] if row else 0
+
 
 def delete_video(video_id: int) -> bool:
     """Delete a video by ID."""
