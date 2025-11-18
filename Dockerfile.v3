@@ -1,0 +1,38 @@
+# Dockerfile for Generation Platform v3
+# Simple FastAPI backend with HTML/Alpine.js frontend
+
+FROM python:3.11-slim
+
+# Install uv for fast dependency management
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# Copy Python project files
+COPY pyproject.toml ./
+COPY backend/ ./backend/
+
+# Copy frontend (HTML files)
+COPY frontend/ ./frontend/
+
+# Copy startup script
+COPY start_v3.sh ./
+RUN chmod +x start_v3.sh
+
+# Install dependencies with uv (creates .venv)
+RUN uv sync --no-cache
+
+# Create data directory for SQLite database
+RUN mkdir -p /data
+ENV DATA=/data
+
+# Set port for Fly.io
+ENV PORT=8080
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v3/health')"
+
+# Run the v3 server
+CMD ["uv", "run", "uvicorn", "backend.main_v3:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -3,20 +3,22 @@
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'gauntlet-video-server'
+app = 'gauntlet-gen-platform-v3'
 primary_region = 'dfw'
 
 [build]
+  dockerfile = "Dockerfile.v3"
 
 [env]
   DATA = '/data'
   PORT = '8080'
   ACCESS_TOKEN_EXPIRE_MINUTES = '7200'  # 5 days
-  BASE_URL='https://gauntlet-video-server.fly.dev'
+  BASE_URL='https://gauntlet-gen-platform-v3.fly.dev'
 
 [[mounts]]
-  source = 'physics_data'
+  source = 'gen_platform_v3_data'
   destination = '/data'
+  initial_size = '1GB'
 
 [http_service]
   internal_port = 8080
@@ -31,7 +33,7 @@ primary_region = 'dfw'
     timeout = '5s'
     grace_period = '10s'
     method = 'GET'
-    path = '/health'
+    path = '/api/v3/health'
 
 [[vm]]
   memory = '2gb'

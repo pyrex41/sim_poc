@@ -1,25 +1,73 @@
-node_modules
-venv
-backend/venv
-.venv
-__pycache__
-*.pyc
-.env
-.git
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
 .gitignore
-elm-stuff/0.19.1
-dist
-data
-DATA
-backend/DATA
-.vscode
-.idea
-*.log
+
+# Documentation
 *.md
-!FLYIO_DEPLOYMENT.md
-fly.toml
-docker-compose.yml
-.dockerignore
-README.md
-SETUP_SUMMARY.md
-DEPLOYMENT.md
+!README.md
+docs/
+log_docs/
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Development
+.env
+.env.local
+*.db-journal
+
+# Node (if any)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Elm (old frontend)
+elm-stuff/
+src/
+dist/
+elm.json
+package.json
+package-lock.json
+vite.config.js
+index.html
+
+# Other Dockerfiles
+Dockerfile
+docker-entrypoint.sh
+
+# Fly.io
+.fly/
+
+# n8n
+n8n/
+
+# promptparser
+promptparser/
+
+# Other branches' files
+simulator.db
+simulator_v2.db

@@ -1,125 +1,68 @@
-# Deployment Guide
+# Deployment Guide - Generation Platform V3
 
-## Quick Start with Docker
+## Fly.io Deployment
 
-1. **Set up environment variables**:
+### Prerequisites
+- Fly.io account and CLI installed (`brew install flyctl`)
+- Logged in: `fly auth login`
+
+### Configuration
+
+**App Name:** `gauntlet-gen-platform-v3`
+**Region:** `dfw` (Dallas, Texas)
+**URL:** `https://gauntlet-gen-platform-v3.fly.dev`
+
+### First-Time Deployment
+
+1. **Create the app:**
    ```bash
-   export REPLICATE_AI_KEY=your_key_here
+   fly apps create gauntlet-gen-platform-v3
    ```
 
-2. **Build and run**:
+2. **Create the volume for SQLite database:**
    ```bash
-   docker-compose up -d
+   fly volumes create gen_platform_v3_data --region dfw --size 1
    ```
 
-The API will be available at `http://localhost:8000`
+3. **Set secrets (environment variables):**
+   ```bash
+   fly secrets set REPLICATE_API_KEY=your_key_here
+   ```
 
-## Environment Variables
+4. **Deploy:**
+   ```bash
+   fly deploy
+   ```
 
-- `REPLICATE_AI_KEY` - Required for AI scene generation
-- `DATA` - Directory for SQLite database (default: `./DATA`)
-
-## Data Storage
-
-Generated scenes are stored in SQLite database at `$DATA/scenes.db`
-
-### Database Schema
-
-```sql
-CREATE TABLE generated_scenes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    prompt TEXT NOT NULL,
-    scene_data TEXT NOT NULL,
-    model TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    metadata TEXT
-);
-```
-
-## API Endpoints
-
-### Scene Generation
-- `POST /api/generate` - Generate new scene from prompt
-- `POST /api/refine` - Refine existing scene
-
-### Scene History
-- `GET /api/scenes` - List all generated scenes
-  - Query params: `limit` (default: 50), `offset` (default: 0), `model` (optional filter)
-- `GET /api/scenes/{id}` - Get specific scene by ID
-- `DELETE /api/scenes/{id}` - Delete scene by ID
-- `GET /api/models` - List all models that have generated scenes
-
-### Video Models
-- `GET /api/video-models` - List available video generation models
-- `POST /api/run-video-model` - Run video generation model
-
-## Production Deployment
-
-### Using Docker
+### Subsequent Deployments
 
 ```bash
-# Build image
-docker build -t physics-simulator .
-
-# Run with persistent data
-docker run -d \
-  -p 8000:8000 \
-  -e REPLICATE_AI_KEY=$REPLICATE_AI_KEY \
-  -v $(pwd)/data:/data \
-  physics-simulator
+fly deploy
 ```
 
-### Without Docker
+### Accessing the App
+
+- **API:** `https://gauntlet-gen-platform-v3.fly.dev/api/v3/`
+- **Docs:** `https://gauntlet-gen-platform-v3.fly.dev/docs`
+- **Health:** `https://gauntlet-gen-platform-v3.fly.dev/api/v3/health`
+- **Web UI:** `https://gauntlet-gen-platform-v3.fly.dev/app/clients-campaigns.html`
+
+### Environment Variables
+
+Set via `fly secrets set`:
 
 ```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Set environment
-export DATA=/path/to/data/directory
-export REPLICATE_AI_KEY=your_key_here
-
-# Run
-python main.py
+REPLICATE_API_KEY=your_replicate_key
 ```
 
-## Frontend Development
+### Resources
 
-The frontend is built with Elm, Three.js, and Vite.
+- **Memory:** 2GB RAM
+- **CPU:** 1 shared CPU
+- **Storage:** 1GB persistent volume
 
-```bash
-npm install
-npm run dev  # Development server on port 5173
-npm run build  # Production build
-```
+### Cost Optimization
 
-## Health Check
-
-Check if the API is running:
-```bash
-curl http://localhost:8000/
-```
-
-Expected response:
-```json
-{
-  "message": "Physics Simulator API",
-  "status": "running"
-}
-```
-
-## Backup
-
-To backup your data:
-```bash
-cp $DATA/scenes.db $DATA/scenes.db.backup
-```
-
-## Monitoring
-
-View logs:
-```bash
-docker-compose logs -f api
-```
+- App uses auto-suspend, so it only runs when receiving requests
+- Scales to zero when idle
+- Estimated cost: ~$5-10/month with light usage
