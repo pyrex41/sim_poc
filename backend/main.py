@@ -4050,6 +4050,7 @@ async def api_get_video_thumbnail(
 
 
 @app.get("/api/videos/{video_id}/data")
+@app.get("/api/videos/{video_id}/data.mp4")
 async def api_get_video_data(
     video_id: int,
     request: Request
@@ -4471,8 +4472,9 @@ async def upload_video(
             )
             upload_id = cursor.lastrowid
 
-            # Update video_url to point to the blob endpoint
-            video_url = f"/api/videos/{upload_id}/data"
+            # Update video_url to point to the blob endpoint with .mp4 extension
+            # This helps external services identify the file type
+            video_url = f"/api/videos/{upload_id}/data.mp4"
             conn.execute(
                 "UPDATE generated_videos SET video_url = ? WHERE id = ?",
                 (video_url, upload_id)
@@ -4495,7 +4497,7 @@ async def upload_video(
                 "id": upload_id
             }
         else:
-            # Production: return HTTP URL that serves blob from database
+            # Production: return HTTP URL that serves blob from database (with .mp4 extension)
             full_video_url = f"{base_url}{video_url}"
             print(f"Uploaded video to database (blob ID {upload_id}): {full_video_url} ({len(contents)} bytes)")
             return {
