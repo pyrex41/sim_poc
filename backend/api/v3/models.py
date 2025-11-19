@@ -140,9 +140,19 @@ class CreativeDirection(BaseModel):
     musicStyle: Optional[str] = None
 
 
+class AssetInput(BaseModel):
+    """Asset input for job creation - can be URL or existing asset ID"""
+    url: Optional[str] = None  # URL to download asset from
+    assetId: Optional[str] = None  # Existing asset ID
+    type: Optional[str] = None  # Asset type (image, video, audio)
+    name: Optional[str] = None  # Asset name/description
+    role: Optional[str] = None  # Optional hint for scene placement (e.g., "product_shot", "background")
+
+
 class Creative(BaseModel):
     """Creative object for job creation"""
     direction: CreativeDirection
+    assets: Optional[List[AssetInput]] = None  # Assets to use in generation
     storyboard: Optional[Dict[str, Any]] = None
 
 

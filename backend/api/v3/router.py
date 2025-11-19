@@ -558,6 +558,62 @@ async def create_job(
 ) -> APIResponse:
     """Create a new generation job"""
     try:
+        # Process assets if provided
+        processed_asset_ids = []
+        if request.creative.assets:
+            logger.info(f"Processing {len(request.creative.assets)} assets for job creation")
+
+            for asset_input in request.creative.assets:
+                # If asset has a URL, download and store it
+                if asset_input.url:
+                    logger.info(f"Downloading asset from URL: {asset_input.url[:50]}...")
+
+                    # Determine asset type
+                    asset_type = asset_input.type or "image"  # Default to image
+
+                    # Download asset from URL
+                    asset_data, content_type, metadata = download_asset_from_url(
+                        url=asset_input.url,
+                        asset_type=asset_type
+                    )
+
+                    # Store as blob
+                    blob_id = store_blob(asset_data, content_type)
+
+                    # Generate asset ID
+                    asset_id = str(uuid.uuid4())
+                    asset_url = f"/api/v3/assets/{asset_id}/data"
+
+                    # Create asset record
+                    create_asset(
+                        asset_id=asset_id,
+                        name=asset_input.name or f"{asset_type}-{asset_id[:8]}",
+                        asset_type=asset_type,
+                        url=asset_url,
+                        format=metadata.get("format", "unknown"),
+                        size=metadata.get("size", len(asset_data)),
+                        user_id=current_user["id"],
+                        client_id=request.context.clientId,
+                        campaign_id=request.context.campaignId,
+                        blob_id=blob_id,
+                        source_url=asset_input.url,
+                        width=metadata.get("width"),
+                        height=metadata.get("height"),
+                        duration=metadata.get("duration")
+                    )
+
+                    processed_asset_ids.append(asset_id)
+                    logger.info(f"Created asset {asset_id} from URL")
+
+                # If asset has an ID, just use the existing asset
+                elif asset_input.assetId:
+                    # Verify asset exists
+                    existing_asset = get_asset_by_id(asset_input.assetId)
+                    if not existing_asset:
+                        return APIResponse.create_error(f"Asset not found: {asset_input.assetId}")
+                    processed_asset_ids.append(asset_input.assetId)
+                    logger.info(f"Using existing asset {asset_input.assetId}")
+
         # Build prompt from request data
         prompt = f"""
         Product: {request.adBasics.product}
@@ -575,7 +631,8 @@ async def create_job(
                 "context": request.context.dict(),
                 "ad_basics": request.adBasics.dict(),
                 "creative": request.creative.dict(),
-                "advanced": request.advanced.dict() if request.advanced else None
+                "advanced": request.advanced.dict() if request.advanced else None,
+                "processed_asset_ids": processed_asset_ids  # Store processed asset IDs
             },
             estimated_cost=5.0,  # Placeholder cost
             client_id=request.context.clientId,
@@ -585,16 +642,20 @@ async def create_job(
         # Start background storyboard generation
         background_tasks.add_task(generate_storyboard_task, job_id)
 
-        # Return job info
+        # Return job info with processed assets
         job = {
             "id": str(job_id),
             "status": JobStatus.PENDING,
+            "assetIds": processed_asset_ids,  # Return asset IDs for reference
             "createdAt": get_current_timestamp(),
             "updatedAt": get_current_timestamp()
         }
 
         return APIResponse.success(data=job, meta=create_api_meta())
+    except AssetDownloadError as e:
+        return APIResponse.create_error(f"Failed to download asset: {str(e)}")
     except Exception as e:
+        logger.error(f"Job creation failed: {e}")
         return APIResponse.create_error(f"Failed to create job: {str(e)}")
 
 
