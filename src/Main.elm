@@ -957,9 +957,18 @@ update msg model =
             let
                 ( updatedVideoToTextModel, videoToTextCmd ) =
                     VideoToText.update videoToTextMsg model.videoToTextModel
+
+                -- Handle navigation to video-to-text gallery page
+                navCmd =
+                    case videoToTextMsg of
+                        VideoToText.NavigateToResult videoId ->
+                            Nav.pushUrl model.key (Route.toHref Route.VideoToTextGallery)
+
+                        _ ->
+                            Cmd.none
             in
             ( { model | videoToTextModel = updatedVideoToTextModel }
-            , Cmd.map VideoToTextMsg videoToTextCmd
+            , Cmd.batch [ Cmd.map VideoToTextMsg videoToTextCmd, navCmd ]
             )
 
         VideoToTextGalleryMsg videoToTextGalleryMsg ->

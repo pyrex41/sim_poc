@@ -116,6 +116,9 @@ from .prompt_parser_service.api.v1 import briefs as briefs_api
 # Import clients and campaigns router
 from .api_routes import router as clients_campaigns_router
 
+# Import v3 API router
+from .api.v3.router import router as v3_router
+
 # Import logging
 import logging
 logger = logging.getLogger(__name__)
@@ -6526,6 +6529,9 @@ app.include_router(briefs_api.router, prefix="/api/creative", tags=["creative"])
 
 # Include clients and campaigns router (for ad-video-gen frontend)
 app.include_router(clients_campaigns_router, prefix="/api", tags=["Core Entities"])
+
+# Include v3 API router
+app.include_router(v3_router, tags=["v3"])
 
 # ============================================
 # Video/Image Retry Endpoints

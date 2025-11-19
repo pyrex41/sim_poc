@@ -1,286 +1,3 @@
-This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
-
-<file_summary>
-This section contains a summary of this file.
-
-<purpose>
-This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
-It is designed to be easily consumable by AI systems for analysis, code review,
-or other automated processes.
-</purpose>
-
-<file_format>
-The content is organized as follows:
-1. This summary section
-2. Repository information
-3. Directory structure
-4. Repository files (if enabled)
-5. Multiple file entries, each consisting of:
-  - File path as an attribute
-  - Full contents of the file
-</file_format>
-
-<usage_guidelines>
-- This file should be treated as read-only. Any changes should be made to the
-  original repository files, not this packed version.
-- When processing this file, use the file path to distinguish
-  between different files in the repository.
-- Be aware that this file may contain sensitive information. Handle it with
-  the same level of security as you would the original repository.
-</usage_guidelines>
-
-<notes>
-- Some files may have been excluded based on .gitignore rules and Repomix's configuration
-- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Only files matching these patterns are included: backend/api/, main.py
-- Files matching patterns in .gitignore are excluded
-- Files matching default ignore patterns are excluded
-- Files are sorted by Git change count (files with more changes are at the bottom)
-</notes>
-
-</file_summary>
-
-<directory_structure>
-backend/
-  api/
-    v3/
-      __init__.py
-      models.py
-      router.py
-</directory_structure>
-
-<files>
-This section contains the contents of the repository's files.
-
-<file path="backend/api/v3/__init__.py">
-"""
-V3 API Package
-
-This package contains the v3 API implementation for frontend alignment.
-All endpoints return data in the standardized API envelope format.
-"""
-</file>
-
-<file path="backend/api/v3/models.py">
-"""
-Pydantic models for v3 API endpoints.
-
-These models mirror the frontend TypeScript interfaces and provide
-strict validation and serialization for the v3 API responses.
-"""
-
-from datetime import datetime
-from typing import Optional, Dict, Any, List, Union, Literal
-from pydantic import BaseModel, Field
-from enum import Enum
-
-
-# ============================================================================
-# API Response Envelope
-# ============================================================================
-
-class APIResponse(BaseModel):
-    """Standard API response envelope matching lib/types/api.ts"""
-    data: Optional[Any] = None
-    error: Optional[str] = None
-    meta: Optional[Dict[str, Any]] = None
-
-    @classmethod
-    def success(cls, data: Any = None, meta: Optional[Dict[str, Any]] = None) -> "APIResponse":
-        """Create a successful response"""
-        return cls(data=data, error=None, meta=meta)
-
-    @classmethod
-    def create_error(cls, error_msg: str, meta: Optional[Dict[str, Any]] = None) -> "APIResponse":
-        """Create an error response"""
-        return cls(data=None, error=error_msg, meta=meta)
-
-
-# ============================================================================
-# Client Models
-# ============================================================================
-
-class BrandGuidelines(BaseModel):
-    """Brand guidelines object within client"""
-    colors: Optional[List[str]] = None
-    fonts: Optional[List[str]] = None
-    tone: Optional[str] = None
-    restrictions: Optional[List[str]] = None
-    examples: Optional[List[str]] = None
-
-
-class Client(BaseModel):
-    """Client model matching lib/types/client.ts"""
-    id: str
-    name: str
-    description: Optional[str] = None
-    brandGuidelines: Optional[BrandGuidelines] = None
-    createdAt: str
-    updatedAt: str
-
-
-class ClientCreateRequest(BaseModel):
-    """Request model for creating a client"""
-    name: str
-    description: Optional[str] = None
-    brandGuidelines: Optional[BrandGuidelines] = None
-
-
-class ClientUpdateRequest(BaseModel):
-    """Request model for updating a client"""
-    name: Optional[str] = None
-    description: Optional[str] = None
-    brandGuidelines: Optional[BrandGuidelines] = None
-
-
-# ============================================================================
-# Campaign Models
-# ============================================================================
-
-class Campaign(BaseModel):
-    """Campaign model matching lib/types/campaign.ts"""
-    id: str
-    clientId: str
-    name: str
-    goal: str
-    status: str
-    brief: Optional[Dict[str, Any]] = None
-    createdAt: str
-    updatedAt: str
-
-
-class CampaignCreateRequest(BaseModel):
-    """Request model for creating a campaign"""
-    clientId: str
-    name: str
-    goal: str
-    status: str = "draft"
-    brief: Optional[Dict[str, Any]] = None
-
-
-class CampaignUpdateRequest(BaseModel):
-    """Request model for updating a campaign"""
-    name: Optional[str] = None
-    goal: Optional[str] = None
-    status: Optional[str] = None
-    brief: Optional[Dict[str, Any]] = None
-
-
-# ============================================================================
-# Job Models (Generation Workflow)
-# ============================================================================
-
-class JobStatus(str, Enum):
-    """Job status enum matching frontend expectations"""
-    PENDING = "pending"
-    STORYBOARD_PROCESSING = "storyboard_processing"
-    STORYBOARD_READY = "storyboard_ready"
-    VIDEO_PROCESSING = "video_processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class JobContext(BaseModel):
-    """Context object for job creation"""
-    clientId: str
-    campaignId: Optional[str] = None
-    userId: str
-
-
-class AdBasics(BaseModel):
-    """Ad basics object for job creation"""
-    product: str
-    targetAudience: str
-    keyMessage: str
-    callToAction: str
-
-
-class CreativeDirection(BaseModel):
-    """Creative direction within creative object"""
-    style: str
-    tone: str
-    visualElements: List[str]
-    musicStyle: Optional[str] = None
-
-
-class Creative(BaseModel):
-    """Creative object for job creation"""
-    direction: CreativeDirection
-    storyboard: Optional[Dict[str, Any]] = None
-
-
-class AdvancedSettings(BaseModel):
-    """Advanced settings object for job creation"""
-    duration: Optional[int] = None
-    resolution: Optional[str] = None
-    modelPreferences: Optional[List[str]] = None
-
-
-class JobCreateRequest(BaseModel):
-    """Request model for creating a job"""
-    context: JobContext
-    adBasics: AdBasics
-    creative: Creative
-    advanced: Optional[AdvancedSettings] = None
-
-
-class Job(BaseModel):
-    """Job model for polling and status"""
-    id: str
-    status: JobStatus
-    progress: Optional[Dict[str, Any]] = None
-    storyboard: Optional[Dict[str, Any]] = None
-    videoUrl: Optional[str] = None
-    error: Optional[str] = None
-    estimatedCost: Optional[float] = None
-    actualCost: Optional[float] = None
-    createdAt: str
-    updatedAt: str
-
-
-class JobAction(str, Enum):
-    """Job action enum"""
-    APPROVE = "approve"
-    CANCEL = "cancel"
-    REGENERATE_SCENE = "regenerate_scene"
-
-
-class JobActionRequest(BaseModel):
-    """Request model for job actions"""
-    action: JobAction
-    payload: Optional[Dict[str, Any]] = None
-
-
-# ============================================================================
-# Cost Estimation Models
-# ============================================================================
-
-class CostEstimate(BaseModel):
-    """Cost estimate response"""
-    estimatedCost: float
-    currency: str = "USD"
-    breakdown: Optional[Dict[str, Any]] = None
-    validUntil: Optional[str] = None
-
-
-class DryRunRequest(BaseModel):
-    """Request model for cost estimation (dry run)"""
-    context: JobContext
-    adBasics: AdBasics
-    creative: Creative
-    advanced: Optional[AdvancedSettings] = None
-
-
-# ============================================================================
-# Asset Models (Reusing existing schemas)
-# ============================================================================
-
-# Import existing asset models
-from ...schemas.assets import Asset, UploadAssetInput
-</file>
-
-<file path="backend/api/v3/router.py">
 """
 FastAPI router for v3 API endpoints.
 
@@ -292,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, 
 from typing import List, Optional, Dict, Any, cast
 from datetime import datetime
 import json
+import uuid
 
 from .models import (
     APIResponse, Client, ClientCreateRequest, ClientUpdateRequest,
@@ -599,11 +317,18 @@ async def upload_asset(
         filename = file.filename or "unknown"
         format_ext = filename.split('.')[-1] if '.' in filename else 'bin'
 
-        # Create asset record (placeholder URL, will be updated)
-        asset_id = create_asset(
+        # Generate ID first
+        asset_id = str(uuid.uuid4())
+
+        # Construct the serving URL (pointing to the existing v2 data endpoint)
+        asset_url = f"/api/v2/assets/{asset_id}/data"
+
+        # Create asset with specific ID and valid URL
+        create_asset(
+            asset_id=asset_id,
             name=name or filename,
             asset_type=type or "document",
-            url="/api/v2/assets/placeholder",  # Placeholder
+            url=asset_url,
             format=format_ext,
             size=len(file_content),
             user_id=current_user["id"],
@@ -813,6 +538,3 @@ async def estimate_job_cost(
         return APIResponse.success(data=estimate.dict(), meta=create_api_meta())
     except Exception as e:
         return APIResponse.create_error(f"Failed to estimate cost: {str(e)}")
-</file>
-
-</files>
