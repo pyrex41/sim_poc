@@ -121,7 +121,7 @@ class JobContext(BaseModel):
     """Context object for job creation"""
     clientId: str
     campaignId: Optional[str] = None
-    userId: str
+    userId: Optional[str] = None  # Made optional - can be derived from auth token
 
 
 class AdBasics(BaseModel):
@@ -135,8 +135,8 @@ class AdBasics(BaseModel):
 class CreativeDirection(BaseModel):
     """Creative direction within creative object"""
     style: str
-    tone: str
-    visualElements: List[str]
+    tone: Optional[str] = None  # Made optional for flexibility
+    visualElements: Optional[List[str]] = None  # Made optional for flexibility
     musicStyle: Optional[str] = None
 
 

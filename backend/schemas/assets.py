@@ -55,7 +55,7 @@ class BaseAsset(BaseModel):
     """Base asset with all common fields"""
     id: str
     userId: str
-    clientId: str  # REQUIRED - every asset must be associated with a client
+    clientId: Optional[str] = None  # OPTIONAL - asset may or may not be associated with a client
     campaignId: Optional[str] = None  # OPTIONAL - asset may be associated with a campaign
     name: str
     url: str
@@ -242,7 +242,7 @@ class UploadAssetInput(BaseModel):
     """Input model for asset upload requests"""
     name: str
     type: AssetType
-    clientId: str  # REQUIRED - every asset must be associated with a client
+    clientId: Optional[str] = None  # OPTIONAL - asset may be associated with a client
     campaignId: Optional[str] = None  # OPTIONAL - asset may be associated with a campaign
     tags: Optional[list[str]] = None
 
