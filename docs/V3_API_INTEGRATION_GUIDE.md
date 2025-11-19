@@ -11,12 +11,27 @@ The V3 API provides a modern, frontend-aligned interface for the video generatio
 - **Enum-Based Status**: Clean state management for jobs
 - **Simplified Endpoints**: CRUD operations for clients, campaigns, assets
 - **Background Job Management**: Proper async workflow handling
+- **Organized API Documentation**: Logical grouping in Swagger UI with visual tags:
+  - 🏢 **v3-clients** - Client Management
+  - 📢 **v3-campaigns** - Campaign Management
+  - 📁 **v3-assets** - Asset Management
+  - ⚙️ **v3-jobs** - Job Management
+  - 💰 **v3-cost** - Cost Estimation
 
 ### Base URL
 
 ```
 https://your-domain.com/api/v3
 ```
+
+### API Documentation
+
+Interactive API documentation is available at `/docs` (Swagger UI). The V3 endpoints are organized at the top of the documentation with logical groupings for easy navigation:
+
+- Navigate to `http://localhost:8000/docs` (or your production URL)
+- V3 endpoints appear first with emoji icons for quick identification
+- Each section is collapsible and contains related endpoints
+- Try out endpoints directly from the UI with your auth token
 
 ## Authentication
 

@@ -18,8 +18,8 @@ from .models import (
     CostEstimate, DryRunRequest, Asset, UploadAssetInput
 )
 from ...database_helpers import (
-    create_client, get_client_by_id, list_clients, update_client, delete_client,
-    create_campaign, get_campaign_by_id, list_campaigns, update_campaign, delete_campaign,
+    create_client, get_client_by_id, list_clients, update_client, delete_client, get_client_stats,
+    create_campaign, get_campaign_by_id, list_campaigns, update_campaign, delete_campaign, get_campaign_stats,
     create_asset, get_asset_by_id, list_assets, update_asset, delete_asset
 )
 from ...auth import verify_auth
@@ -32,8 +32,8 @@ from ...database import (
 )
 from ...config import get_settings
 
-# Initialize router
-router = APIRouter(prefix="/api/v3", tags=["v3"])
+# Initialize router (tags are set per endpoint for better organization)
+router = APIRouter(prefix="/api/v3")
 settings = get_settings()
 
 
@@ -60,7 +60,7 @@ def create_api_meta(page: Optional[int] = None, total: Optional[int] = None) -> 
 # Client Endpoints
 # ============================================================================
 
-@router.get("/clients", response_model=APIResponse)
+@router.get("/clients", response_model=APIResponse, tags=["v3-clients"])
 async def get_clients(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -75,7 +75,7 @@ async def get_clients(
         return APIResponse.create_error(f"Failed to fetch clients: {str(e)}")
 
 
-@router.get("/clients/{client_id}", response_model=APIResponse)
+@router.get("/clients/{client_id}", response_model=APIResponse, tags=["v3-clients"])
 async def get_client(
     client_id: str,
     current_user: Dict = Depends(verify_auth)
@@ -91,7 +91,7 @@ async def get_client(
         return APIResponse.create_error(f"Failed to fetch client: {str(e)}")
 
 
-@router.post("/clients", response_model=APIResponse)
+@router.post("/clients", response_model=APIResponse, tags=["v3-clients"])
 async def create_new_client(
     request: ClientCreateRequest,
     current_user: Dict = Depends(verify_auth)
@@ -112,7 +112,7 @@ async def create_new_client(
         return APIResponse.create_error(f"Failed to create client: {str(e)}")
 
 
-@router.put("/clients/{client_id}", response_model=APIResponse)
+@router.put("/clients/{client_id}", response_model=APIResponse, tags=["v3-clients"])
 async def update_existing_client(
     client_id: str,
     request: ClientUpdateRequest,
@@ -138,7 +138,7 @@ async def update_existing_client(
         return APIResponse.create_error(f"Failed to update client: {str(e)}")
 
 
-@router.delete("/clients/{client_id}", response_model=APIResponse)
+@router.delete("/clients/{client_id}", response_model=APIResponse, tags=["v3-clients"])
 async def delete_existing_client(
     client_id: str,
     current_user: Dict = Depends(verify_auth)
@@ -154,11 +154,27 @@ async def delete_existing_client(
         return APIResponse.create_error(f"Failed to delete client: {str(e)}")
 
 
+@router.get("/clients/{client_id}/stats", response_model=APIResponse, tags=["v3-clients"])
+async def get_client_statistics(
+    client_id: str,
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Get statistics for a client"""
+    try:
+        stats = get_client_stats(client_id, current_user["id"])
+        if stats is None:
+            return APIResponse.create_error("Client not found")
+
+        return APIResponse.success(data=stats, meta=create_api_meta())
+    except Exception as e:
+        return APIResponse.create_error(f"Failed to fetch client stats: {str(e)}")
+
+
 # ============================================================================
 # Campaign Endpoints
 # ============================================================================
 
-@router.get("/campaigns", response_model=APIResponse)
+@router.get("/campaigns", response_model=APIResponse, tags=["v3-campaigns"])
 async def get_campaigns(
     client_id: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
@@ -179,7 +195,7 @@ async def get_campaigns(
         return APIResponse.create_error(f"Failed to fetch campaigns: {str(e)}")
 
 
-@router.get("/campaigns/{campaign_id}", response_model=APIResponse)
+@router.get("/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"])
 async def get_campaign(
     campaign_id: str,
     current_user: Dict = Depends(verify_auth)
@@ -195,7 +211,7 @@ async def get_campaign(
         return APIResponse.create_error(f"Failed to fetch campaign: {str(e)}")
 
 
-@router.post("/campaigns", response_model=APIResponse)
+@router.post("/campaigns", response_model=APIResponse, tags=["v3-campaigns"])
 async def create_new_campaign(
     request: CampaignCreateRequest,
     current_user: Dict = Depends(verify_auth)
@@ -218,7 +234,7 @@ async def create_new_campaign(
         return APIResponse.create_error(f"Failed to create campaign: {str(e)}")
 
 
-@router.put("/campaigns/{campaign_id}", response_model=APIResponse)
+@router.put("/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"])
 async def update_existing_campaign(
     campaign_id: str,
     request: CampaignUpdateRequest,
@@ -245,7 +261,7 @@ async def update_existing_campaign(
         return APIResponse.create_error(f"Failed to update campaign: {str(e)}")
 
 
-@router.delete("/campaigns/{campaign_id}", response_model=APIResponse)
+@router.delete("/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"])
 async def delete_existing_campaign(
     campaign_id: str,
     current_user: Dict = Depends(verify_auth)
@@ -261,11 +277,27 @@ async def delete_existing_campaign(
         return APIResponse.create_error(f"Failed to delete campaign: {str(e)}")
 
 
+@router.get("/campaigns/{campaign_id}/stats", response_model=APIResponse, tags=["v3-campaigns"])
+async def get_campaign_statistics(
+    campaign_id: str,
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Get statistics for a campaign"""
+    try:
+        stats = get_campaign_stats(campaign_id, current_user["id"])
+        if stats is None:
+            return APIResponse.create_error("Campaign not found")
+
+        return APIResponse.success(data=stats, meta=create_api_meta())
+    except Exception as e:
+        return APIResponse.create_error(f"Failed to fetch campaign stats: {str(e)}")
+
+
 # ============================================================================
 # Asset Endpoints
 # ============================================================================
 
-@router.get("/assets", response_model=APIResponse)
+@router.get("/assets", response_model=APIResponse, tags=["v3-assets"])
 async def get_assets(
     client_id: Optional[str] = Query(None),
     campaign_id: Optional[str] = Query(None),
@@ -290,7 +322,23 @@ async def get_assets(
         return APIResponse.create_error(f"Failed to fetch assets: {str(e)}")
 
 
-@router.post("/assets", response_model=APIResponse)
+@router.get("/assets/{asset_id}", response_model=APIResponse, tags=["v3-assets"])
+async def get_asset(
+    asset_id: str,
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Get a specific asset by ID"""
+    try:
+        asset = get_asset_by_id(asset_id)
+        if not asset:
+            return APIResponse.create_error("Asset not found")
+
+        return APIResponse.success(data=asset, meta=create_api_meta())
+    except Exception as e:
+        return APIResponse.create_error(f"Failed to fetch asset: {str(e)}")
+
+
+@router.post("/assets", response_model=APIResponse, tags=["v3-assets"])
 async def upload_asset(
     file: UploadFile = File(...),
     name: Optional[str] = None,
@@ -345,11 +393,36 @@ async def upload_asset(
         return APIResponse.create_error(f"Failed to upload asset: {str(e)}")
 
 
+@router.delete("/assets/{asset_id}", response_model=APIResponse, tags=["v3-assets"])
+async def delete_asset_v3(
+    asset_id: str,
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Delete an asset"""
+    try:
+        # Check if asset exists and belongs to user
+        asset = get_asset_by_id(asset_id)
+        if not asset:
+            return APIResponse.create_error("Asset not found")
+
+        # Delete the asset
+        success = delete_asset(asset_id, current_user["id"])
+        if not success:
+            return APIResponse.create_error("Failed to delete asset or asset not found")
+
+        return APIResponse.success(
+            data={"message": "Asset deleted successfully"},
+            meta=create_api_meta()
+        )
+    except Exception as e:
+        return APIResponse.create_error(f"Failed to delete asset: {str(e)}")
+
+
 # ============================================================================
 # Job Endpoints (Generation Workflow)
 # ============================================================================
 
-@router.post("/jobs", response_model=APIResponse)
+@router.post("/jobs", response_model=APIResponse, tags=["v3-jobs"])
 async def create_job(
     request: JobCreateRequest,
     background_tasks: BackgroundTasks,
@@ -397,7 +470,7 @@ async def create_job(
         return APIResponse.create_error(f"Failed to create job: {str(e)}")
 
 
-@router.get("/jobs/{job_id}", response_model=APIResponse)
+@router.get("/jobs/{job_id}", response_model=APIResponse, tags=["v3-jobs"])
 async def get_job_status(
     job_id: str,
     current_user: Dict = Depends(verify_auth)
@@ -462,7 +535,7 @@ async def get_job_status(
         return APIResponse.create_error(f"Failed to get job status: {str(e)}")
 
 
-@router.post("/jobs/{job_id}/actions", response_model=APIResponse)
+@router.post("/jobs/{job_id}/actions", response_model=APIResponse, tags=["v3-jobs"])
 async def perform_job_action(
     job_id: str,
     request: JobActionRequest,
@@ -508,7 +581,7 @@ async def perform_job_action(
 # Cost Estimation Endpoints
 # ============================================================================
 
-@router.post("/jobs/dry-run", response_model=APIResponse)
+@router.post("/jobs/dry-run", response_model=APIResponse, tags=["v3-cost"])
 async def estimate_job_cost(
     request: DryRunRequest,
     current_user: Dict = Depends(verify_auth)

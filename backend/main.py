@@ -242,6 +242,29 @@ def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str)
     return False
 
 openapi_tags = [
+    # V3 API - Primary API (organized logically)
+    {
+        "name": "v3-clients",
+        "description": "🏢 V3 Client Management - Create and manage clients with brand guidelines"
+    },
+    {
+        "name": "v3-campaigns",
+        "description": "📢 V3 Campaign Management - Create and manage advertising campaigns"
+    },
+    {
+        "name": "v3-assets",
+        "description": "📁 V3 Asset Management - Upload and manage media assets (images, videos, documents)"
+    },
+    {
+        "name": "v3-jobs",
+        "description": "⚙️ V3 Job Management - Create and monitor video generation jobs with storyboards"
+    },
+    {
+        "name": "v3-cost",
+        "description": "💰 V3 Cost Estimation - Estimate costs before creating jobs"
+    },
+
+    # Legacy APIs
     {
         "name": "Core Entities",
         "description": "Client and campaign creation (decoupled from assets)."
@@ -6530,8 +6553,8 @@ app.include_router(briefs_api.router, prefix="/api/creative", tags=["creative"])
 # Include clients and campaigns router (for ad-video-gen frontend)
 app.include_router(clients_campaigns_router, prefix="/api", tags=["Core Entities"])
 
-# Include v3 API router
-app.include_router(v3_router, tags=["v3"])
+# Include v3 API router (tags are defined within the router)
+app.include_router(v3_router)
 
 # ============================================
 # Video/Image Retry Endpoints
