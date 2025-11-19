@@ -1,26 +1,135 @@
 # Current Progress - Video Ad Generation Platform
 
-**Last Updated:** 2025-11-19 21:57 UTC
+**Last Updated:** 2025-11-19 22:30 UTC
 **Branch:** simple
-**Overall Status:** 🟢 Phase 1 Complete, Phase 2 Ready to Start
+**Overall Status:** 🟢 Phase 1 & 1.5 Complete, Phase 2.2 Complete, Phase 2.3+ In Progress
 
 ---
 
 ## 🎯 Current Status Summary
 
-### Major Milestone Achieved: Phase 1 Complete ✅
+### Major Milestones Achieved ✅
 
-Successfully implemented **Asset URL Handling & Blob Storage** - a critical foundation for V3 API frontend integration. The backend can now:
+**Phase 1 Complete:** Asset URL Handling & Blob Storage
 - Accept asset URLs from frontend
 - Automatically download and validate assets
 - Store as blobs in database
 - Serve via V3 endpoints with proper content types
 
-**Progress:** Phase 1 (4/4) ✅ | Phase 2 (0/6) ⏳ | Phase 3 (0/1) ⏳
+**Phase 1.5 Complete:** Asset URLs in Job Creation
+- Job creation endpoint now processes asset URLs
+- Automatically downloads and stores assets during job creation
+- Supports both URL-based and existing asset ID references
+
+**Phase 2.2 Complete:** AI Scene Generation Service
+- Comprehensive scene generation service with OpenAI integration
+- Generate 3-7 scenes with descriptions, scripts, shot types
+- Scene regeneration with user feedback support
+- Configurable AI provider (OpenAI, extensible to Anthropic)
+
+**Progress:** Phase 1 (5/5) ✅ | Phase 2 (2/6) ✅🔄 | Phase 3 (0/1) ⏳
 
 ---
 
-## 📊 Recent Accomplishments (Last 3 Sessions)
+## 📊 Recent Accomplishments (Last 4 Sessions)
+
+### Session 4: Phase 1.5 & Phase 2.2 - Asset URLs in Jobs & AI Scene Generation (Nov 19, ~22:00-22:30 UTC)
+**Status:** ✅ Complete - Major Feature Implementation
+
+**Phase 1.5 Achievements:**
+1. **Asset Input Model** (backend/api/v3/models.py)
+   - Created AssetInput model for flexible asset specification
+   - Support both URL and existing asset ID references
+   - Optional role field for scene placement hints
+
+2. **Job Creation Enhancement** (backend/api/v3/router.py:562-615)
+   - Process asset URLs before creating job
+   - Auto-download and store assets from URLs
+   - Verify existing assets when asset ID provided
+   - Return processed asset IDs in job response
+   - Handle both URL-based and ID-based asset references
+
+**Phase 2.2 Achievements:**
+1. **Scene Generation Service** (backend/services/scene_generator.py, 450+ lines)
+   - OpenAI-powered scene generation with GPT-4o-mini
+   - Generate 3-7 scenes based on video duration
+   - Scene descriptions, scripts, shot types, transitions
+   - Intelligent duration distribution
+   - Asset assignment to scenes
+
+2. **Scene Regeneration**
+   - Single scene regeneration with user feedback
+   - Context-aware regeneration (considers adjacent scenes)
+   - Constraint support (duration, style modifications)
+   - Higher temperature for variation
+
+3. **Configuration & Extensibility**
+   - Environment variable configuration (AI_PROVIDER, AI_MODEL)
+   - Extensible architecture for multiple AI providers
+   - Comprehensive error handling and logging
+   - Post-processing with duration adjustment
+
+**Code References:**
+- Asset input model: backend/api/v3/models.py:143-149
+- Job asset processing: backend/api/v3/router.py:562-615
+- Scene generator: backend/services/scene_generator.py:1-450
+
+**Impact:** Jobs can now accept asset URLs and generate AI-powered scenes
+
+### Session 3: Phase 1 Asset URL & Blob Storage (Nov 19, ~21:00-21:55 UTC)
+**Status:** ✅ Complete - Major Feature Implementation
+
+**New Capabilities:**
+1. **Asset Downloader Service** (backend/services/asset_downloader.py, 346 lines)
+   - Downloads assets from URLs with validation
+   - Stores as blobs in new `asset_blobs` table
+   - Extracts metadata (dimensions, format)
+   - Supports images, videos, audio, documents
+
+2. **Upload from URL Endpoint** (POST /api/v3/assets/from-url)
+   - Accepts URL in request body
+   - Downloads and stores automatically
+   - Returns asset with V3 serving URL
+
+3. **Blob Serving Endpoint** (GET /api/v3/assets/{id}/data)
+   - Serves binary data with proper MIME types
+   - Supports both V3 blob storage and legacy blob_data
+   - Includes caching headers for performance
+
+4. **Database Enhancements**
+   - New `asset_blobs` table for blob storage
+   - New `job_scenes` table (schema ready for Phase 2)
+   - Enhanced migration system with idempotent ALTER TABLE
+
+**Code References:**
+- Asset downloader: backend/services/asset_downloader.py:1-346
+- Upload endpoint: backend/api/v3/router.py:474-521
+- Blob serving: backend/api/v3/router.py:345-416
+- Schema updates: backend/schema.sql:116-124, 245-263
+
+**Impact:** Frontend can now provide asset URLs instead of uploading files
+
+### Session 2: V3 Critical Schema Fixes (Nov 19, ~20:30 UTC)
+**Status:** ✅ Complete - Critical Blockers Resolved
+
+**Problems Solved:**
+- Job creation returning 422 validation errors
+- Asset listing failing with validation errors
+- Frontend integration 50% blocked
+
+**Schema Fixes Applied:**
+- Made `JobContext.userId` optional (backend/api/v3/models.py:124)
+- Made `CreativeDirection.tone` optional (models.py:138)
+- Made `CreativeDirection.visualElements` optional (models.py:139)
+- Made `BaseAsset.clientId` optional (schemas/assets.py:58)
+
+**Testing Results:**
+- ✅ All V3 basic CRUD endpoints passing
+- ✅ Job creation functional
+- ✅ Cost estimation functional
+- ✅ Asset listing functional
+
+**Impact:** Frontend integration unblocked, core workflows functional
 
 ### Session 1: V3 API Organization and Gap Resolution (Nov 19, ~18:00 UTC)
 **Status:** ✅ Complete
@@ -98,28 +207,28 @@ Successfully implemented **Asset URL Handling & Blob Storage** - a critical foun
 
 ## 🚧 Work In Progress
 
-**Current Focus:** None - awaiting decision on Phase 2 AI provider
+**Current Focus:** Phase 2.3 - Integrating scene generation into job creation
 
 **Blocked Items:** None
 
-**Ready to Start:**
-- Phase 1.5: Update job creation to handle asset URLs
-- Phase 2: AI-powered scene generation
+**Completed Today:**
+- ✅ Phase 1.5: Asset URL handling in job creation
+- ✅ Phase 2.2: AI scene generation service
 
 ---
 
 ## 📋 Todo List Status
 
-### ✅ Completed (4 tasks):
+### ✅ Completed (7 tasks):
 1. Phase 1.1: Update database schema for asset blobs
 2. Phase 1.2: Create asset downloader service
 3. Phase 1.3: Enhance asset upload endpoint for URLs
 4. Phase 1.4: Add blob serving endpoint
-
-### ⏳ Pending (8 tasks):
 5. Phase 1.5: Update job creation to handle asset URLs
-6. Phase 2.1: Create database schema for job scenes (schema exists, need service)
+6. Phase 2.1: Create database schema for job scenes
 7. Phase 2.2: Build AI scene generation service
+
+### ⏳ Pending (5 tasks):
 8. Phase 2.3: Integrate scene generation into job creation
 9. Phase 2.4: Add scenes to job status endpoint
 10. Phase 2.5: Create scene management endpoints
@@ -130,27 +239,23 @@ Successfully implemented **Asset URL Handling & Blob Storage** - a critical foun
 
 ## 🎯 Next Steps (Priority Order)
 
-### Immediate (Phase 1.5 - 1-2 hours):
-1. **Update Job Creation Endpoint**
-   - Modify `POST /api/v3/jobs` to detect asset URLs in `creative.assets`
-   - Automatically download and store assets when URLs are provided
-   - Test end-to-end workflow: URL → Download → Store → Job Creation
+### Immediate (Phase 2.3 - 1-2 hours):
+1. **Integrate Scene Generation into Job Creation**
+   - Import scene_generator service into job creation endpoint
+   - Call generate_scenes() after processing assets
+   - Store generated scenes in job_scenes table
+   - Return scenes in job creation response
+   - Update job status to "storyboard_ready"
 
 **Files to modify:**
 - `backend/api/v3/router.py` (job creation endpoint)
-- `backend/api/v3/models.py` (possibly enhance Asset model)
+- `backend/database_helpers.py` (add scene CRUD functions)
 
-### Next Priority (Phase 2 - 2 weeks):
-1. **AI Provider Decision**
-   - OpenAI GPT-4 vs Anthropic Claude
-   - Review API costs and rate limits
-   - Set up environment variables
-
-2. **Scene Generation Service** (Phase 2.2)
-   - Create `backend/services/scene_generator.py`
-   - Design prompt templates for scene generation
-   - Implement 3-7 scene generation logic
-   - Include scene metadata (duration, description, script, shot type)
+### Next Priority (Phase 2.4-2.6 - 2-3 hours):
+1. **Add Scenes to Job Status** (Phase 2.4)
+   - Modify GET /api/v3/jobs/{id} to include scenes
+   - Query job_scenes table
+   - Format scenes according to V3 API contract
 
 3. **Scene Integration** (Phase 2.3-2.6)
    - Integrate scene generation into job creation
