@@ -17,6 +17,7 @@ from .models import (
     Job, JobCreateRequest, JobActionRequest, JobStatus, JobAction,
     CostEstimate, DryRunRequest, Asset, UploadAssetInput
 )
+from ...schemas.assets import UploadAssetFromUrlInput
 from ...database_helpers import (
     create_client, get_client_by_id, list_clients, update_client, delete_client, get_client_stats,
     create_campaign, get_campaign_by_id, list_campaigns, update_campaign, delete_campaign, get_campaign_stats,
@@ -26,6 +27,9 @@ from ...auth import verify_auth
 from ...services.storyboard_generator import generate_storyboard_task
 from ...services.video_renderer import render_video_task
 from ...services.replicate_client import ReplicateClient
+from ...services.asset_downloader import (
+    download_asset_from_url, store_blob, AssetDownloadError
+)
 from ...database import (
     get_job, update_job_progress, approve_storyboard,
     create_video_job, update_video_status
@@ -338,6 +342,80 @@ async def get_asset(
         return APIResponse.create_error(f"Failed to fetch asset: {str(e)}")
 
 
+@router.get("/assets/{asset_id}/data", tags=["v3-assets"])
+async def get_asset_data(
+    asset_id: str,
+    current_user: Dict = Depends(verify_auth)
+):
+    """Serve the binary asset data"""
+    from fastapi.responses import Response
+    from ...database_helpers import get_db
+
+    try:
+        # Query asset directly from database to get blob_id and blob_data
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT blob_id, blob_data, format, name
+                FROM assets
+                WHERE id = ?
+                """,
+                (asset_id,)
+            ).fetchone()
+
+            if not row:
+                return APIResponse.create_error("Asset not found", status_code=404)
+
+            blob_id = row["blob_id"]
+            blob_data = row["blob_data"]
+            asset_format = row["format"]
+            asset_name = row["name"]
+
+        # Check if asset has blob_id (V3 blob storage)
+        if blob_id:
+            from ...services.asset_downloader import get_blob_by_id
+            blob_result = get_blob_by_id(blob_id)
+
+            if blob_result:
+                data, content_type = blob_result
+                return Response(
+                    content=data,
+                    media_type=content_type,
+                    headers={
+                        "Content-Disposition": f'inline; filename="{asset_name}"',
+                        "Cache-Control": "public, max-age=31536000"
+                    }
+                )
+
+        # Fallback to blob_data column (legacy storage)
+        if blob_data:
+            # Determine content type from format
+            format_to_mime = {
+                "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "png": "image/png", "webp": "image/webp", "gif": "image/gif",
+                "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
+                "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg",
+                "pdf": "application/pdf"
+            }
+
+            content_type = format_to_mime.get(asset_format.lower(), "application/octet-stream")
+
+            return Response(
+                content=bytes(blob_data),
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{asset_name}"',
+                    "Cache-Control": "public, max-age=31536000"
+                }
+            )
+
+        # No binary data available
+        return APIResponse.create_error("Asset data not available", status_code=404)
+
+    except Exception as e:
+        return APIResponse.create_error(f"Failed to serve asset data: {str(e)}")
+
+
 @router.post("/assets", response_model=APIResponse, tags=["v3-assets"])
 async def upload_asset(
     file: UploadFile = File(...),
@@ -391,6 +469,56 @@ async def upload_asset(
         return APIResponse.success(data=asset, meta=create_api_meta())
     except Exception as e:
         return APIResponse.create_error(f"Failed to upload asset: {str(e)}")
+
+
+@router.post("/assets/from-url", response_model=APIResponse, tags=["v3-assets"])
+async def upload_asset_from_url(
+    request: UploadAssetFromUrlInput,
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Upload an asset by downloading it from a URL"""
+    try:
+        # Download asset from URL
+        asset_data, content_type, metadata = download_asset_from_url(
+            url=request.url,
+            asset_type=request.type
+        )
+
+        # Store as blob in database
+        blob_id = store_blob(asset_data, content_type)
+
+        # Generate asset ID
+        asset_id = str(uuid.uuid4())
+
+        # Construct V3 serving URL
+        asset_url = f"/api/v3/assets/{asset_id}/data"
+
+        # Create asset record with blob reference
+        create_asset(
+            asset_id=asset_id,
+            name=request.name,
+            asset_type=request.type,
+            url=asset_url,
+            format=metadata.get("format", "unknown"),
+            size=metadata.get("size", len(asset_data)),
+            user_id=current_user["id"],
+            client_id=request.clientId,
+            campaign_id=request.campaignId,
+            tags=request.tags,
+            blob_id=blob_id,
+            source_url=request.url,
+            width=metadata.get("width"),
+            height=metadata.get("height"),
+            duration=metadata.get("duration")
+        )
+
+        # Fetch the created asset
+        asset = get_asset_by_id(asset_id)
+        return APIResponse.success(data=asset, meta=create_api_meta())
+    except AssetDownloadError as e:
+        return APIResponse.create_error(f"Failed to download asset: {str(e)}", status_code=400)
+    except Exception as e:
+        return APIResponse.create_error(f"Failed to upload asset from URL: {str(e)}")
 
 
 @router.delete("/assets/{asset_id}", response_model=APIResponse, tags=["v3-assets"])

@@ -236,7 +236,9 @@ def create_asset(
     waveform_url: Optional[str] = None,
     page_count: Optional[int] = None,
     asset_id: Optional[str] = None,
-    blob_data: Optional[bytes] = None
+    blob_data: Optional[bytes] = None,
+    blob_id: Optional[str] = None,
+    source_url: Optional[str] = None
 ) -> str:
     """Create a new asset in the consolidated assets table.
 
@@ -258,6 +260,8 @@ def create_asset(
         page_count: For documents
         asset_id: Optional pre-generated asset ID (if None, generates new UUID)
         blob_data: Optional binary blob data for storing asset in database
+        blob_id: Optional reference to asset_blobs table (for V3 blob storage)
+        source_url: Optional original URL where asset was downloaded from
 
     Returns:
         Asset ID (UUID string)
@@ -271,9 +275,9 @@ def create_asset(
             INSERT INTO assets (
                 id, user_id, client_id, campaign_id, name, asset_type, url,
                 size, format, tags, width, height, duration, thumbnail_url,
-                waveform_url, page_count, blob_data
+                waveform_url, page_count, blob_data, blob_id, source_url
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 asset_id,
@@ -292,7 +296,9 @@ def create_asset(
                 thumbnail_url,
                 waveform_url,
                 page_count,
-                blob_data
+                blob_data,
+                blob_id,
+                source_url
             )
         )
         conn.commit()
@@ -317,7 +323,7 @@ def get_asset_by_id(asset_id: str, include_blob: bool = False) -> Optional[Asset
             query = """
                 SELECT id, user_id, client_id, campaign_id, name, asset_type, url,
                        size, uploaded_at, format, tags, width, height, duration,
-                       thumbnail_url, waveform_url, page_count
+                       thumbnail_url, waveform_url, page_count, blob_id, source_url
                 FROM assets WHERE id = ?
             """
 

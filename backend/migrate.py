@@ -79,6 +79,20 @@ def run_migrations():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Add blob_id to assets if missing (for V3 blob storage)
+        try:
+            conn.execute("ALTER TABLE assets ADD COLUMN blob_id TEXT")
+            print("  ✓ Added blob_id to assets")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Add source_url to assets if missing (for V3 asset tracking)
+        try:
+            conn.execute("ALTER TABLE assets ADD COLUMN source_url TEXT")
+            print("  ✓ Added source_url to assets")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         conn.commit()
         print("✓ Pre-migration column additions complete")
 

@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS assets (
     waveform_url TEXT,
     page_count INTEGER,
     blob_data BLOB,
+    blob_id TEXT,
+    source_url TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
     FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
@@ -105,6 +107,21 @@ CREATE INDEX IF NOT EXISTS idx_assets_client_id ON assets(client_id);
 CREATE INDEX IF NOT EXISTS idx_assets_campaign_id ON assets(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_assets_type ON assets(asset_type);
 CREATE INDEX IF NOT EXISTS idx_assets_uploaded_at ON assets(uploaded_at);
+CREATE INDEX IF NOT EXISTS idx_assets_blob_id ON assets(blob_id);
+
+-- ============================================================================
+-- BLOB STORAGE (for V3 asset handling)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS asset_blobs (
+    id TEXT PRIMARY KEY,
+    data BLOB NOT NULL,
+    content_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_blobs_created_at ON asset_blobs(created_at);
 
 -- ============================================================================
 -- CREATIVE BRIEFS
@@ -220,6 +237,30 @@ CREATE INDEX IF NOT EXISTS idx_videos_brief ON generated_videos(brief_id);
 CREATE INDEX IF NOT EXISTS idx_videos_model ON generated_videos(model_id);
 CREATE INDEX IF NOT EXISTS idx_videos_client ON generated_videos(client_id);
 CREATE INDEX IF NOT EXISTS idx_videos_campaign ON generated_videos(campaign_id);
+
+-- ============================================================================
+-- JOB SCENES (for V3 scene generation)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS job_scenes (
+    id TEXT PRIMARY KEY,
+    job_id INTEGER NOT NULL,
+    scene_number INTEGER NOT NULL,
+    duration_seconds REAL NOT NULL,
+    description TEXT NOT NULL,
+    script TEXT,
+    shot_type TEXT,
+    transition TEXT,
+    assets TEXT,
+    metadata TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (job_id) REFERENCES generated_videos(id) ON DELETE CASCADE,
+    UNIQUE(job_id, scene_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_scenes_job_id ON job_scenes(job_id);
+CREATE INDEX IF NOT EXISTS idx_job_scenes_scene_number ON job_scenes(scene_number);
 
 CREATE TABLE IF NOT EXISTS generated_audio (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

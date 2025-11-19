@@ -249,6 +249,30 @@ class UploadAssetInput(BaseModel):
     # Note: File is handled separately via FastAPI's UploadFile
     # This model is for the form data fields
 
+
+# Input model for uploading asset from URL
+class UploadAssetFromUrlInput(BaseModel):
+    """Input model for asset upload from URL"""
+    name: str
+    type: AssetType
+    url: str  # URL to download asset from
+    clientId: Optional[str] = None
+    campaignId: Optional[str] = None
+    tags: Optional[list[str]] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "product-image",
+                "type": "image",
+                "url": "https://example.com/images/product.jpg",
+                "clientId": "client-uuid",
+                "campaignId": "campaign-uuid",
+                "tags": ["product", "hero"]
+            }
+        }
+    }
+
     model_config = {
         "json_schema_extra": {
             "example": {
