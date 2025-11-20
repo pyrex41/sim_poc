@@ -813,3 +813,240 @@ def list_videos_by_campaign(
             }
             for row in rows
         ]
+
+# ============================================================================
+# Scene Management Functions (Phase 2)
+# ============================================================================
+
+def create_job_scene(
+    job_id: int,
+    scene_number: int,
+    duration: float,
+    description: str,
+    script: Optional[str] = None,
+    shot_type: Optional[str] = None,
+    transition: Optional[str] = None,
+    assets: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> str:
+    """
+    Create a scene record for a job.
+    
+    Args:
+        job_id: The job ID this scene belongs to
+        scene_number: Scene number (1-indexed)
+        duration: Scene duration in seconds
+        description: Scene description
+        script: Optional voiceover script
+        shot_type: Optional shot type (wide, close-up, etc.)
+        transition: Optional transition type (cut, fade, etc.)
+        assets: Optional list of asset IDs used in this scene
+        metadata: Optional additional scene metadata
+        
+    Returns:
+        The created scene ID
+    """
+    scene_id = str(uuid.uuid4())
+    assets_json = json.dumps(assets) if assets else None
+    metadata_json = json.dumps(metadata) if metadata else None
+    
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO job_scenes (
+                id, job_id, scene_number, duration_seconds, description,
+                script, shot_type, transition, assets, metadata
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                scene_id, job_id, scene_number, duration, description,
+                script, shot_type, transition, assets_json, metadata_json
+            )
+        )
+        conn.commit()
+    
+    return scene_id
+
+
+def get_scenes_by_job(job_id: int) -> List[Dict[str, Any]]:
+    """
+    Get all scenes for a job, ordered by scene number.
+    
+    Args:
+        job_id: The job ID
+        
+    Returns:
+        List of scene dictionaries
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, job_id, scene_number, duration_seconds, description,
+                   script, shot_type, transition, assets, metadata,
+                   created_at, updated_at
+            FROM job_scenes
+            WHERE job_id = ?
+            ORDER BY scene_number ASC
+            """,
+            (job_id,)
+        )
+        rows = cursor.fetchall()
+        
+        return [
+            {
+                "id": row["id"],
+                "jobId": row["job_id"],
+                "sceneNumber": row["scene_number"],
+                "duration": row["duration_seconds"],
+                "description": row["description"],
+                "script": row["script"],
+                "shotType": row["shot_type"],
+                "transition": row["transition"],
+                "assets": json.loads(row["assets"]) if row["assets"] else [],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                "createdAt": row["created_at"],
+                "updatedAt": row["updated_at"]
+            }
+            for row in rows
+        ]
+
+
+def get_scene_by_id(scene_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a specific scene by ID.
+    
+    Args:
+        scene_id: The scene UUID
+        
+    Returns:
+        Scene dictionary or None if not found
+    """
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, job_id, scene_number, duration_seconds, description,
+                   script, shot_type, transition, assets, metadata,
+                   created_at, updated_at
+            FROM job_scenes
+            WHERE id = ?
+            """,
+            (scene_id,)
+        )
+        row = cursor.fetchone()
+        
+        if not row:
+            return None
+            
+        return {
+            "id": row["id"],
+            "jobId": row["job_id"],
+            "sceneNumber": row["scene_number"],
+            "duration": row["duration_seconds"],
+            "description": row["description"],
+            "script": row["script"],
+            "shotType": row["shot_type"],
+            "transition": row["transition"],
+            "assets": json.loads(row["assets"]) if row["assets"] else [],
+            "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"]
+        }
+
+
+def update_job_scene(
+    scene_id: str,
+    description: Optional[str] = None,
+    script: Optional[str] = None,
+    shot_type: Optional[str] = None,
+    transition: Optional[str] = None,
+    duration: Optional[float] = None,
+    assets: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None
+) -> bool:
+    """
+    Update a scene record.
+    
+    Args:
+        scene_id: The scene UUID
+        description: Optional new description
+        script: Optional new script
+        shot_type: Optional new shot type
+        transition: Optional new transition
+        duration: Optional new duration
+        assets: Optional new assets list
+        metadata: Optional new metadata
+        
+    Returns:
+        True if updated successfully
+    """
+    updates = []
+    params = []
+    
+    if description is not None:
+        updates.append("description = ?")
+        params.append(description)
+    if script is not None:
+        updates.append("script = ?")
+        params.append(script)
+    if shot_type is not None:
+        updates.append("shot_type = ?")
+        params.append(shot_type)
+    if transition is not None:
+        updates.append("transition = ?")
+        params.append(transition)
+    if duration is not None:
+        updates.append("duration_seconds = ?")
+        params.append(duration)
+    if assets is not None:
+        updates.append("assets = ?")
+        params.append(json.dumps(assets))
+    if metadata is not None:
+        updates.append("metadata = ?")
+        params.append(json.dumps(metadata))
+    
+    if not updates:
+        return False
+        
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(scene_id)
+    
+    with get_db() as conn:
+        cursor = conn.execute(
+            f"UPDATE job_scenes SET {', '.join(updates)} WHERE id = ?",
+            params
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_job_scene(scene_id: str) -> bool:
+    """
+    Delete a scene record.
+    
+    Args:
+        scene_id: The scene UUID
+        
+    Returns:
+        True if deleted successfully
+    """
+    with get_db() as conn:
+        cursor = conn.execute("DELETE FROM job_scenes WHERE id = ?", (scene_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def delete_scenes_by_job(job_id: int) -> int:
+    """
+    Delete all scenes for a job.
+    
+    Args:
+        job_id: The job ID
+        
+    Returns:
+        Number of scenes deleted
+    """
+    with get_db() as conn:
+        cursor = conn.execute("DELETE FROM job_scenes WHERE job_id = ?", (job_id,))
+        conn.commit()
+        return cursor.rowcount

@@ -1,7 +1,7 @@
 # V3 API Documentation - Index
 
-**Last Updated:** 2025-11-19
-**Status:** Complete Documentation Package Ready
+**Last Updated:** 2025-11-19 22:40 UTC
+**Status:** ✅ Phase 1 & 2 Complete - Scene Management Fully Implemented
 
 ---
 
@@ -317,10 +317,19 @@ job_scenes     -- Scene information
 
 ```
 GET  /api/v3/assets/{id}/data
-GET  /api/v3/jobs/{id}/scenes
-GET  /api/v3/jobs/{id}/scenes/{scene_number}
-PUT  /api/v3/jobs/{id}/scenes/{scene_number}
-POST /api/v3/jobs/{id}/actions (enhanced)
+POST /api/v3/assets/from-url
+
+# Scene Management Endpoints (✅ IMPLEMENTED)
+GET    /api/v3/jobs/{job_id}/scenes                          # List all scenes
+GET    /api/v3/jobs/{job_id}/scenes/{scene_id}               # Get specific scene
+PUT    /api/v3/jobs/{job_id}/scenes/{scene_id}               # Update scene
+POST   /api/v3/jobs/{job_id}/scenes/{scene_id}/regenerate    # AI regeneration
+DELETE /api/v3/jobs/{job_id}/scenes/{scene_id}               # Delete scene
+
+# Enhanced Endpoints
+POST /api/v3/jobs                      # Now generates scenes automatically
+GET  /api/v3/jobs/{id}                 # Now includes scenes in response
+POST /api/v3/jobs/{id}/actions         # REGENERATE_SCENE action implemented
 ```
 
 ### Implementation Phases
@@ -352,11 +361,15 @@ MAX_ASSET_DOWNLOAD_SIZE_MB=100
 ✅ Served via V3 endpoint
 ✅ No V2 URLs in responses
 
-### Phase 2 (Scene Generation)
-✅ Jobs generate scenes automatically
-✅ Scenes have descriptions and scripts
-✅ Scene regeneration works
-✅ Storyboard approval functional
+### Phase 2 (Scene Generation) ✅ COMPLETE
+✅ Jobs generate scenes automatically (POST /api/v3/jobs)
+✅ Scenes have descriptions, scripts, shot types, transitions
+✅ Scene regeneration with AI feedback works
+✅ Complete CRUD operations for scenes
+✅ Scene management endpoints fully implemented
+✅ Job status includes scenes
+✅ REGENERATE_SCENE job action implemented
+✅ Comprehensive test coverage added
 
 ### Complete Integration
 ✅ Full job workflow operational

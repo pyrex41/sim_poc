@@ -140,6 +140,13 @@ class CreativeDirection(BaseModel):
     musicStyle: Optional[str] = None
 
 
+class VideoSpecs(BaseModel):
+    """Video specifications"""
+    duration: float  # Duration in seconds
+    format: str = "16:9"  # Aspect ratio
+    resolution: Optional[str] = None  # e.g., "1080p"
+
+
 class AssetInput(BaseModel):
     """Asset input for job creation - can be URL or existing asset ID"""
     url: Optional[str] = None  # URL to download asset from
@@ -151,6 +158,7 @@ class AssetInput(BaseModel):
 
 class Creative(BaseModel):
     """Creative object for job creation"""
+    videoSpecs: VideoSpecs  # Video specifications
     direction: CreativeDirection
     assets: Optional[List[AssetInput]] = None  # Assets to use in generation
     storyboard: Optional[Dict[str, Any]] = None

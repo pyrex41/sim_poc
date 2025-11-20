@@ -8,8 +8,12 @@ the data requirements of the Next.js frontend with proper Pydantic models.
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks
 from typing import List, Optional, Dict, Any, cast
 from datetime import datetime
+import logging
 import json
 import uuid
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 from .models import (
     APIResponse, Client, ClientCreateRequest, ClientUpdateRequest,
@@ -21,7 +25,8 @@ from ...schemas.assets import UploadAssetFromUrlInput
 from ...database_helpers import (
     create_client, get_client_by_id, list_clients, update_client, delete_client, get_client_stats,
     create_campaign, get_campaign_by_id, list_campaigns, update_campaign, delete_campaign, get_campaign_stats,
-    create_asset, get_asset_by_id, list_assets, update_asset, delete_asset
+    create_asset, get_asset_by_id, list_assets, update_asset, delete_asset,
+    create_job_scene, get_scenes_by_job, get_scene_by_id, update_job_scene, delete_job_scene
 )
 from ...auth import verify_auth
 from ...services.storyboard_generator import generate_storyboard_task
@@ -30,6 +35,7 @@ from ...services.replicate_client import ReplicateClient
 from ...services.asset_downloader import (
     download_asset_from_url, store_blob, AssetDownloadError
 )
+from ...services.scene_generator import generate_scenes, regenerate_scene, SceneGenerationError
 from ...database import (
     get_job, update_job_progress, approve_storyboard,
     create_video_job, update_video_status
@@ -636,26 +642,60 @@ async def create_job(
             },
             estimated_cost=5.0,  # Placeholder cost
             client_id=request.context.clientId,
-            status="pending"
+            status="scene_generation"  # Initial status
         )
 
-        # Start background storyboard generation
-        background_tasks.add_task(generate_storyboard_task, job_id)
+        # Generate scenes using AI
+        logger.info(f"Generating scenes for job {job_id}")
+        try:
+            scenes = generate_scenes(
+                ad_basics=request.adBasics.dict(),
+                creative_direction=request.creative.direction.dict(),
+                assets=processed_asset_ids,
+                duration=request.creative.videoSpecs.duration,
+                num_scenes=None  # Auto-determine based on duration
+            )
 
-        # Return job info with processed assets
+            # Store generated scenes in database
+            for scene in scenes:
+                create_job_scene(
+                    job_id=job_id,
+                    scene_number=scene["sceneNumber"],
+                    duration=scene["duration"],
+                    description=scene["description"],
+                    script=scene.get("script"),
+                    shot_type=scene.get("shotType"),
+                    transition=scene.get("transition"),
+                    assets=scene.get("assets", []),
+                    metadata=scene.get("metadata", {})
+                )
+
+            logger.info(f"Generated and stored {len(scenes)} scenes for job {job_id}")
+
+            # Update job status to storyboard_ready
+            update_video_status(job_id, "storyboard_ready")
+
+        except SceneGenerationError as e:
+            logger.error(f"Scene generation failed for job {job_id}: {e}")
+            update_video_status(job_id, "failed")
+            return APIResponse.create_error(f"Failed to generate scenes: {str(e)}")
+
+        # Return job info with processed assets and scenes
         job = {
             "id": str(job_id),
-            "status": JobStatus.PENDING,
+            "status": JobStatus.STORYBOARD_READY,
             "assetIds": processed_asset_ids,  # Return asset IDs for reference
+            "scenes": scenes,  # Include generated scenes in response
             "createdAt": get_current_timestamp(),
             "updatedAt": get_current_timestamp()
         }
 
         return APIResponse.success(data=job, meta=create_api_meta())
     except AssetDownloadError as e:
+        logger.error(f"Asset download error: {e}", exc_info=True)
         return APIResponse.create_error(f"Failed to download asset: {str(e)}")
     except Exception as e:
-        logger.error(f"Job creation failed: {e}")
+        logger.error(f"Job creation failed: {e}", exc_info=True)
         return APIResponse.create_error(f"Failed to create job: {str(e)}")
 
 
@@ -688,11 +728,15 @@ async def get_job_status(
         # Default to FAILED if unknown status
         v3_status = status_mapping.get(job_dict["status"] if "status" in job_dict else "failed", JobStatus.FAILED)
 
+        # Get scenes from job_scenes table
+        scenes = get_scenes_by_job(int(job_id))
+
         job_data = {
             "id": str(job_dict["id"]),
             "status": v3_status,
             "progress": job_dict["progress"] if "progress" in job_dict else None,
             "storyboard": job_dict["storyboard_data"] if "storyboard_data" in job_dict and isinstance(job_dict["storyboard_data"], dict) else None,
+            "scenes": scenes,  # Include scenes from job_scenes table
             "videoUrl": job_dict["video_url"] if "video_url" in job_dict else None,
             "error": job_dict["error_message"] if "error_message" in job_dict else None,
             "estimatedCost": job_dict["estimated_cost"] if "estimated_cost" in job_dict else None,
@@ -700,7 +744,7 @@ async def get_job_status(
             "createdAt": job_dict["created_at"],
             "updatedAt": job_dict["updated_at"]
         }
-        
+
         # Handle storyboard data loading if it's a string/list from DB
         if "storyboard_data" in job_dict and job_dict["storyboard_data"]:
              sb_data = job_dict["storyboard_data"]
@@ -756,8 +800,58 @@ async def perform_job_action(
             )
 
         elif request.action == JobAction.REGENERATE_SCENE:
-            # Regenerate a specific scene (not implemented in v1, placeholder)
-            return APIResponse.create_error("Scene regeneration not yet implemented")
+            # Regenerate a specific scene
+            if not hasattr(request, 'sceneId') or not request.sceneId:
+                return APIResponse.create_error("sceneId is required for REGENERATE_SCENE action")
+
+            scene_id = request.sceneId
+            scene = get_scene_by_id(scene_id)
+            if not scene:
+                return APIResponse.create_error(f"Scene not found: {scene_id}")
+            if str(scene["jobId"]) != job_id:
+                return APIResponse.create_error("Scene does not belong to this job")
+
+            # Get all scenes and job details for regeneration
+            all_scenes = get_scenes_by_job(job_id_int)
+            job = get_job(job_id_int)
+            if not job:
+                return APIResponse.create_error("Job not found")
+
+            job_params = json.loads(job["parameters"]) if isinstance(job["parameters"], str) else job["parameters"]
+            ad_basics = job_params.get("ad_basics", {})
+            creative_direction = job_params.get("creative", {}).get("direction", {})
+
+            # Regenerate scene with optional feedback
+            feedback = request.feedback if hasattr(request, 'feedback') else ""
+            constraints = request.constraints if hasattr(request, 'constraints') else {}
+
+            new_scene = regenerate_scene(
+                scene_number=scene["sceneNumber"],
+                original_scene=scene,
+                all_scenes=all_scenes,
+                ad_basics=ad_basics,
+                creative_direction=creative_direction,
+                feedback=feedback,
+                constraints=constraints
+            )
+
+            # Update scene in database
+            update_job_scene(
+                scene_id=scene_id,
+                description=new_scene["description"],
+                script=new_scene.get("script"),
+                shot_type=new_scene.get("shotType"),
+                transition=new_scene.get("transition"),
+                duration=new_scene.get("duration"),
+                assets=new_scene.get("assets"),
+                metadata=new_scene.get("metadata", {})
+            )
+
+            updated_scene = get_scene_by_id(scene_id)
+            return APIResponse.success(
+                data={"message": "Scene regenerated successfully", "scene": updated_scene},
+                meta=create_api_meta()
+            )
 
         else:
             return APIResponse.create_error(f"Unknown action: {request.action}")
@@ -800,3 +894,173 @@ async def estimate_job_cost(
         return APIResponse.success(data=estimate.dict(), meta=create_api_meta())
     except Exception as e:
         return APIResponse.create_error(f"Failed to estimate cost: {str(e)}")
+
+
+# ============================================================================
+# SCENE MANAGEMENT ENDPOINTS (Phase 2.5)
+# ============================================================================
+
+@router.get("/jobs/{job_id}/scenes", response_model=APIResponse, tags=["v3-scenes"])
+async def list_job_scenes(
+    job_id: str,
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Get all scenes for a job"""
+    try:
+        scenes = get_scenes_by_job(int(job_id))
+        return APIResponse.success(data={"scenes": scenes}, meta=create_api_meta())
+    except Exception as e:
+        logger.error(f"Failed to list scenes: {e}")
+        return APIResponse.create_error(f"Failed to list scenes: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"])
+async def get_scene(
+    job_id: str,
+    scene_id: str,
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Get a specific scene by ID"""
+    try:
+        scene = get_scene_by_id(scene_id)
+        if not scene:
+            return APIResponse.create_error("Scene not found")
+
+        # Verify scene belongs to the job
+        if str(scene["jobId"]) != job_id:
+            return APIResponse.create_error("Scene does not belong to this job")
+
+        return APIResponse.success(data=scene, meta=create_api_meta())
+    except Exception as e:
+        logger.error(f"Failed to get scene: {e}")
+        return APIResponse.create_error(f"Failed to get scene: {str(e)}")
+
+
+@router.put("/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"])
+async def update_scene(
+    job_id: str,
+    scene_id: str,
+    request: Dict[str, Any],
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Update a scene's details"""
+    try:
+        # Verify scene exists and belongs to job
+        scene = get_scene_by_id(scene_id)
+        if not scene:
+            return APIResponse.create_error("Scene not found")
+        if str(scene["jobId"]) != job_id:
+            return APIResponse.create_error("Scene does not belong to this job")
+
+        # Update scene with provided fields
+        success = update_job_scene(
+            scene_id=scene_id,
+            description=request.get("description"),
+            script=request.get("script"),
+            shot_type=request.get("shotType"),
+            transition=request.get("transition"),
+            duration=request.get("duration"),
+            assets=request.get("assets"),
+            metadata=request.get("metadata")
+        )
+
+        if not success:
+            return APIResponse.create_error("Failed to update scene")
+
+        # Get updated scene
+        updated_scene = get_scene_by_id(scene_id)
+        return APIResponse.success(data=updated_scene, meta=create_api_meta())
+    except Exception as e:
+        logger.error(f"Failed to update scene: {e}")
+        return APIResponse.create_error(f"Failed to update scene: {str(e)}")
+
+
+@router.post("/jobs/{job_id}/scenes/{scene_id}/regenerate", response_model=APIResponse, tags=["v3-scenes"])
+async def regenerate_scene_endpoint(
+    job_id: str,
+    scene_id: str,
+    request: Dict[str, Any],
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Regenerate a specific scene with optional feedback"""
+    try:
+        # Get current scene
+        scene = get_scene_by_id(scene_id)
+        if not scene:
+            return APIResponse.create_error("Scene not found")
+        if str(scene["jobId"]) != job_id:
+            return APIResponse.create_error("Scene does not belong to this job")
+
+        # Get all scenes for context
+        all_scenes = get_scenes_by_job(int(job_id))
+
+        # Get job details for ad basics and creative direction
+        job = get_job(int(job_id))
+        if not job:
+            return APIResponse.create_error("Job not found")
+
+        job_params = json.loads(job["parameters"]) if isinstance(job["parameters"], str) else job["parameters"]
+        ad_basics = job_params.get("ad_basics", {})
+        creative_direction = job_params.get("creative", {}).get("direction", {})
+
+        # Regenerate scene with AI
+        feedback = request.get("feedback", "")
+        constraints = request.get("constraints", {})
+
+        new_scene = regenerate_scene(
+            scene_number=scene["sceneNumber"],
+            original_scene=scene,
+            all_scenes=all_scenes,
+            ad_basics=ad_basics,
+            creative_direction=creative_direction,
+            feedback=feedback,
+            constraints=constraints
+        )
+
+        # Update scene in database
+        update_job_scene(
+            scene_id=scene_id,
+            description=new_scene["description"],
+            script=new_scene.get("script"),
+            shot_type=new_scene.get("shotType"),
+            transition=new_scene.get("transition"),
+            duration=new_scene.get("duration"),
+            assets=new_scene.get("assets"),
+            metadata=new_scene.get("metadata", {})
+        )
+
+        # Get updated scene
+        updated_scene = get_scene_by_id(scene_id)
+        return APIResponse.success(data=updated_scene, meta=create_api_meta())
+    except SceneGenerationError as e:
+        logger.error(f"Failed to regenerate scene: {e}")
+        return APIResponse.create_error(f"Failed to regenerate scene: {str(e)}")
+    except Exception as e:
+        logger.error(f"Failed to regenerate scene: {e}")
+        return APIResponse.create_error(f"Failed to regenerate scene: {str(e)}")
+
+
+@router.delete("/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"])
+async def delete_scene(
+    job_id: str,
+    scene_id: str,
+    current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Delete a scene"""
+    try:
+        # Verify scene exists and belongs to job
+        scene = get_scene_by_id(scene_id)
+        if not scene:
+            return APIResponse.create_error("Scene not found")
+        if str(scene["jobId"]) != job_id:
+            return APIResponse.create_error("Scene does not belong to this job")
+
+        # Delete scene
+        success = delete_job_scene(scene_id)
+        if not success:
+            return APIResponse.create_error("Failed to delete scene")
+
+        return APIResponse.success(data={"message": "Scene deleted successfully"}, meta=create_api_meta())
+    except Exception as e:
+        logger.error(f"Failed to delete scene: {e}")
+        return APIResponse.create_error(f"Failed to delete scene: {str(e)}")
