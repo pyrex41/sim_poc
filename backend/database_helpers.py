@@ -54,6 +54,7 @@ def create_client(
     description: str = "",
     homepage: Optional[str] = None,
     brand_guidelines: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a new client."""
     client_id = str(uuid.uuid4())
@@ -61,8 +62,8 @@ def create_client(
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO clients (id, user_id, name, description, homepage, brand_guidelines)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO clients (id, user_id, name, description, homepage, brand_guidelines, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 client_id,
@@ -71,6 +72,7 @@ def create_client(
                 description,
                 homepage,
                 json.dumps(brand_guidelines) if brand_guidelines else None,
+                json.dumps(metadata) if metadata else None,
             ),
         )
         conn.commit()
@@ -93,6 +95,7 @@ def get_client_by_id(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
                 "brandGuidelines": json.loads(row["brand_guidelines"])
                 if row["brand_guidelines"]
                 else None,
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
             }
@@ -123,6 +126,7 @@ def list_clients(
                 "brandGuidelines": json.loads(row["brand_guidelines"])
                 if row["brand_guidelines"]
                 else None,
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
             }
@@ -137,6 +141,7 @@ def update_client(
     description: Optional[str] = None,
     homepage: Optional[str] = None,
     brand_guidelines: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Update a client (partial update)."""
     with get_db() as conn:
@@ -159,6 +164,10 @@ def update_client(
         if brand_guidelines is not None:
             update_fields.append("brand_guidelines = ?")
             values.append(json.dumps(brand_guidelines))
+
+        if metadata is not None:
+            update_fields.append("metadata = ?")
+            values.append(json.dumps(metadata))
 
         if not update_fields:
             return False  # Nothing to update
@@ -544,6 +553,7 @@ def create_campaign(
     status: str = "draft",
     product_url: Optional[str] = None,
     brief: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a new campaign."""
     campaign_id = str(uuid.uuid4())
@@ -551,8 +561,8 @@ def create_campaign(
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO campaigns (id, client_id, user_id, name, goal, status, product_url, brief)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO campaigns (id, client_id, user_id, name, goal, status, product_url, brief, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 campaign_id,
@@ -563,6 +573,7 @@ def create_campaign(
                 status,
                 product_url,
                 json.dumps(brief) if brief else None,
+                json.dumps(metadata) if metadata else None,
             ),
         )
         conn.commit()
@@ -586,6 +597,7 @@ def get_campaign_by_id(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
                 "status": row["status"],
                 "productUrl": row["product_url"],
                 "brief": json.loads(row["brief"]) if row["brief"] else None,
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
             }
@@ -627,6 +639,7 @@ def list_campaigns(
                 "status": row["status"],
                 "productUrl": row["product_url"],
                 "brief": json.loads(row["brief"]) if row["brief"] else None,
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
             }
@@ -642,6 +655,7 @@ def update_campaign(
     status: Optional[str] = None,
     product_url: Optional[str] = None,
     brief: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Update a campaign (partial update)."""
     with get_db() as conn:
@@ -668,6 +682,10 @@ def update_campaign(
         if brief is not None:
             update_fields.append("brief = ?")
             values.append(json.dumps(brief))
+
+        if metadata is not None:
+            update_fields.append("metadata = ?")
+            values.append(json.dumps(metadata))
 
         if not update_fields:
             return False  # Nothing to update

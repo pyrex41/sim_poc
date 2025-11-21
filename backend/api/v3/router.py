@@ -167,6 +167,7 @@ async def create_new_client(
             brand_guidelines=request.brandGuidelines.dict()
             if request.brandGuidelines
             else None,
+            metadata=request.metadata,
         )
 
         # Fetch the created client
@@ -193,6 +194,7 @@ async def update_existing_client(
             brand_guidelines=request.brandGuidelines.dict()
             if request.brandGuidelines
             else None,
+            metadata=request.metadata,
         )
 
         if not success:
@@ -293,6 +295,7 @@ async def create_new_campaign(
             status=request.status,
             product_url=request.productUrl,
             brief=request.brief,
+            metadata=request.metadata,
         )
 
         # Fetch the created campaign
@@ -320,6 +323,7 @@ async def update_existing_campaign(
             status=request.status,
             product_url=request.productUrl,
             brief=request.brief,
+            metadata=request.metadata,
         )
 
         if not success:

@@ -61,6 +61,7 @@ class Client(BaseModel):
     description: Optional[str] = None
     homepage: Optional[str] = None
     brandGuidelines: Optional[BrandGuidelines] = None
+    metadata: Optional[Dict[str, Any]] = None
     createdAt: str
     updatedAt: str
 
@@ -72,6 +73,7 @@ class ClientCreateRequest(BaseModel):
     description: Optional[str] = None
     homepage: Optional[str] = None
     brandGuidelines: Optional[BrandGuidelines] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class ClientUpdateRequest(BaseModel):
@@ -81,6 +83,7 @@ class ClientUpdateRequest(BaseModel):
     description: Optional[str] = None
     homepage: Optional[str] = None
     brandGuidelines: Optional[BrandGuidelines] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 # ============================================================================
@@ -98,6 +101,7 @@ class Campaign(BaseModel):
     status: str
     productUrl: Optional[str] = None
     brief: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
     createdAt: str
     updatedAt: str
 
@@ -111,6 +115,7 @@ class CampaignCreateRequest(BaseModel):
     status: str = "draft"
     productUrl: Optional[str] = None
     brief: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class CampaignUpdateRequest(BaseModel):
@@ -121,6 +126,7 @@ class CampaignUpdateRequest(BaseModel):
     status: Optional[str] = None
     productUrl: Optional[str] = None
     brief: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 # ============================================================================
