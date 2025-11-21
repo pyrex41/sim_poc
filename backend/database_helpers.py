@@ -87,18 +87,33 @@ def get_client_by_id(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
         ).fetchone()
 
         if row:
-            return {
-                "id": row["id"],
-                "name": row["name"],
-                "description": row["description"],
-                "homepage": row["homepage"],
-                "brandGuidelines": json.loads(row["brand_guidelines"])
-                if row["brand_guidelines"]
-                else None,
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
-                "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"],
-            }
+            try:
+                brand_guidelines = None
+                if row["brand_guidelines"]:
+                    try:
+                        brand_guidelines = json.loads(row["brand_guidelines"])
+                        print(
+                            f"DEBUG: Parsed brand_guidelines for client {row['id']}: {brand_guidelines}"
+                        )
+                    except json.JSONDecodeError as e:
+                        print(
+                            f"ERROR: Failed to parse brand_guidelines for client {row['id']}: {e}"
+                        )
+                        brand_guidelines = None
+
+                return {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "description": row["description"],
+                    "homepage": None,  # Column doesn't exist in current DB
+                    "brandGuidelines": brand_guidelines,
+                    "metadata": None,  # Column doesn't exist in current DB
+                    "created_at": row["created_at"],  # Try snake_case
+                    "updated_at": row["updated_at"],  # Try snake_case
+                }
+            except Exception as e:
+                print(f"ERROR: Failed to process client {row['id']}: {e}")
+                return None
     return None
 
 
@@ -117,21 +132,53 @@ def list_clients(
             (user_id, limit, offset),
         ).fetchall()
 
-        return [
-            {
-                "id": row["id"],
-                "name": row["name"],
-                "description": row["description"],
-                "homepage": row["homepage"],
-                "brandGuidelines": json.loads(row["brand_guidelines"])
-                if row["brand_guidelines"]
-                else None,
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
-                "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"],
-            }
-            for row in rows
-        ]
+        clients_data = []
+        for row in rows:
+            try:
+                brand_guidelines = None
+                if row["brand_guidelines"]:
+                    try:
+                        brand_guidelines = json.loads(row["brand_guidelines"])
+                        print(
+                            f"DEBUG: Parsed brand_guidelines for client {row['id']}: {brand_guidelines}"
+                        )
+                    except json.JSONDecodeError as e:
+                        print(
+                            f"ERROR: Failed to parse brand_guidelines for client {row['id']}: {e}"
+                        )
+                        brand_guidelines = None
+
+                metadata = None
+                if row["metadata"]:
+                    try:
+                        metadata = json.loads(row["metadata"])
+                        print(
+                            f"DEBUG: Parsed metadata for client {row['id']}: {metadata}"
+                        )
+                    except json.JSONDecodeError as e:
+                        print(
+                            f"ERROR: Failed to parse metadata for client {row['id']}: {e}"
+                        )
+                        metadata = None
+
+                client_data = {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "description": row["description"],
+                    "homepage": None,  # Column doesn't exist in current DB
+                    "brandGuidelines": brand_guidelines,
+                    "metadata": None,  # Column doesn't exist in current DB
+                    "created_at": row["created_at"],  # Try snake_case
+                    "updated_at": row["updated_at"],  # Try snake_case
+                }
+                clients_data.append(client_data)
+                print(f"DEBUG: Processed client {row['id']}: {client_data}")
+
+            except Exception as e:
+                print(f"ERROR: Failed to process client {row['id']}: {e}")
+                continue
+
+        return clients_data
 
 
 def update_client(

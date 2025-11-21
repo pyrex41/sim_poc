@@ -130,11 +130,44 @@ async def get_clients(
     current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Get all clients for the authenticated user"""
+    logger.info(
+        f"V3 clients endpoint called by user {current_user.get('id')} with limit={limit}, offset={offset}"
+    )
+
     try:
+        logger.info(f"Calling list_clients for user {current_user['id']}")
         clients = list_clients(current_user["id"], limit=limit, offset=offset)
+
+        logger.info(f"Retrieved {len(clients)} clients from database")
+        if clients:
+            logger.info(f"First client sample: {clients[0]}")
+            logger.info(
+                f"Client keys: {list(clients[0].keys()) if clients[0] else 'No clients'}"
+            )
+
         meta = create_api_meta(page=(offset // limit) + 1, total=len(clients))
-        return APIResponse.success(data=clients, meta=meta)
+        logger.info(f"Response meta: {meta}")
+
+        # Try to validate the response against the Client model
+        try:
+            from .models import Client
+
+            if clients:
+                # Try to validate the first client
+                test_client = Client(**clients[0])
+                logger.info(
+                    f"Client model validation successful for client {clients[0]['id']}"
+                )
+        except Exception as validation_error:
+            logger.error(f"Client model validation failed: {validation_error}")
+            logger.error(f"Client data: {clients[0] if clients else 'No clients'}")
+
+        response = APIResponse.success(data=clients, meta=meta)
+        logger.info(f"Returning successful response with {len(clients)} clients")
+
+        return response
     except Exception as e:
+        logger.error(f"Error in get_clients: {str(e)}", exc_info=True)
         return APIResponse.create_error(f"Failed to fetch clients: {str(e)}")
 
 
@@ -143,13 +176,43 @@ async def get_client(
     client_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get a specific client by ID"""
+    logger.info(
+        f"V3 get_client endpoint called for client_id={client_id} by user {current_user.get('id')}"
+    )
+
     try:
+        logger.info(f"Calling get_client_by_id for client {client_id}")
         client = get_client_by_id(client_id, current_user["id"])
+
         if not client:
+            logger.warning(
+                f"Client {client_id} not found for user {current_user['id']}"
+            )
             return APIResponse.create_error("Client not found")
 
-        return APIResponse.success(data=client, meta=create_api_meta())
+        logger.info(f"Retrieved client: {client}")
+        logger.info(f"Client keys: {list(client.keys())}")
+
+        # Try to validate the response against the Client model
+        try:
+            from .models import Client
+
+            test_client = Client(**client)
+            logger.info(f"Client model validation successful for client {client_id}")
+        except Exception as validation_error:
+            logger.error(
+                f"Client model validation failed for client {client_id}: {validation_error}"
+            )
+            logger.error(f"Client data: {client}")
+
+        response = APIResponse.success(data=client, meta=create_api_meta())
+        logger.info(f"Returning successful response for client {client_id}")
+
+        return response
     except Exception as e:
+        logger.error(
+            f"Error in get_client for client {client_id}: {str(e)}", exc_info=True
+        )
         return APIResponse.create_error(f"Failed to fetch client: {str(e)}")
 
 
