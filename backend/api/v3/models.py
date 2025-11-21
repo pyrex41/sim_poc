@@ -96,6 +96,7 @@ class Campaign(BaseModel):
     name: str
     goal: str
     status: str
+    product_url: Optional[str] = None
     brief: Optional[Dict[str, Any]] = None
     createdAt: str
     updatedAt: str
@@ -108,6 +109,7 @@ class CampaignCreateRequest(BaseModel):
     name: str
     goal: str
     status: str = "draft"
+    product_url: Optional[str] = None
     brief: Optional[Dict[str, Any]] = None
 
 
@@ -117,6 +119,7 @@ class CampaignUpdateRequest(BaseModel):
     name: Optional[str] = None
     goal: Optional[str] = None
     status: Optional[str] = None
+    product_url: Optional[str] = None
     brief: Optional[Dict[str, Any]] = None
 
 

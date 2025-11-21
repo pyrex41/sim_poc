@@ -542,6 +542,7 @@ def create_campaign(
     name: str,
     goal: str,
     status: str = "draft",
+    product_url: Optional[str] = None,
     brief: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a new campaign."""
@@ -550,8 +551,8 @@ def create_campaign(
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO campaigns (id, client_id, user_id, name, goal, status, brief)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO campaigns (id, client_id, user_id, name, goal, status, product_url, brief)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 campaign_id,
@@ -560,6 +561,7 @@ def create_campaign(
                 name,
                 goal,
                 status,
+                product_url,
                 json.dumps(brief) if brief else None,
             ),
         )
@@ -582,6 +584,7 @@ def get_campaign_by_id(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
                 "name": row["name"],
                 "goal": row["goal"],
                 "status": row["status"],
+                "product_url": row["product_url"],
                 "brief": json.loads(row["brief"]) if row["brief"] else None,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
@@ -622,6 +625,7 @@ def list_campaigns(
                 "name": row["name"],
                 "goal": row["goal"],
                 "status": row["status"],
+                "product_url": row["product_url"],
                 "brief": json.loads(row["brief"]) if row["brief"] else None,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
@@ -636,6 +640,7 @@ def update_campaign(
     name: Optional[str] = None,
     goal: Optional[str] = None,
     status: Optional[str] = None,
+    product_url: Optional[str] = None,
     brief: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Update a campaign (partial update)."""
@@ -655,6 +660,10 @@ def update_campaign(
         if status is not None:
             update_fields.append("status = ?")
             values.append(status)
+
+        if product_url is not None:
+            update_fields.append("product_url = ?")
+            values.append(product_url)
 
         if brief is not None:
             update_fields.append("brief = ?")

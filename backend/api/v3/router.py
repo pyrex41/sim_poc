@@ -291,6 +291,7 @@ async def create_new_campaign(
             name=request.name,
             goal=request.goal,
             status=request.status,
+            product_url=request.product_url,
             brief=request.brief,
         )
 
@@ -317,6 +318,7 @@ async def update_existing_campaign(
             name=request.name,
             goal=request.goal,
             status=request.status,
+            product_url=request.product_url,
             brief=request.brief,
         )
 
