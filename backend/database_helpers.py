@@ -47,11 +47,13 @@ def get_db():
 # CLIENT CRUD OPERATIONS
 # ============================================================================
 
+
 def create_client(
     user_id: int,
     name: str,
     description: str = "",
-    brand_guidelines: Optional[Dict[str, Any]] = None
+    homepage: Optional[str] = None,
+    brand_guidelines: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a new client."""
     client_id = str(uuid.uuid4())
@@ -59,16 +61,17 @@ def create_client(
     with get_db() as conn:
         conn.execute(
             """
-            INSERT INTO clients (id, user_id, name, description, brand_guidelines)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO clients (id, user_id, name, description, homepage, brand_guidelines)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 client_id,
                 user_id,
                 name,
                 description,
-                json.dumps(brand_guidelines) if brand_guidelines else None
-            )
+                homepage,
+                json.dumps(brand_guidelines) if brand_guidelines else None,
+            ),
         )
         conn.commit()
         return client_id
@@ -78,8 +81,7 @@ def get_client_by_id(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
     """Get a client by ID (user must own the client)."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM clients WHERE id = ? AND user_id = ?",
-            (client_id, user_id)
+            "SELECT * FROM clients WHERE id = ? AND user_id = ?", (client_id, user_id)
         ).fetchone()
 
         if row:
@@ -87,14 +89,19 @@ def get_client_by_id(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
                 "id": row["id"],
                 "name": row["name"],
                 "description": row["description"],
-                "brandGuidelines": json.loads(row["brand_guidelines"]) if row["brand_guidelines"] else None,
+                "homepage": row["homepage"],
+                "brandGuidelines": json.loads(row["brand_guidelines"])
+                if row["brand_guidelines"]
+                else None,
                 "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"]
+                "updatedAt": row["updated_at"],
             }
     return None
 
 
-def list_clients(user_id: int, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+def list_clients(
+    user_id: int, limit: int = 100, offset: int = 0
+) -> List[Dict[str, Any]]:
     """List all clients for a user."""
     with get_db() as conn:
         rows = conn.execute(
@@ -104,7 +111,7 @@ def list_clients(user_id: int, limit: int = 100, offset: int = 0) -> List[Dict[s
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
             """,
-            (user_id, limit, offset)
+            (user_id, limit, offset),
         ).fetchall()
 
         return [
@@ -112,9 +119,12 @@ def list_clients(user_id: int, limit: int = 100, offset: int = 0) -> List[Dict[s
                 "id": row["id"],
                 "name": row["name"],
                 "description": row["description"],
-                "brandGuidelines": json.loads(row["brand_guidelines"]) if row["brand_guidelines"] else None,
+                "homepage": row["homepage"],
+                "brandGuidelines": json.loads(row["brand_guidelines"])
+                if row["brand_guidelines"]
+                else None,
                 "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"]
+                "updatedAt": row["updated_at"],
             }
             for row in rows
         ]
@@ -125,7 +135,8 @@ def update_client(
     user_id: int,
     name: Optional[str] = None,
     description: Optional[str] = None,
-    brand_guidelines: Optional[Dict[str, Any]] = None
+    homepage: Optional[str] = None,
+    brand_guidelines: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Update a client (partial update)."""
     with get_db() as conn:
@@ -141,6 +152,10 @@ def update_client(
             update_fields.append("description = ?")
             values.append(description)
 
+        if homepage is not None:
+            update_fields.append("homepage = ?")
+            values.append(homepage)
+
         if brand_guidelines is not None:
             update_fields.append("brand_guidelines = ?")
             values.append(json.dumps(brand_guidelines))
@@ -153,7 +168,7 @@ def update_client(
 
         query = f"""
             UPDATE clients
-            SET {', '.join(update_fields)}
+            SET {", ".join(update_fields)}
             WHERE id = ? AND user_id = ?
         """
 
@@ -166,8 +181,7 @@ def delete_client(client_id: str, user_id: int) -> bool:
     """Delete a client (cascades to campaigns and assets)."""
     with get_db() as conn:
         cursor = conn.execute(
-            "DELETE FROM clients WHERE id = ? AND user_id = ?",
-            (client_id, user_id)
+            "DELETE FROM clients WHERE id = ? AND user_id = ?", (client_id, user_id)
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -178,8 +192,7 @@ def get_client_stats(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
     with get_db() as conn:
         # Verify ownership
         client = conn.execute(
-            "SELECT id FROM clients WHERE id = ? AND user_id = ?",
-            (client_id, user_id)
+            "SELECT id FROM clients WHERE id = ? AND user_id = ?", (client_id, user_id)
         ).fetchone()
 
         if not client:
@@ -187,8 +200,7 @@ def get_client_stats(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
 
         # Get campaign count
         campaign_count_row = conn.execute(
-            "SELECT COUNT(*) as count FROM campaigns WHERE client_id = ?",
-            (client_id,)
+            "SELECT COUNT(*) as count FROM campaigns WHERE client_id = ?", (client_id,)
         ).fetchone()
         campaign_count = campaign_count_row["count"] if campaign_count_row else 0
 
@@ -202,7 +214,7 @@ def get_client_stats(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
             LEFT JOIN generated_videos v ON v.campaign_id = c.id
             WHERE c.client_id = ?
             """,
-            (client_id,)
+            (client_id,),
         ).fetchone()
 
         video_count = video_stats_row["video_count"] if video_stats_row else 0
@@ -211,13 +223,14 @@ def get_client_stats(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
         return {
             "campaignCount": campaign_count,
             "videoCount": video_count,
-            "totalSpend": float(total_spend)
+            "totalSpend": float(total_spend),
         }
 
 
 # ============================================================================
 # CONSOLIDATED ASSETS CRUD OPERATIONS
 # ============================================================================
+
 
 def create_asset(
     name: str,
@@ -233,12 +246,13 @@ def create_asset(
     height: Optional[int] = None,
     duration: Optional[int] = None,
     thumbnail_url: Optional[str] = None,
+    thumbnail_blob_id: Optional[str] = None,
     waveform_url: Optional[str] = None,
     page_count: Optional[int] = None,
     asset_id: Optional[str] = None,
     blob_data: Optional[bytes] = None,
     blob_id: Optional[str] = None,
-    source_url: Optional[str] = None
+    source_url: Optional[str] = None,
 ) -> str:
     """Create a new asset in the consolidated assets table.
 
@@ -275,9 +289,9 @@ def create_asset(
             INSERT INTO assets (
                 id, user_id, client_id, campaign_id, name, asset_type, url,
                 size, format, tags, width, height, duration, thumbnail_url,
-                waveform_url, page_count, blob_data, blob_id, source_url
+                thumbnail_blob_id, waveform_url, page_count, blob_data, blob_id, source_url
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 asset_id,
@@ -294,12 +308,13 @@ def create_asset(
                 height,
                 duration,
                 thumbnail_url,
+                thumbnail_blob_id,
                 waveform_url,
                 page_count,
                 blob_data,
                 blob_id,
-                source_url
-            )
+                source_url,
+            ),
         )
         conn.commit()
         return asset_id
@@ -340,7 +355,7 @@ def list_assets(
     campaign_id: Optional[str] = None,
     asset_type: Optional[str] = None,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
 ) -> List[Asset]:
     """List assets with optional filtering.
 
@@ -399,7 +414,7 @@ def update_asset(
     name: Optional[str] = None,
     client_id: Optional[str] = None,
     campaign_id: Optional[str] = None,
-    tags: Optional[List[str]] = None
+    tags: Optional[List[str]] = None,
 ) -> bool:
     """Update an asset (partial update)."""
     with get_db() as conn:
@@ -429,7 +444,7 @@ def update_asset(
 
         query = f"""
             UPDATE assets
-            SET {', '.join(update_fields)}
+            SET {", ".join(update_fields)}
             WHERE id = ?
         """
 
@@ -438,13 +453,19 @@ def update_asset(
         return cursor.rowcount > 0
 
 
-def delete_asset(asset_id: str) -> bool:
-    """Delete an asset."""
+def delete_asset(asset_id: str, user_id: Optional[int] = None) -> bool:
+    """Delete an asset. If user_id is provided, only delete if asset belongs to user."""
     with get_db() as conn:
-        cursor = conn.execute(
-            "DELETE FROM assets WHERE id = ?",
-            (asset_id,)
-        )
+        if user_id is not None:
+            # Check ownership first
+            cursor = conn.execute(
+                "SELECT id FROM assets WHERE id = ? AND user_id = ?",
+                (asset_id, user_id),
+            )
+            if not cursor.fetchone():
+                return False
+
+        cursor = conn.execute("DELETE FROM assets WHERE id = ?", (asset_id,))
         conn.commit()
         return cursor.rowcount > 0
 
@@ -514,13 +535,14 @@ def _row_to_asset_model(row: sqlite3.Row) -> Asset:
 # CAMPAIGN CRUD OPERATIONS
 # ============================================================================
 
+
 def create_campaign(
     user_id: int,
     client_id: str,
     name: str,
     goal: str,
     status: str = "draft",
-    brief: Optional[Dict[str, Any]] = None
+    brief: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Create a new campaign."""
     campaign_id = str(uuid.uuid4())
@@ -538,8 +560,8 @@ def create_campaign(
                 name,
                 goal,
                 status,
-                json.dumps(brief) if brief else None
-            )
+                json.dumps(brief) if brief else None,
+            ),
         )
         conn.commit()
         return campaign_id
@@ -550,7 +572,7 @@ def get_campaign_by_id(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
     with get_db() as conn:
         row = conn.execute(
             "SELECT * FROM campaigns WHERE id = ? AND user_id = ?",
-            (campaign_id, user_id)
+            (campaign_id, user_id),
         ).fetchone()
 
         if row:
@@ -562,16 +584,13 @@ def get_campaign_by_id(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
                 "status": row["status"],
                 "brief": json.loads(row["brief"]) if row["brief"] else None,
                 "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"]
+                "updatedAt": row["updated_at"],
             }
     return None
 
 
 def list_campaigns(
-    user_id: int,
-    client_id: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0
+    user_id: int, client_id: Optional[str] = None, limit: int = 100, offset: int = 0
 ) -> List[Dict[str, Any]]:
     """List campaigns for a user, optionally filtered by client."""
     with get_db() as conn:
@@ -583,7 +602,7 @@ def list_campaigns(
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
                 """,
-                (user_id, client_id, limit, offset)
+                (user_id, client_id, limit, offset),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -593,7 +612,7 @@ def list_campaigns(
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
                 """,
-                (user_id, limit, offset)
+                (user_id, limit, offset),
             ).fetchall()
 
         return [
@@ -605,7 +624,7 @@ def list_campaigns(
                 "status": row["status"],
                 "brief": json.loads(row["brief"]) if row["brief"] else None,
                 "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"]
+                "updatedAt": row["updated_at"],
             }
             for row in rows
         ]
@@ -617,7 +636,7 @@ def update_campaign(
     name: Optional[str] = None,
     goal: Optional[str] = None,
     status: Optional[str] = None,
-    brief: Optional[Dict[str, Any]] = None
+    brief: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Update a campaign (partial update)."""
     with get_db() as conn:
@@ -649,7 +668,7 @@ def update_campaign(
 
         query = f"""
             UPDATE campaigns
-            SET {', '.join(update_fields)}
+            SET {", ".join(update_fields)}
             WHERE id = ? AND user_id = ?
         """
 
@@ -662,8 +681,7 @@ def delete_campaign(campaign_id: str, user_id: int) -> bool:
     """Delete a campaign (cascades to campaign assets)."""
     with get_db() as conn:
         cursor = conn.execute(
-            "DELETE FROM campaigns WHERE id = ? AND user_id = ?",
-            (campaign_id, user_id)
+            "DELETE FROM campaigns WHERE id = ? AND user_id = ?", (campaign_id, user_id)
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -675,7 +693,7 @@ def get_campaign_stats(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
         # Verify ownership
         campaign = conn.execute(
             "SELECT id FROM campaigns WHERE id = ? AND user_id = ?",
-            (campaign_id, user_id)
+            (campaign_id, user_id),
         ).fetchone()
 
         if not campaign:
@@ -691,7 +709,7 @@ def get_campaign_stats(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
             FROM generated_videos
             WHERE campaign_id = ?
             """,
-            (campaign_id,)
+            (campaign_id,),
         ).fetchone()
 
         video_count = stats_row["video_count"] if stats_row else 0
@@ -701,7 +719,7 @@ def get_campaign_stats(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
         return {
             "videoCount": video_count,
             "totalSpend": float(total_spend),
-            "avgCost": float(avg_cost)
+            "avgCost": float(avg_cost),
         }
 
 
@@ -715,12 +733,13 @@ def get_campaign_stats(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
 # VIDEO OPERATIONS (Enhanced for frontend integration)
 # ============================================================================
 
+
 def update_video_metrics(
     video_id: int,
     views: Optional[int] = None,
     clicks: Optional[int] = None,
     ctr: Optional[float] = None,
-    conversions: Optional[int] = None
+    conversions: Optional[int] = None,
 ) -> bool:
     """Update video performance metrics."""
     with get_db() as conn:
@@ -752,7 +771,7 @@ def update_video_metrics(
 
         query = f"""
             UPDATE generated_videos
-            SET {', '.join(update_fields)}
+            SET {", ".join(update_fields)}
             WHERE id = ?
         """
 
@@ -762,9 +781,7 @@ def update_video_metrics(
 
 
 def list_videos_by_campaign(
-    campaign_id: str,
-    limit: int = 50,
-    offset: int = 0
+    campaign_id: str, limit: int = 50, offset: int = 0
 ) -> List[Dict[str, Any]]:
     """List all videos for a campaign."""
     with get_db() as conn:
@@ -780,7 +797,7 @@ def list_videos_by_campaign(
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
             """,
-            (campaign_id, limit, offset)
+            (campaign_id, limit, offset),
         ).fetchall()
 
         def safe_get(row, key, default=None):
@@ -793,30 +810,38 @@ def list_videos_by_campaign(
             {
                 "id": row["id"],
                 "campaignId": safe_get(row, "campaign_id"),
-                "name": row["prompt"][:50] if row["prompt"] else "Untitled",  # Use prompt as name
+                "name": row["prompt"][:50]
+                if row["prompt"]
+                else "Untitled",  # Use prompt as name
                 "status": row["status"],
                 "format": safe_get(row, "format", "16:9"),
                 "duration": safe_get(row, "duration", 30),
                 "prompt": row["prompt"],
                 "videoUrl": row["video_url"],
-                "storyboard": json.loads(safe_get(row, "storyboard_data")) if safe_get(row, "storyboard_data") else None,
-                "generationProgress": json.loads(safe_get(row, "progress")) if safe_get(row, "progress") else None,
+                "storyboard": json.loads(safe_get(row, "storyboard_data"))
+                if safe_get(row, "storyboard_data")
+                else None,
+                "generationProgress": json.loads(safe_get(row, "progress"))
+                if safe_get(row, "progress")
+                else None,
                 "metrics": {
                     "views": safe_get(row, "views", 0),
                     "clicks": safe_get(row, "clicks", 0),
                     "ctr": safe_get(row, "ctr", 0.0),
-                    "conversions": safe_get(row, "conversions", 0)
+                    "conversions": safe_get(row, "conversions", 0),
                 },
                 "cost": safe_get(row, "actual_cost", 0.0),
                 "createdAt": row["created_at"],
-                "updatedAt": safe_get(row, "updated_at", row["created_at"])
+                "updatedAt": safe_get(row, "updated_at", row["created_at"]),
             }
             for row in rows
         ]
 
+
 # ============================================================================
 # Scene Management Functions (Phase 2)
 # ============================================================================
+
 
 def create_job_scene(
     job_id: int,
@@ -827,11 +852,11 @@ def create_job_scene(
     shot_type: Optional[str] = None,
     transition: Optional[str] = None,
     assets: Optional[List[str]] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Create a scene record for a job.
-    
+
     Args:
         job_id: The job ID this scene belongs to
         scene_number: Scene number (1-indexed)
@@ -842,14 +867,14 @@ def create_job_scene(
         transition: Optional transition type (cut, fade, etc.)
         assets: Optional list of asset IDs used in this scene
         metadata: Optional additional scene metadata
-        
+
     Returns:
         The created scene ID
     """
     scene_id = str(uuid.uuid4())
     assets_json = json.dumps(assets) if assets else None
     metadata_json = json.dumps(metadata) if metadata else None
-    
+
     with get_db() as conn:
         conn.execute(
             """
@@ -860,22 +885,30 @@ def create_job_scene(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                scene_id, job_id, scene_number, duration, description,
-                script, shot_type, transition, assets_json, metadata_json
-            )
+                scene_id,
+                job_id,
+                scene_number,
+                duration,
+                description,
+                script,
+                shot_type,
+                transition,
+                assets_json,
+                metadata_json,
+            ),
         )
         conn.commit()
-    
+
     return scene_id
 
 
 def get_scenes_by_job(job_id: int) -> List[Dict[str, Any]]:
     """
     Get all scenes for a job, ordered by scene number.
-    
+
     Args:
         job_id: The job ID
-        
+
     Returns:
         List of scene dictionaries
     """
@@ -889,10 +922,10 @@ def get_scenes_by_job(job_id: int) -> List[Dict[str, Any]]:
             WHERE job_id = ?
             ORDER BY scene_number ASC
             """,
-            (job_id,)
+            (job_id,),
         )
         rows = cursor.fetchall()
-        
+
         return [
             {
                 "id": row["id"],
@@ -906,7 +939,7 @@ def get_scenes_by_job(job_id: int) -> List[Dict[str, Any]]:
                 "assets": json.loads(row["assets"]) if row["assets"] else [],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
                 "createdAt": row["created_at"],
-                "updatedAt": row["updated_at"]
+                "updatedAt": row["updated_at"],
             }
             for row in rows
         ]
@@ -915,10 +948,10 @@ def get_scenes_by_job(job_id: int) -> List[Dict[str, Any]]:
 def get_scene_by_id(scene_id: str) -> Optional[Dict[str, Any]]:
     """
     Get a specific scene by ID.
-    
+
     Args:
         scene_id: The scene UUID
-        
+
     Returns:
         Scene dictionary or None if not found
     """
@@ -931,13 +964,13 @@ def get_scene_by_id(scene_id: str) -> Optional[Dict[str, Any]]:
             FROM job_scenes
             WHERE id = ?
             """,
-            (scene_id,)
+            (scene_id,),
         )
         row = cursor.fetchone()
-        
+
         if not row:
             return None
-            
+
         return {
             "id": row["id"],
             "jobId": row["job_id"],
@@ -950,7 +983,7 @@ def get_scene_by_id(scene_id: str) -> Optional[Dict[str, Any]]:
             "assets": json.loads(row["assets"]) if row["assets"] else [],
             "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
             "createdAt": row["created_at"],
-            "updatedAt": row["updated_at"]
+            "updatedAt": row["updated_at"],
         }
 
 
@@ -962,11 +995,11 @@ def update_job_scene(
     transition: Optional[str] = None,
     duration: Optional[float] = None,
     assets: Optional[List[str]] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """
     Update a scene record.
-    
+
     Args:
         scene_id: The scene UUID
         description: Optional new description
@@ -976,13 +1009,13 @@ def update_job_scene(
         duration: Optional new duration
         assets: Optional new assets list
         metadata: Optional new metadata
-        
+
     Returns:
         True if updated successfully
     """
     updates = []
     params = []
-    
+
     if description is not None:
         updates.append("description = ?")
         params.append(description)
@@ -1004,17 +1037,16 @@ def update_job_scene(
     if metadata is not None:
         updates.append("metadata = ?")
         params.append(json.dumps(metadata))
-    
+
     if not updates:
         return False
-        
+
     updates.append("updated_at = CURRENT_TIMESTAMP")
     params.append(scene_id)
-    
+
     with get_db() as conn:
         cursor = conn.execute(
-            f"UPDATE job_scenes SET {', '.join(updates)} WHERE id = ?",
-            params
+            f"UPDATE job_scenes SET {', '.join(updates)} WHERE id = ?", params
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -1023,10 +1055,10 @@ def update_job_scene(
 def delete_job_scene(scene_id: str) -> bool:
     """
     Delete a scene record.
-    
+
     Args:
         scene_id: The scene UUID
-        
+
     Returns:
         True if deleted successfully
     """
@@ -1039,10 +1071,10 @@ def delete_job_scene(scene_id: str) -> bool:
 def delete_scenes_by_job(job_id: int) -> int:
     """
     Delete all scenes for a job.
-    
+
     Args:
         job_id: The job ID
-        
+
     Returns:
         Number of scenes deleted
     """

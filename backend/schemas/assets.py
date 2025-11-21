@@ -53,15 +53,24 @@ class AssetType(str, Enum):
 # Base Asset Model - Common fields for all asset types
 class BaseAsset(BaseModel):
     """Base asset with all common fields"""
+
     id: str
     userId: str
-    clientId: Optional[str] = None  # OPTIONAL - asset may or may not be associated with a client
-    campaignId: Optional[str] = None  # OPTIONAL - asset may be associated with a campaign
+    clientId: Optional[str] = (
+        None  # OPTIONAL - asset may or may not be associated with a client
+    )
+    campaignId: Optional[str] = (
+        None  # OPTIONAL - asset may be associated with a campaign
+    )
     name: str
     url: str
     size: Optional[int] = None  # File size in bytes
     uploadedAt: str  # ISO 8601 timestamp
     tags: Optional[list[str]] = None
+    thumbnailBlobId: Optional[str] = (
+        None  # Reference to thumbnail in asset_blobs table (V3)
+    )
+    sourceUrl: Optional[str] = None  # Original URL where asset was downloaded from
 
     # NOTE: blob_data is stored in DB but NOT exposed in API responses
     # It's only used for internal storage when files are uploaded
@@ -77,7 +86,7 @@ class BaseAsset(BaseModel):
                 "url": "https://api.example.com/assets/123e4567",
                 "size": 1024000,
                 "uploadedAt": "2025-01-15T10:30:00Z",
-                "tags": ["brand_logo", "product"]
+                "tags": ["brand_logo", "product"],
             }
         }
     }
@@ -86,6 +95,7 @@ class BaseAsset(BaseModel):
 # Image Asset
 class ImageAsset(BaseAsset):
     """Image asset with dimensions"""
+
     type: Literal["image"] = "image"
     format: ImageFormat
     width: int
@@ -94,11 +104,21 @@ class ImageAsset(BaseAsset):
     model_config = {
         "json_schema_extra": {
             "example": {
-                **BaseAsset.model_config["json_schema_extra"]["example"],
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "userId": "1",
+                "clientId": "client-uuid",
+                "campaignId": "campaign-uuid",
+                "name": "example-image",
+                "url": "https://api.example.com/assets/123e4567",
+                "size": 1024000,
+                "uploadedAt": "2025-01-15T10:30:00Z",
+                "tags": ["brand_logo", "product"],
+                "thumbnailBlobId": None,
+                "sourceUrl": None,
                 "type": "image",
                 "format": "png",
                 "width": 1920,
-                "height": 1080
+                "height": 1080,
             }
         }
     }
@@ -107,6 +127,7 @@ class ImageAsset(BaseAsset):
 # Video Asset
 class VideoAsset(BaseAsset):
     """Video asset with dimensions, duration, and thumbnail"""
+
     type: Literal["video"] = "video"
     format: VideoFormat
     width: int
@@ -117,13 +138,23 @@ class VideoAsset(BaseAsset):
     model_config = {
         "json_schema_extra": {
             "example": {
-                **BaseAsset.model_config["json_schema_extra"]["example"],
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "userId": "1",
+                "clientId": "client-uuid",
+                "campaignId": "campaign-uuid",
+                "name": "example-video",
+                "url": "https://api.example.com/assets/123e4567",
+                "size": 1024000,
+                "uploadedAt": "2025-01-15T10:30:00Z",
+                "tags": ["product_shot", "demo"],
+                "thumbnailBlobId": "thumb-uuid",
+                "sourceUrl": "https://example.com/video.mp4",
                 "type": "video",
                 "format": "mp4",
                 "width": 1920,
                 "height": 1080,
                 "duration": 30,
-                "thumbnailUrl": "https://api.example.com/assets/123e4567/thumbnail"
+                "thumbnailUrl": "https://api.example.com/assets/123e4567/thumbnail",
             }
         }
     }
@@ -132,6 +163,7 @@ class VideoAsset(BaseAsset):
 # Audio Asset
 class AudioAsset(BaseAsset):
     """Audio asset with duration and optional waveform"""
+
     type: Literal["audio"] = "audio"
     format: AudioFormat
     duration: int  # Duration in seconds
@@ -140,11 +172,21 @@ class AudioAsset(BaseAsset):
     model_config = {
         "json_schema_extra": {
             "example": {
-                **BaseAsset.model_config["json_schema_extra"]["example"],
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "userId": "1",
+                "clientId": "client-uuid",
+                "campaignId": "campaign-uuid",
+                "name": "example-audio",
+                "url": "https://api.example.com/assets/123e4567",
+                "size": 1024000,
+                "uploadedAt": "2025-01-15T10:30:00Z",
+                "tags": ["voiceover", "music"],
+                "thumbnailBlobId": None,
+                "sourceUrl": "https://example.com/audio.mp3",
                 "type": "audio",
                 "format": "mp3",
                 "duration": 180,
-                "waveformUrl": "https://api.example.com/assets/123e4567/waveform"
+                "waveformUrl": "https://api.example.com/assets/123e4567/waveform",
             }
         }
     }
@@ -153,6 +195,7 @@ class AudioAsset(BaseAsset):
 # Document Asset
 class DocumentAsset(BaseAsset):
     """Document asset with page count and optional thumbnail"""
+
     type: Literal["document"] = "document"
     format: DocumentFormat
     pageCount: Optional[int] = None
@@ -161,11 +204,21 @@ class DocumentAsset(BaseAsset):
     model_config = {
         "json_schema_extra": {
             "example": {
-                **BaseAsset.model_config["json_schema_extra"]["example"],
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "userId": "1",
+                "clientId": "client-uuid",
+                "campaignId": "campaign-uuid",
+                "name": "example-document",
+                "url": "https://api.example.com/assets/123e4567",
+                "size": 1024000,
+                "uploadedAt": "2025-01-15T10:30:00Z",
+                "tags": ["contract", "proposal"],
+                "thumbnailBlobId": "thumb-uuid",
+                "sourceUrl": "https://example.com/document.pdf",
                 "type": "document",
                 "format": "pdf",
                 "pageCount": 10,
-                "thumbnailUrl": "https://api.example.com/assets/123e4567/thumbnail"
+                "thumbnailUrl": "https://api.example.com/assets/123e4567/thumbnail",
             }
         }
     }
@@ -178,6 +231,7 @@ Asset = Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]
 # Asset Tags
 class VisualAssetTag(str, Enum):
     """Tags for visual assets (images/videos)"""
+
     FIRST_FRAME = "first_frame"
     SUBJECT = "subject"
     BRAND_LOGO = "brand_logo"
@@ -189,6 +243,7 @@ class VisualAssetTag(str, Enum):
 
 class AudioAssetTag(str, Enum):
     """Tags for audio assets"""
+
     USE_FULL_AUDIO = "use_full_audio"
     VOICE_SAMPLE = "voice_sample"
 
@@ -203,6 +258,7 @@ class AssetWithMetadata(BaseModel):
     Asset with metadata for video generation
     Includes source, tags, and priority for generation context
     """
+
     id: str
     url: str
     thumbnailUrl: Optional[str] = None
@@ -231,7 +287,7 @@ class AssetWithMetadata(BaseModel):
                 "priority": 1,
                 "duration": 30,
                 "fileSize": 5242880,
-                "mimeType": "video/mp4"
+                "mimeType": "video/mp4",
             }
         }
     }
@@ -240,10 +296,13 @@ class AssetWithMetadata(BaseModel):
 # Input model for uploading a new asset
 class UploadAssetInput(BaseModel):
     """Input model for asset upload requests"""
+
     name: str
     type: AssetType
     clientId: Optional[str] = None  # OPTIONAL - asset may be associated with a client
-    campaignId: Optional[str] = None  # OPTIONAL - asset may be associated with a campaign
+    campaignId: Optional[str] = (
+        None  # OPTIONAL - asset may be associated with a campaign
+    )
     tags: Optional[list[str]] = None
 
     # Note: File is handled separately via FastAPI's UploadFile
@@ -253,6 +312,7 @@ class UploadAssetInput(BaseModel):
 # Input model for uploading asset from URL
 class UploadAssetFromUrlInput(BaseModel):
     """Input model for asset upload from URL"""
+
     name: str
     type: AssetType
     url: str  # URL to download asset from
@@ -268,7 +328,7 @@ class UploadAssetFromUrlInput(BaseModel):
                 "url": "https://example.com/images/product.jpg",
                 "clientId": "client-uuid",
                 "campaignId": "campaign-uuid",
-                "tags": ["product", "hero"]
+                "tags": ["product", "hero"],
             }
         }
     }
@@ -280,7 +340,7 @@ class UploadAssetFromUrlInput(BaseModel):
                 "type": "image",
                 "clientId": "client-uuid",  # Required
                 "campaignId": "campaign-uuid",  # Optional
-                "tags": ["brand_logo", "product_shot"]
+                "tags": ["brand_logo", "product_shot"],
             }
         }
     }
@@ -292,6 +352,7 @@ class AssetDB(BaseModel):
     Internal database model for assets
     Includes blob_data field which is NOT exposed in API responses
     """
+
     id: str
     user_id: Optional[int] = None
     client_id: Optional[str] = None
@@ -307,21 +368,26 @@ class AssetDB(BaseModel):
     height: Optional[int] = None
     duration: Optional[int] = None
     thumbnail_url: Optional[str] = None
+    thumbnail_blob_id: Optional[str] = (
+        None  # Reference to thumbnail in asset_blobs table (V3)
+    )
     waveform_url: Optional[str] = None
     page_count: Optional[int] = None
     blob_data: Optional[bytes] = None  # Binary blob storage
+    source_url: Optional[str] = None  # Original URL where asset was downloaded from
 
-    @field_serializer('uploaded_at')
+    @field_serializer("uploaded_at")
     def serialize_datetime(self, dt: datetime, _info):
         """Serialize datetime to ISO 8601 string"""
-        return dt.isoformat() + 'Z' if dt else None
+        return dt.isoformat() + "Z" if dt else None
 
-    @field_serializer('tags')
+    @field_serializer("tags")
     def serialize_tags(self, tags: Optional[str], _info):
         """Parse JSON string to list"""
         if not tags:
             return None
         import json
+
         try:
             return json.loads(tags)
         except:
@@ -348,8 +414,10 @@ class AssetDB(BaseModel):
             "name": self.name,
             "url": self.url,
             "size": self.size,
-            "uploadedAt": self.uploaded_at.isoformat() + 'Z',
+            "uploadedAt": self.uploaded_at.isoformat() + "Z",
             "tags": tags_list,
+            "thumbnailBlobId": self.thumbnail_blob_id,
+            "sourceUrl": self.source_url,
             "format": self.format,
         }
 

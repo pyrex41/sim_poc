@@ -5,40 +5,89 @@ This router provides a simplified, frontend-aligned API that matches
 the data requirements of the Next.js frontend with proper Pydantic models.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    UploadFile,
+    File,
+    Query,
+    BackgroundTasks,
+)
 from typing import List, Optional, Dict, Any, cast
 from datetime import datetime
 import logging
 import json
 import uuid
+import mimetypes
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 from .models import (
-    APIResponse, Client, ClientCreateRequest, ClientUpdateRequest,
-    Campaign, CampaignCreateRequest, CampaignUpdateRequest,
-    Job, JobCreateRequest, JobActionRequest, JobStatus, JobAction,
-    CostEstimate, DryRunRequest, Asset, UploadAssetInput
+    APIResponse,
+    Client,
+    ClientCreateRequest,
+    ClientUpdateRequest,
+    Campaign,
+    CampaignCreateRequest,
+    CampaignUpdateRequest,
+    Job,
+    JobCreateRequest,
+    JobActionRequest,
+    JobStatus,
+    JobAction,
+    CostEstimate,
+    DryRunRequest,
+    Asset,
+    UploadAssetInput,
+    UnifiedAssetUploadInput,
 )
 from ...schemas.assets import UploadAssetFromUrlInput
 from ...database_helpers import (
-    create_client, get_client_by_id, list_clients, update_client, delete_client, get_client_stats,
-    create_campaign, get_campaign_by_id, list_campaigns, update_campaign, delete_campaign, get_campaign_stats,
-    create_asset, get_asset_by_id, list_assets, update_asset, delete_asset,
-    create_job_scene, get_scenes_by_job, get_scene_by_id, update_job_scene, delete_job_scene
+    create_client,
+    get_client_by_id,
+    list_clients,
+    update_client,
+    delete_client,
+    get_client_stats,
+    create_campaign,
+    get_campaign_by_id,
+    list_campaigns,
+    update_campaign,
+    delete_campaign,
+    get_campaign_stats,
+    create_asset,
+    get_asset_by_id,
+    list_assets,
+    update_asset,
+    delete_asset,
+    create_job_scene,
+    get_scenes_by_job,
+    get_scene_by_id,
+    update_job_scene,
+    delete_job_scene,
 )
 from ...auth import verify_auth
 from ...services.storyboard_generator import generate_storyboard_task
 from ...services.video_renderer import render_video_task
 from ...services.replicate_client import ReplicateClient
 from ...services.asset_downloader import (
-    download_asset_from_url, store_blob, AssetDownloadError
+    download_asset_from_url,
+    store_blob,
+    AssetDownloadError,
 )
-from ...services.scene_generator import generate_scenes, regenerate_scene, SceneGenerationError
+from ...services.scene_generator import (
+    generate_scenes,
+    regenerate_scene,
+    SceneGenerationError,
+)
 from ...database import (
-    get_job, update_job_progress, approve_storyboard,
-    create_video_job, update_video_status
+    get_job,
+    update_job_progress,
+    approve_storyboard,
+    create_video_job,
+    update_video_status,
 )
 from ...config import get_settings
 
@@ -51,12 +100,15 @@ settings = get_settings()
 # Helper Functions
 # ============================================================================
 
+
 def get_current_timestamp() -> str:
     """Get current timestamp in ISO format"""
     return datetime.utcnow().isoformat() + "Z"
 
 
-def create_api_meta(page: Optional[int] = None, total: Optional[int] = None) -> Dict[str, Any]:
+def create_api_meta(
+    page: Optional[int] = None, total: Optional[int] = None
+) -> Dict[str, Any]:
     """Create standard API meta object"""
     meta: Dict[str, Any] = {"timestamp": get_current_timestamp()}
     if page is not None:
@@ -70,11 +122,12 @@ def create_api_meta(page: Optional[int] = None, total: Optional[int] = None) -> 
 # Client Endpoints
 # ============================================================================
 
+
 @router.get("/clients", response_model=APIResponse, tags=["v3-clients"])
 async def get_clients(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Get all clients for the authenticated user"""
     try:
@@ -87,8 +140,7 @@ async def get_clients(
 
 @router.get("/clients/{client_id}", response_model=APIResponse, tags=["v3-clients"])
 async def get_client(
-    client_id: str,
-    current_user: Dict = Depends(verify_auth)
+    client_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get a specific client by ID"""
     try:
@@ -103,8 +155,7 @@ async def get_client(
 
 @router.post("/clients", response_model=APIResponse, tags=["v3-clients"])
 async def create_new_client(
-    request: ClientCreateRequest,
-    current_user: Dict = Depends(verify_auth)
+    request: ClientCreateRequest, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Create a new client"""
     try:
@@ -112,7 +163,10 @@ async def create_new_client(
             user_id=current_user["id"],
             name=request.name,
             description=request.description or "",
-            brand_guidelines=request.brandGuidelines.dict() if request.brandGuidelines else None
+            homepage=request.homepage,
+            brand_guidelines=request.brandGuidelines.dict()
+            if request.brandGuidelines
+            else None,
         )
 
         # Fetch the created client
@@ -126,7 +180,7 @@ async def create_new_client(
 async def update_existing_client(
     client_id: str,
     request: ClientUpdateRequest,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Update an existing client"""
     try:
@@ -135,7 +189,10 @@ async def update_existing_client(
             user_id=current_user["id"],
             name=request.name,
             description=request.description,
-            brand_guidelines=request.brandGuidelines.dict() if request.brandGuidelines else None
+            homepage=request.homepage,
+            brand_guidelines=request.brandGuidelines.dict()
+            if request.brandGuidelines
+            else None,
         )
 
         if not success:
@@ -150,8 +207,7 @@ async def update_existing_client(
 
 @router.delete("/clients/{client_id}", response_model=APIResponse, tags=["v3-clients"])
 async def delete_existing_client(
-    client_id: str,
-    current_user: Dict = Depends(verify_auth)
+    client_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Delete a client"""
     try:
@@ -159,15 +215,18 @@ async def delete_existing_client(
         if not success:
             return APIResponse.create_error("Client not found")
 
-        return APIResponse.success(data={"message": "Client deleted successfully"}, meta=create_api_meta())
+        return APIResponse.success(
+            data={"message": "Client deleted successfully"}, meta=create_api_meta()
+        )
     except Exception as e:
         return APIResponse.create_error(f"Failed to delete client: {str(e)}")
 
 
-@router.get("/clients/{client_id}/stats", response_model=APIResponse, tags=["v3-clients"])
+@router.get(
+    "/clients/{client_id}/stats", response_model=APIResponse, tags=["v3-clients"]
+)
 async def get_client_statistics(
-    client_id: str,
-    current_user: Dict = Depends(verify_auth)
+    client_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get statistics for a client"""
     try:
@@ -184,20 +243,18 @@ async def get_client_statistics(
 # Campaign Endpoints
 # ============================================================================
 
+
 @router.get("/campaigns", response_model=APIResponse, tags=["v3-campaigns"])
 async def get_campaigns(
     client_id: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Get campaigns, optionally filtered by client"""
     try:
         campaigns = list_campaigns(
-            user_id=current_user["id"],
-            client_id=client_id,
-            limit=limit,
-            offset=offset
+            user_id=current_user["id"], client_id=client_id, limit=limit, offset=offset
         )
         meta = create_api_meta(page=(offset // limit) + 1, total=len(campaigns))
         return APIResponse.success(data=campaigns, meta=meta)
@@ -205,10 +262,11 @@ async def get_campaigns(
         return APIResponse.create_error(f"Failed to fetch campaigns: {str(e)}")
 
 
-@router.get("/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"])
+@router.get(
+    "/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"]
+)
 async def get_campaign(
-    campaign_id: str,
-    current_user: Dict = Depends(verify_auth)
+    campaign_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get a specific campaign by ID"""
     try:
@@ -223,8 +281,7 @@ async def get_campaign(
 
 @router.post("/campaigns", response_model=APIResponse, tags=["v3-campaigns"])
 async def create_new_campaign(
-    request: CampaignCreateRequest,
-    current_user: Dict = Depends(verify_auth)
+    request: CampaignCreateRequest, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Create a new campaign"""
     try:
@@ -234,7 +291,7 @@ async def create_new_campaign(
             name=request.name,
             goal=request.goal,
             status=request.status,
-            brief=request.brief
+            brief=request.brief,
         )
 
         # Fetch the created campaign
@@ -244,11 +301,13 @@ async def create_new_campaign(
         return APIResponse.create_error(f"Failed to create campaign: {str(e)}")
 
 
-@router.put("/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"])
+@router.put(
+    "/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"]
+)
 async def update_existing_campaign(
     campaign_id: str,
     request: CampaignUpdateRequest,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Update an existing campaign"""
     try:
@@ -258,7 +317,7 @@ async def update_existing_campaign(
             name=request.name,
             goal=request.goal,
             status=request.status,
-            brief=request.brief
+            brief=request.brief,
         )
 
         if not success:
@@ -271,10 +330,11 @@ async def update_existing_campaign(
         return APIResponse.create_error(f"Failed to update campaign: {str(e)}")
 
 
-@router.delete("/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"])
+@router.delete(
+    "/campaigns/{campaign_id}", response_model=APIResponse, tags=["v3-campaigns"]
+)
 async def delete_existing_campaign(
-    campaign_id: str,
-    current_user: Dict = Depends(verify_auth)
+    campaign_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Delete a campaign"""
     try:
@@ -282,15 +342,18 @@ async def delete_existing_campaign(
         if not success:
             return APIResponse.create_error("Campaign not found")
 
-        return APIResponse.success(data={"message": "Campaign deleted successfully"}, meta=create_api_meta())
+        return APIResponse.success(
+            data={"message": "Campaign deleted successfully"}, meta=create_api_meta()
+        )
     except Exception as e:
         return APIResponse.create_error(f"Failed to delete campaign: {str(e)}")
 
 
-@router.get("/campaigns/{campaign_id}/stats", response_model=APIResponse, tags=["v3-campaigns"])
+@router.get(
+    "/campaigns/{campaign_id}/stats", response_model=APIResponse, tags=["v3-campaigns"]
+)
 async def get_campaign_statistics(
-    campaign_id: str,
-    current_user: Dict = Depends(verify_auth)
+    campaign_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get statistics for a campaign"""
     try:
@@ -307,6 +370,7 @@ async def get_campaign_statistics(
 # Asset Endpoints
 # ============================================================================
 
+
 @router.get("/assets", response_model=APIResponse, tags=["v3-assets"])
 async def get_assets(
     client_id: Optional[str] = Query(None),
@@ -314,7 +378,7 @@ async def get_assets(
     asset_type: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Get assets with optional filtering"""
     try:
@@ -324,7 +388,7 @@ async def get_assets(
             campaign_id=campaign_id,
             asset_type=asset_type,
             limit=limit,
-            offset=offset
+            offset=offset,
         )
         meta = create_api_meta(page=(offset // limit) + 1, total=len(assets))
         return APIResponse.success(data=assets, meta=meta)
@@ -334,8 +398,7 @@ async def get_assets(
 
 @router.get("/assets/{asset_id}", response_model=APIResponse, tags=["v3-assets"])
 async def get_asset(
-    asset_id: str,
-    current_user: Dict = Depends(verify_auth)
+    asset_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get a specific asset by ID"""
     try:
@@ -349,10 +412,7 @@ async def get_asset(
 
 
 @router.get("/assets/{asset_id}/data", tags=["v3-assets"])
-async def get_asset_data(
-    asset_id: str,
-    current_user: Dict = Depends(verify_auth)
-):
+async def get_asset_data(asset_id: str, current_user: Dict = Depends(verify_auth)):
     """Serve the binary asset data"""
     from fastapi.responses import Response
     from ...database_helpers import get_db
@@ -366,11 +426,11 @@ async def get_asset_data(
                 FROM assets
                 WHERE id = ?
                 """,
-                (asset_id,)
+                (asset_id,),
             ).fetchone()
 
             if not row:
-                return APIResponse.create_error("Asset not found", status_code=404)
+                return APIResponse.create_error("Asset not found")
 
             blob_id = row["blob_id"]
             blob_data = row["blob_data"]
@@ -380,6 +440,7 @@ async def get_asset_data(
         # Check if asset has blob_id (V3 blob storage)
         if blob_id:
             from ...services.asset_downloader import get_blob_by_id
+
             blob_result = get_blob_by_id(blob_id)
 
             if blob_result:
@@ -389,37 +450,87 @@ async def get_asset_data(
                     media_type=content_type,
                     headers={
                         "Content-Disposition": f'inline; filename="{asset_name}"',
-                        "Cache-Control": "public, max-age=31536000"
-                    }
+                        "Cache-Control": "public, max-age=31536000",
+                    },
                 )
 
         # Fallback to blob_data column (legacy storage)
         if blob_data:
             # Determine content type from format
             format_to_mime = {
-                "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                "png": "image/png", "webp": "image/webp", "gif": "image/gif",
-                "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
-                "mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg",
-                "pdf": "application/pdf"
+                "jpg": "image/jpeg",
+                "jpeg": "image/jpeg",
+                "png": "image/png",
+                "webp": "image/webp",
+                "gif": "image/gif",
+                "mp4": "video/mp4",
+                "webm": "video/webm",
+                "mov": "video/quicktime",
+                "mp3": "audio/mpeg",
+                "wav": "audio/wav",
+                "ogg": "audio/ogg",
+                "pdf": "application/pdf",
             }
 
-            content_type = format_to_mime.get(asset_format.lower(), "application/octet-stream")
+            content_type = format_to_mime.get(
+                asset_format.lower(), "application/octet-stream"
+            )
 
             return Response(
                 content=bytes(blob_data),
                 media_type=content_type,
                 headers={
                     "Content-Disposition": f'inline; filename="{asset_name}"',
-                    "Cache-Control": "public, max-age=31536000"
-                }
+                    "Cache-Control": "public, max-age=31536000",
+                },
             )
 
         # No binary data available
-        return APIResponse.create_error("Asset data not available", status_code=404)
+        return APIResponse.create_error("Asset data not available")
 
     except Exception as e:
         return APIResponse.create_error(f"Failed to serve asset data: {str(e)}")
+
+
+@router.get("/assets/{asset_id}/thumbnail", tags=["v3-assets"])
+async def get_asset_thumbnail(asset_id: str, current_user: Dict = Depends(verify_auth)):
+    """Serve the asset thumbnail"""
+    from fastapi.responses import Response
+    from ...database_helpers import get_db
+
+    try:
+        # Query asset to get thumbnail_blob_id
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT thumbnail_blob_id, name FROM assets WHERE id = ?", (asset_id,)
+            ).fetchone()
+
+            if not row or not row["thumbnail_blob_id"]:
+                return APIResponse.create_error("Thumbnail not available")
+
+            thumbnail_blob_id = row["thumbnail_blob_id"]
+            asset_name = row["name"]
+
+        # Get thumbnail data from blob storage
+        from ...services.asset_downloader import get_blob_by_id
+
+        blob_result = get_blob_by_id(thumbnail_blob_id)
+
+        if blob_result:
+            data, content_type = blob_result
+            return Response(
+                content=data,
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{asset_name}_thumbnail.jpg"',
+                    "Cache-Control": "public, max-age=31536000",
+                },
+            )
+
+        return APIResponse.create_error("Thumbnail data not available")
+
+    except Exception as e:
+        return APIResponse.create_error(f"Failed to serve thumbnail: {str(e)}")
 
 
 @router.post("/assets", response_model=APIResponse, tags=["v3-assets"])
@@ -430,7 +541,7 @@ async def upload_asset(
     clientId: Optional[str] = None,
     campaignId: Optional[str] = None,
     tags: Optional[str] = None,  # JSON string
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Upload a new asset"""
     try:
@@ -447,7 +558,7 @@ async def upload_asset(
 
         # Determine format
         filename = file.filename or "unknown"
-        format_ext = filename.split('.')[-1] if '.' in filename else 'bin'
+        format_ext = filename.split(".")[-1] if "." in filename else "bin"
 
         # Generate ID first
         asset_id = str(uuid.uuid4())
@@ -467,7 +578,7 @@ async def upload_asset(
             client_id=clientId,
             campaign_id=campaignId,
             tags=tags_list,
-            blob_data=file_content
+            blob_data=file_content,
         )
 
         # Fetch the created asset
@@ -479,15 +590,13 @@ async def upload_asset(
 
 @router.post("/assets/from-url", response_model=APIResponse, tags=["v3-assets"])
 async def upload_asset_from_url(
-    request: UploadAssetFromUrlInput,
-    current_user: Dict = Depends(verify_auth)
+    request: UploadAssetFromUrlInput, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Upload an asset by downloading it from a URL"""
     try:
         # Download asset from URL
         asset_data, content_type, metadata = download_asset_from_url(
-            url=request.url,
-            asset_type=request.type
+            url=request.url, asset_type=request.type
         )
 
         # Store as blob in database
@@ -515,22 +624,133 @@ async def upload_asset_from_url(
             source_url=request.url,
             width=metadata.get("width"),
             height=metadata.get("height"),
-            duration=metadata.get("duration")
+            duration=metadata.get("duration"),
         )
 
         # Fetch the created asset
         asset = get_asset_by_id(asset_id)
         return APIResponse.success(data=asset, meta=create_api_meta())
     except AssetDownloadError as e:
-        return APIResponse.create_error(f"Failed to download asset: {str(e)}", status_code=400)
+        return APIResponse.create_error(f"Failed to download asset: {str(e)}")
     except Exception as e:
         return APIResponse.create_error(f"Failed to upload asset from URL: {str(e)}")
 
 
+@router.post("/assets/unified", response_model=APIResponse, tags=["v3-assets"])
+async def upload_asset_unified(
+    request: UnifiedAssetUploadInput,
+    file: Optional[UploadFile] = File(None),
+    current_user: Dict = Depends(verify_auth),
+) -> APIResponse:
+    """Unified asset upload endpoint supporting both file uploads and URL downloads"""
+    try:
+        asset_data = None
+        content_type = None
+        metadata = {}
+        source_url = None
+
+        if request.uploadType == "file":
+            # Handle direct file upload
+            if not file:
+                return APIResponse.create_error("File is required for file upload type")
+
+            # Read file content
+            asset_data = await file.read()
+
+            # Determine content type and metadata
+            filename = file.filename or "unknown"
+            content_type = (
+                file.content_type
+                or mimetypes.guess_type(filename)[0]
+                or "application/octet-stream"
+            )
+
+            # Basic metadata extraction
+            metadata = {
+                "size": len(asset_data),
+                "format": filename.split(".")[-1] if "." in filename else "bin",
+            }
+
+            # Try to extract additional metadata for images
+            if request.type == "image" and content_type.startswith("image/"):
+                try:
+                    from PIL import Image
+                    import io
+
+                    image = Image.open(io.BytesIO(asset_data))
+                    metadata["width"] = image.width
+                    metadata["height"] = image.height
+                except:
+                    pass
+
+        elif request.uploadType == "url":
+            # Handle URL download
+            if not request.sourceUrl:
+                return APIResponse.create_error(
+                    "sourceUrl is required for URL upload type"
+                )
+
+            # Download asset from URL
+            asset_data, content_type, metadata = download_asset_from_url(
+                url=request.sourceUrl, asset_type=request.type
+            )
+            source_url = request.sourceUrl
+
+        else:
+            return APIResponse.create_error(f"Invalid uploadType: {request.uploadType}")
+
+        # Store asset data as blob
+        blob_id = store_blob(asset_data, content_type)
+
+        # Generate asset ID
+        asset_id = str(uuid.uuid4())
+
+        # Construct V3 serving URL
+        asset_url = f"/api/v3/assets/{asset_id}/data"
+
+        # Generate thumbnail if requested and applicable
+        thumbnail_blob_id = None
+        if request.generateThumbnail and request.type in ["image", "video"]:
+            from ...services.asset_downloader import generate_and_store_thumbnail
+
+            thumbnail_blob_id = generate_and_store_thumbnail(
+                asset_data, content_type, request.type
+            )
+
+        # Create asset record
+        create_asset(
+            asset_id=asset_id,
+            name=request.name,
+            asset_type=request.type,
+            url=asset_url,
+            format=metadata.get("format", "unknown"),
+            size=metadata.get("size", len(asset_data)),
+            user_id=current_user["id"],
+            client_id=request.clientId,
+            campaign_id=request.campaignId,
+            tags=request.tags,
+            blob_id=blob_id,
+            source_url=source_url,
+            thumbnail_blob_id=thumbnail_blob_id,
+            width=metadata.get("width"),
+            height=metadata.get("height"),
+            duration=metadata.get("duration"),
+        )
+
+        # Fetch the created asset
+        asset = get_asset_by_id(asset_id)
+        return APIResponse.success(data=asset, meta=create_api_meta())
+
+    except AssetDownloadError as e:
+        return APIResponse.create_error(f"Failed to download asset: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unified asset upload failed: {e}", exc_info=True)
+        return APIResponse.create_error(f"Failed to upload asset: {str(e)}")
+
+
 @router.delete("/assets/{asset_id}", response_model=APIResponse, tags=["v3-assets"])
 async def delete_asset_v3(
-    asset_id: str,
-    current_user: Dict = Depends(verify_auth)
+    asset_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Delete an asset"""
     try:
@@ -545,8 +765,7 @@ async def delete_asset_v3(
             return APIResponse.create_error("Failed to delete asset or asset not found")
 
         return APIResponse.success(
-            data={"message": "Asset deleted successfully"},
-            meta=create_api_meta()
+            data={"message": "Asset deleted successfully"}, meta=create_api_meta()
         )
     except Exception as e:
         return APIResponse.create_error(f"Failed to delete asset: {str(e)}")
@@ -556,31 +775,35 @@ async def delete_asset_v3(
 # Job Endpoints (Generation Workflow)
 # ============================================================================
 
+
 @router.post("/jobs", response_model=APIResponse, tags=["v3-jobs"])
 async def create_job(
     request: JobCreateRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Create a new generation job"""
     try:
         # Process assets if provided
         processed_asset_ids = []
         if request.creative.assets:
-            logger.info(f"Processing {len(request.creative.assets)} assets for job creation")
+            logger.info(
+                f"Processing {len(request.creative.assets)} assets for job creation"
+            )
 
             for asset_input in request.creative.assets:
                 # If asset has a URL, download and store it
                 if asset_input.url:
-                    logger.info(f"Downloading asset from URL: {asset_input.url[:50]}...")
+                    logger.info(
+                        f"Downloading asset from URL: {asset_input.url[:50]}..."
+                    )
 
                     # Determine asset type
                     asset_type = asset_input.type or "image"  # Default to image
 
                     # Download asset from URL
                     asset_data, content_type, metadata = download_asset_from_url(
-                        url=asset_input.url,
-                        asset_type=asset_type
+                        url=asset_input.url, asset_type=asset_type
                     )
 
                     # Store as blob
@@ -589,6 +812,17 @@ async def create_job(
                     # Generate asset ID
                     asset_id = str(uuid.uuid4())
                     asset_url = f"/api/v3/assets/{asset_id}/data"
+
+                    # Generate thumbnail if applicable
+                    thumbnail_blob_id = None
+                    if asset_type in ["image", "video"]:
+                        from ...services.asset_downloader import (
+                            generate_and_store_thumbnail,
+                        )
+
+                        thumbnail_blob_id = generate_and_store_thumbnail(
+                            asset_data, content_type, asset_type
+                        )
 
                     # Create asset record
                     create_asset(
@@ -603,9 +837,10 @@ async def create_job(
                         campaign_id=request.context.campaignId,
                         blob_id=blob_id,
                         source_url=asset_input.url,
+                        thumbnail_blob_id=thumbnail_blob_id,
                         width=metadata.get("width"),
                         height=metadata.get("height"),
-                        duration=metadata.get("duration")
+                        duration=metadata.get("duration"),
                     )
 
                     processed_asset_ids.append(asset_id)
@@ -616,7 +851,9 @@ async def create_job(
                     # Verify asset exists
                     existing_asset = get_asset_by_id(asset_input.assetId)
                     if not existing_asset:
-                        return APIResponse.create_error(f"Asset not found: {asset_input.assetId}")
+                        return APIResponse.create_error(
+                            f"Asset not found: {asset_input.assetId}"
+                        )
                     processed_asset_ids.append(asset_input.assetId)
                     logger.info(f"Using existing asset {asset_input.assetId}")
 
@@ -638,11 +875,11 @@ async def create_job(
                 "ad_basics": request.adBasics.dict(),
                 "creative": request.creative.dict(),
                 "advanced": request.advanced.dict() if request.advanced else None,
-                "processed_asset_ids": processed_asset_ids  # Store processed asset IDs
+                "processed_asset_ids": processed_asset_ids,  # Store processed asset IDs
             },
             estimated_cost=5.0,  # Placeholder cost
             client_id=request.context.clientId,
-            status="scene_generation"  # Initial status
+            status="scene_generation",  # Initial status
         )
 
         # Generate scenes using AI
@@ -653,7 +890,7 @@ async def create_job(
                 creative_direction=request.creative.direction.dict(),
                 assets=processed_asset_ids,
                 duration=request.creative.videoSpecs.duration,
-                num_scenes=None  # Auto-determine based on duration
+                num_scenes=None,  # Auto-determine based on duration
             )
 
             # Store generated scenes in database
@@ -667,7 +904,7 @@ async def create_job(
                     shot_type=scene.get("shotType"),
                     transition=scene.get("transition"),
                     assets=scene.get("assets", []),
-                    metadata=scene.get("metadata", {})
+                    metadata=scene.get("metadata", {}),
                 )
 
             logger.info(f"Generated and stored {len(scenes)} scenes for job {job_id}")
@@ -687,7 +924,7 @@ async def create_job(
             "assetIds": processed_asset_ids,  # Return asset IDs for reference
             "scenes": scenes,  # Include generated scenes in response
             "createdAt": get_current_timestamp(),
-            "updatedAt": get_current_timestamp()
+            "updatedAt": get_current_timestamp(),
         }
 
         return APIResponse.success(data=job, meta=create_api_meta())
@@ -701,8 +938,7 @@ async def create_job(
 
 @router.get("/jobs/{job_id}", response_model=APIResponse, tags=["v3-jobs"])
 async def get_job_status(
-    job_id: str,
-    current_user: Dict = Depends(verify_auth)
+    job_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get job status and progress"""
     try:
@@ -722,11 +958,13 @@ async def get_job_status(
             "completed": JobStatus.COMPLETED,
             "failed": JobStatus.FAILED,
             "canceled": JobStatus.CANCELLED,
-            "cancelled": JobStatus.CANCELLED
+            "cancelled": JobStatus.CANCELLED,
         }
 
         # Default to FAILED if unknown status
-        v3_status = status_mapping.get(job_dict["status"] if "status" in job_dict else "failed", JobStatus.FAILED)
+        v3_status = status_mapping.get(
+            job_dict["status"] if "status" in job_dict else "failed", JobStatus.FAILED
+        )
 
         # Get scenes from job_scenes table
         scenes = get_scenes_by_job(int(job_id))
@@ -735,35 +973,43 @@ async def get_job_status(
             "id": str(job_dict["id"]),
             "status": v3_status,
             "progress": job_dict["progress"] if "progress" in job_dict else None,
-            "storyboard": job_dict["storyboard_data"] if "storyboard_data" in job_dict and isinstance(job_dict["storyboard_data"], dict) else None,
+            "storyboard": job_dict["storyboard_data"]
+            if "storyboard_data" in job_dict
+            and isinstance(job_dict["storyboard_data"], dict)
+            else None,
             "scenes": scenes,  # Include scenes from job_scenes table
             "videoUrl": job_dict["video_url"] if "video_url" in job_dict else None,
             "error": job_dict["error_message"] if "error_message" in job_dict else None,
-            "estimatedCost": job_dict["estimated_cost"] if "estimated_cost" in job_dict else None,
-            "actualCost": job_dict["actual_cost"] if "actual_cost" in job_dict else None,
+            "estimatedCost": job_dict["estimated_cost"]
+            if "estimated_cost" in job_dict
+            else None,
+            "actualCost": job_dict["actual_cost"]
+            if "actual_cost" in job_dict
+            else None,
             "createdAt": job_dict["created_at"],
-            "updatedAt": job_dict["updated_at"]
+            "updatedAt": job_dict["updated_at"],
         }
 
         # Handle storyboard data loading if it's a string/list from DB
         if "storyboard_data" in job_dict and job_dict["storyboard_data"]:
-             sb_data = job_dict["storyboard_data"]
-             if isinstance(sb_data, str):
-                 try:
-                     job_data["storyboard"] = json.loads(sb_data)
-                 except:
-                     job_data["storyboard"] = None
-             elif isinstance(sb_data, list):
-                 # Wrap list in dict if frontend expects dict, or just pass list
-                 # Based on models.py Job model, storyboard is Optional[Dict[str, Any]]
-                 # But v2 storyboard is a List. Let's wrap it to be safe or check frontend expectations.
-                 # Looking at prompt, frontend expects: storyboard: [{ image_url, description, scene_idx }]
-                 # But model says Dict. Let's assume we pass it as a dict wrapper key
-                 job_data["storyboard"] = {"scenes": sb_data}
+            sb_data = job_dict["storyboard_data"]
+            if isinstance(sb_data, str):
+                try:
+                    job_data["storyboard"] = json.loads(sb_data)
+                except:
+                    job_data["storyboard"] = None
+            elif isinstance(sb_data, list):
+                # Wrap list in dict if frontend expects dict, or just pass list
+                # Based on models.py Job model, storyboard is Optional[Dict[str, Any]]
+                # But v2 storyboard is a List. Let's wrap it to be safe or check frontend expectations.
+                # Looking at prompt, frontend expects: storyboard: [{ image_url, description, scene_idx }]
+                # But model says Dict. Let's assume we pass it as a dict wrapper key
+                job_data["storyboard"] = {"scenes": sb_data}
 
         return APIResponse.success(data=job_data, meta=create_api_meta())
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         return APIResponse.create_error(f"Failed to get job status: {str(e)}")
 
@@ -773,7 +1019,7 @@ async def perform_job_action(
     job_id: str,
     request: JobActionRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Perform an action on a job (approve, cancel, regenerate)"""
     try:
@@ -786,7 +1032,7 @@ async def perform_job_action(
                 background_tasks.add_task(render_video_task, job_id_int)
                 return APIResponse.success(
                     data={"message": "Storyboard approved, video rendering started"},
-                    meta=create_api_meta()
+                    meta=create_api_meta(),
                 )
             else:
                 return APIResponse.create_error("Failed to approve storyboard")
@@ -795,14 +1041,15 @@ async def perform_job_action(
             # Cancel the job by updating status
             update_video_status(job_id_int, "cancelled")
             return APIResponse.success(
-                data={"message": "Job cancelled successfully"},
-                meta=create_api_meta()
+                data={"message": "Job cancelled successfully"}, meta=create_api_meta()
             )
 
         elif request.action == JobAction.REGENERATE_SCENE:
             # Regenerate a specific scene
-            if not hasattr(request, 'sceneId') or not request.sceneId:
-                return APIResponse.create_error("sceneId is required for REGENERATE_SCENE action")
+            if not hasattr(request, "sceneId") or not request.sceneId:
+                return APIResponse.create_error(
+                    "sceneId is required for REGENERATE_SCENE action"
+                )
 
             scene_id = request.sceneId
             scene = get_scene_by_id(scene_id)
@@ -817,13 +1064,17 @@ async def perform_job_action(
             if not job:
                 return APIResponse.create_error("Job not found")
 
-            job_params = json.loads(job["parameters"]) if isinstance(job["parameters"], str) else job["parameters"]
+            job_params = (
+                json.loads(job["parameters"])
+                if isinstance(job["parameters"], str)
+                else job["parameters"]
+            )
             ad_basics = job_params.get("ad_basics", {})
             creative_direction = job_params.get("creative", {}).get("direction", {})
 
             # Regenerate scene with optional feedback
-            feedback = request.feedback if hasattr(request, 'feedback') else ""
-            constraints = request.constraints if hasattr(request, 'constraints') else {}
+            feedback = request.feedback if hasattr(request, "feedback") else ""
+            constraints = request.constraints if hasattr(request, "constraints") else {}
 
             new_scene = regenerate_scene(
                 scene_number=scene["sceneNumber"],
@@ -832,7 +1083,7 @@ async def perform_job_action(
                 ad_basics=ad_basics,
                 creative_direction=creative_direction,
                 feedback=feedback,
-                constraints=constraints
+                constraints=constraints,
             )
 
             # Update scene in database
@@ -844,13 +1095,16 @@ async def perform_job_action(
                 transition=new_scene.get("transition"),
                 duration=new_scene.get("duration"),
                 assets=new_scene.get("assets"),
-                metadata=new_scene.get("metadata", {})
+                metadata=new_scene.get("metadata", {}),
             )
 
             updated_scene = get_scene_by_id(scene_id)
             return APIResponse.success(
-                data={"message": "Scene regenerated successfully", "scene": updated_scene},
-                meta=create_api_meta()
+                data={
+                    "message": "Scene regenerated successfully",
+                    "scene": updated_scene,
+                },
+                meta=create_api_meta(),
             )
 
         else:
@@ -864,10 +1118,10 @@ async def perform_job_action(
 # Cost Estimation Endpoints
 # ============================================================================
 
+
 @router.post("/jobs/dry-run", response_model=APIResponse, tags=["v3-cost"])
 async def estimate_job_cost(
-    request: DryRunRequest,
-    current_user: Dict = Depends(verify_auth)
+    request: DryRunRequest, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Estimate cost for a job without creating it"""
     try:
@@ -875,10 +1129,7 @@ async def estimate_job_cost(
         replicate_client = ReplicateClient()
 
         # Estimate cost (simplified: assume 5 images, 30 second video)
-        estimated_cost = replicate_client.estimate_cost(
-            num_images=5,
-            video_duration=30
-        )
+        estimated_cost = replicate_client.estimate_cost(num_images=5, video_duration=30)
 
         estimate = CostEstimate(
             estimatedCost=estimated_cost,
@@ -886,9 +1137,12 @@ async def estimate_job_cost(
             breakdown={
                 "storyboard_generation": estimated_cost * 0.3,
                 "image_generation": estimated_cost * 0.5,
-                "video_rendering": estimated_cost * 0.2
+                "video_rendering": estimated_cost * 0.2,
             },
-            validUntil=(datetime.utcnow().replace(hour=23, minute=59, second=59)).isoformat() + "Z"
+            validUntil=(
+                datetime.utcnow().replace(hour=23, minute=59, second=59)
+            ).isoformat()
+            + "Z",
         )
 
         return APIResponse.success(data=estimate.dict(), meta=create_api_meta())
@@ -900,10 +1154,10 @@ async def estimate_job_cost(
 # SCENE MANAGEMENT ENDPOINTS (Phase 2.5)
 # ============================================================================
 
+
 @router.get("/jobs/{job_id}/scenes", response_model=APIResponse, tags=["v3-scenes"])
 async def list_job_scenes(
-    job_id: str,
-    current_user: Dict = Depends(verify_auth)
+    job_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get all scenes for a job"""
     try:
@@ -914,11 +1168,11 @@ async def list_job_scenes(
         return APIResponse.create_error(f"Failed to list scenes: {str(e)}")
 
 
-@router.get("/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"])
+@router.get(
+    "/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"]
+)
 async def get_scene(
-    job_id: str,
-    scene_id: str,
-    current_user: Dict = Depends(verify_auth)
+    job_id: str, scene_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Get a specific scene by ID"""
     try:
@@ -936,12 +1190,14 @@ async def get_scene(
         return APIResponse.create_error(f"Failed to get scene: {str(e)}")
 
 
-@router.put("/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"])
+@router.put(
+    "/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"]
+)
 async def update_scene(
     job_id: str,
     scene_id: str,
     request: Dict[str, Any],
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Update a scene's details"""
     try:
@@ -961,7 +1217,7 @@ async def update_scene(
             transition=request.get("transition"),
             duration=request.get("duration"),
             assets=request.get("assets"),
-            metadata=request.get("metadata")
+            metadata=request.get("metadata"),
         )
 
         if not success:
@@ -975,12 +1231,16 @@ async def update_scene(
         return APIResponse.create_error(f"Failed to update scene: {str(e)}")
 
 
-@router.post("/jobs/{job_id}/scenes/{scene_id}/regenerate", response_model=APIResponse, tags=["v3-scenes"])
+@router.post(
+    "/jobs/{job_id}/scenes/{scene_id}/regenerate",
+    response_model=APIResponse,
+    tags=["v3-scenes"],
+)
 async def regenerate_scene_endpoint(
     job_id: str,
     scene_id: str,
     request: Dict[str, Any],
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """Regenerate a specific scene with optional feedback"""
     try:
@@ -999,7 +1259,11 @@ async def regenerate_scene_endpoint(
         if not job:
             return APIResponse.create_error("Job not found")
 
-        job_params = json.loads(job["parameters"]) if isinstance(job["parameters"], str) else job["parameters"]
+        job_params = (
+            json.loads(job["parameters"])
+            if isinstance(job["parameters"], str)
+            else job["parameters"]
+        )
         ad_basics = job_params.get("ad_basics", {})
         creative_direction = job_params.get("creative", {}).get("direction", {})
 
@@ -1014,7 +1278,7 @@ async def regenerate_scene_endpoint(
             ad_basics=ad_basics,
             creative_direction=creative_direction,
             feedback=feedback,
-            constraints=constraints
+            constraints=constraints,
         )
 
         # Update scene in database
@@ -1026,7 +1290,7 @@ async def regenerate_scene_endpoint(
             transition=new_scene.get("transition"),
             duration=new_scene.get("duration"),
             assets=new_scene.get("assets"),
-            metadata=new_scene.get("metadata", {})
+            metadata=new_scene.get("metadata", {}),
         )
 
         # Get updated scene
@@ -1040,11 +1304,11 @@ async def regenerate_scene_endpoint(
         return APIResponse.create_error(f"Failed to regenerate scene: {str(e)}")
 
 
-@router.delete("/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"])
+@router.delete(
+    "/jobs/{job_id}/scenes/{scene_id}", response_model=APIResponse, tags=["v3-scenes"]
+)
 async def delete_scene(
-    job_id: str,
-    scene_id: str,
-    current_user: Dict = Depends(verify_auth)
+    job_id: str, scene_id: str, current_user: Dict = Depends(verify_auth)
 ) -> APIResponse:
     """Delete a scene"""
     try:
@@ -1060,7 +1324,9 @@ async def delete_scene(
         if not success:
             return APIResponse.create_error("Failed to delete scene")
 
-        return APIResponse.success(data={"message": "Scene deleted successfully"}, meta=create_api_meta())
+        return APIResponse.success(
+            data={"message": "Scene deleted successfully"}, meta=create_api_meta()
+        )
     except Exception as e:
         logger.error(f"Failed to delete scene: {e}")
         return APIResponse.create_error(f"Failed to delete scene: {str(e)}")

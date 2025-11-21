@@ -9,6 +9,9 @@ import logging
 import uuid
 import requests
 import mimetypes
+import subprocess
+import tempfile
+import os
 from typing import Optional, Dict, Any, Tuple
 from pathlib import Path
 from PIL import Image
@@ -17,6 +20,7 @@ import io
 # Optional: python-magic for file type validation (falls back to mimetypes if not available)
 try:
     import magic
+
     MAGIC_AVAILABLE = True
 except ImportError:
     MAGIC_AVAILABLE = False
@@ -66,13 +70,12 @@ SUPPORTED_DOCUMENT_TYPES = [
 
 class AssetDownloadError(Exception):
     """Exception raised when asset download fails."""
+
     pass
 
 
 def download_asset_from_url(
-    url: str,
-    asset_type: str,
-    expected_content_type: Optional[str] = None
+    url: str, asset_type: str, expected_content_type: Optional[str] = None
 ) -> Tuple[bytes, str, Dict[str, Any]]:
     """
     Download an asset from a URL and validate it.
@@ -103,7 +106,7 @@ def download_asset_from_url(
                 url,
                 timeout=10,
                 allow_redirects=True,
-                headers={"User-Agent": "AdVideoGeneration/1.0"}
+                headers={"User-Agent": "AdVideoGeneration/1.0"},
             )
             content_length = head_response.headers.get("Content-Length")
 
@@ -121,7 +124,7 @@ def download_asset_from_url(
             url,
             timeout=DOWNLOAD_TIMEOUT_SECONDS,
             stream=True,
-            headers={"User-Agent": "AdVideoGeneration/1.0"}
+            headers={"User-Agent": "AdVideoGeneration/1.0"},
         )
         response.raise_for_status()
 
@@ -164,7 +167,9 @@ def download_asset_from_url(
                         logger.warning(f"Failed to detect content type with magic: {e}")
                         content_type = "application/octet-stream"
                 else:
-                    logger.warning("Content type detection: python-magic not available, using fallback")
+                    logger.warning(
+                        "Content type detection: python-magic not available, using fallback"
+                    )
                     content_type = "application/octet-stream"
 
         # Validate content type matches asset type
@@ -210,7 +215,7 @@ def store_blob(data: bytes, content_type: str) -> str:
                 INSERT INTO asset_blobs (id, data, content_type, size_bytes)
                 VALUES (?, ?, ?, ?)
                 """,
-                (blob_id, data, content_type, size_bytes)
+                (blob_id, data, content_type, size_bytes),
             )
             conn.commit()
 
@@ -235,8 +240,7 @@ def get_blob_by_id(blob_id: str) -> Optional[Tuple[bytes, str]]:
     try:
         with get_db() as conn:
             cursor = conn.execute(
-                "SELECT data, content_type FROM asset_blobs WHERE id = ?",
-                (blob_id,)
+                "SELECT data, content_type FROM asset_blobs WHERE id = ?", (blob_id,)
             )
             row = cursor.fetchone()
 
@@ -286,7 +290,9 @@ def _validate_content_type(content_type: str, asset_type: str) -> None:
         raise AssetDownloadError(f"Unknown asset type: {asset_type}")
 
 
-def _extract_metadata(data: bytes, content_type: str, asset_type: str) -> Dict[str, Any]:
+def _extract_metadata(
+    data: bytes, content_type: str, asset_type: str
+) -> Dict[str, Any]:
     """
     Extract metadata from asset data.
 
@@ -349,6 +355,141 @@ def _extract_metadata(data: bytes, content_type: str, asset_type: str) -> Dict[s
     except Exception as e:
         logger.warning(f"Failed to extract metadata: {e}")
         # Return basic metadata even if extraction fails
-        metadata["format"] = content_type.split("/")[-1] if "/" in content_type else "unknown"
+        metadata["format"] = (
+            content_type.split("/")[-1] if "/" in content_type else "unknown"
+        )
 
     return metadata
+
+
+def generate_thumbnail(
+    asset_data: bytes, content_type: str, asset_type: str, max_size: int = 128
+) -> Optional[bytes]:
+    """
+    Generate a thumbnail for an asset.
+
+    Args:
+        asset_data: The asset binary data
+        content_type: MIME type of the asset
+        asset_type: Asset type ("image", "video", "audio", "document")
+        max_size: Maximum dimension for thumbnail (default 128px)
+
+    Returns:
+        Thumbnail data as bytes, or None if generation fails
+    """
+    try:
+        if asset_type == "image" and content_type.startswith("image/"):
+            # Generate thumbnail for images using PIL
+            image = Image.open(io.BytesIO(asset_data))
+
+            # Convert to RGB if necessary (for PNG with transparency, etc.)
+            if image.mode in ("RGBA", "LA", "P"):
+                # Create white background
+                background = Image.new("RGB", image.size, (255, 255, 255))
+                if image.mode == "P":
+                    image = image.convert("RGBA")
+                background.paste(
+                    image, mask=image.split()[-1] if image.mode == "RGBA" else None
+                )
+                image = background
+
+            # Generate thumbnail
+            image.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
+            # Save as JPEG
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=85)
+            return output.getvalue()
+
+        elif asset_type == "video" and content_type.startswith("video/"):
+            # Generate thumbnail for videos using ffmpeg
+            # Write asset data to temporary file
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_file:
+                temp_file.write(asset_data)
+                temp_input = temp_file.name
+
+            try:
+                # Create temporary output file for thumbnail
+                with tempfile.NamedTemporaryFile(
+                    suffix=".jpg", delete=False
+                ) as temp_output:
+                    temp_thumb = temp_output.name
+
+                # Use ffmpeg to extract frame at 1 second
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    temp_input,
+                    "-ss",
+                    "00:00:01",
+                    "-vframes",
+                    "1",
+                    "-vf",
+                    f"scale='min({max_size},iw)':'min({max_size},ih)':force_original_aspect_ratio=decrease",
+                    "-q:v",
+                    "3",
+                    temp_thumb,
+                ]
+
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+                if result.returncode == 0 and os.path.exists(temp_thumb):
+                    with open(temp_thumb, "rb") as f:
+                        return f.read()
+                else:
+                    logger.warning(
+                        f"ffmpeg thumbnail generation failed: {result.stderr}"
+                    )
+                    return None
+
+            finally:
+                # Clean up temporary files
+                try:
+                    os.unlink(temp_input)
+                    if "temp_thumb" in locals():
+                        os.unlink(temp_thumb)
+                except:
+                    pass
+
+        elif asset_type == "document" and content_type == "application/pdf":
+            # For PDFs, we could generate a thumbnail of the first page
+            # This would require additional libraries like PyPDF2 + PIL
+            # For now, return None
+            logger.info("PDF thumbnail generation not implemented yet")
+            return None
+
+        else:
+            # No thumbnail generation for audio or other types
+            return None
+
+    except Exception as e:
+        logger.warning(f"Failed to generate thumbnail: {e}")
+        return None
+
+
+def generate_and_store_thumbnail(
+    asset_data: bytes, content_type: str, asset_type: str, max_size: int = 128
+) -> Optional[str]:
+    """
+    Generate a thumbnail and store it as a blob.
+
+    Args:
+        asset_data: The asset binary data
+        content_type: MIME type of the asset
+        asset_type: Asset type ("image", "video", "audio", "document")
+        max_size: Maximum dimension for thumbnail
+
+    Returns:
+        Blob ID of the stored thumbnail, or None if generation fails
+    """
+    thumbnail_data = generate_thumbnail(asset_data, content_type, asset_type, max_size)
+    if thumbnail_data:
+        try:
+            blob_id = store_blob(thumbnail_data, "image/jpeg")
+            logger.info(f"Generated and stored thumbnail blob {blob_id}")
+            return blob_id
+        except Exception as e:
+            logger.error(f"Failed to store thumbnail blob: {e}")
+            return None
+    return None
