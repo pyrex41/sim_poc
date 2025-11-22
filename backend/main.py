@@ -1,4 +1,15 @@
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Depends, Response, UploadFile, File, Request, Form
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Query,
+    BackgroundTasks,
+    Depends,
+    Response,
+    UploadFile,
+    File,
+    Request,
+    Form,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -75,15 +86,16 @@ from .database import (
     get_generated_videos_by_client,
     # Campaign-based generation queries
     get_generated_images_by_campaign,
-    get_generated_videos_by_campaign
+    get_generated_videos_by_campaign,
 )
+
 # Redis cache layer (optional, gracefully degrades if unavailable)
 from .cache import (
     get_job_with_cache,
     update_job_progress_with_cache,
     invalidate_job_cache,
     get_cache_stats,
-    redis_available
+    redis_available,
 )
 
 from .auth import (
@@ -93,13 +105,13 @@ from .auth import (
     create_access_token,
     generate_api_key,
     hash_api_key,
-    ACCESS_TOKEN_EXPIRE_MINUTES
+    ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 
 # Load environment variables from .env file in parent directory
 # Try loading .env from backend directory, then parent directory
-if not load_dotenv('.env'):
-    load_dotenv('../.env')
+if not load_dotenv(".env"):
+    load_dotenv("../.env")
 # import genesis as gs  # Using geometric validation instead
 
 # Initialize centralized settings
@@ -121,26 +133,39 @@ from .api.v3.router import router as v3_router
 
 # Import logging
 import logging
+
 logger = logging.getLogger(__name__)
 
 # Security: Allowed file extensions (prevents path traversal)
-ALLOWED_FILE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'mov', 'mp3', 'wav', 'pdf'}
+ALLOWED_FILE_EXTENSIONS = {
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "mp4",
+    "mov",
+    "mp3",
+    "wav",
+    "pdf",
+}
 
 # Magic bytes for file type validation
 MAGIC_BYTES = {
-    b'\x89PNG\r\n\x1a\n': 'png',
-    b'\xff\xd8\xff': 'jpg',  # JPEG (various markers)
-    b'GIF87a': 'gif',
-    b'GIF89a': 'gif',
-    b'RIFF': 'webp',  # Also WAV, need to check further
-    b'\x00\x00\x00\x18ftypmp42': 'mp4',  # MP4
-    b'\x00\x00\x00\x1cftypmp42': 'mp4',
-    b'\x00\x00\x00\x20ftypmp42': 'mp4',
-    b'\x00\x00\x00\x1cftypisom': 'mp4',
-    b'ID3': 'mp3',
-    b'\xff\xfb': 'mp3',  # MP3 without ID3
-    b'%PDF': 'pdf',
+    b"\x89PNG\r\n\x1a\n": "png",
+    b"\xff\xd8\xff": "jpg",  # JPEG (various markers)
+    b"GIF87a": "gif",
+    b"GIF89a": "gif",
+    b"RIFF": "webp",  # Also WAV, need to check further
+    b"\x00\x00\x00\x18ftypmp42": "mp4",  # MP4
+    b"\x00\x00\x00\x1cftypmp42": "mp4",
+    b"\x00\x00\x00\x20ftypmp42": "mp4",
+    b"\x00\x00\x00\x1cftypisom": "mp4",
+    b"ID3": "mp3",
+    b"\xff\xfb": "mp3",  # MP3 without ID3
+    b"%PDF": "pdf",
 }
+
 
 def validate_and_sanitize_format(format_str: str) -> str:
     """
@@ -159,18 +184,21 @@ def validate_and_sanitize_format(format_str: str) -> str:
         raise HTTPException(status_code=400, detail="File format is required")
 
     # Remove dots and convert to lowercase
-    format_clean = format_str.lower().strip().lstrip('.')
+    format_clean = format_str.lower().strip().lstrip(".")
 
     # Check against whitelist
     if format_clean not in ALLOWED_FILE_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file format: {format_clean}. Allowed: {', '.join(sorted(ALLOWED_FILE_EXTENSIONS))}"
+            detail=f"Invalid file format: {format_clean}. Allowed: {', '.join(sorted(ALLOWED_FILE_EXTENSIONS))}",
         )
 
     return format_clean
 
-def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str) -> bool:
+
+def validate_file_type_with_magic_bytes(
+    file_contents: bytes, claimed_type: str
+) -> bool:
     """
     Validate file type using magic bytes to prevent file type spoofing.
 
@@ -185,25 +213,27 @@ def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str)
     header = file_contents[:32]
 
     # Log for debugging
-    logger.info(f"Validating file type: claimed={claimed_type}, magic_bytes={header[:16].hex()}")
+    logger.info(
+        f"Validating file type: claimed={claimed_type}, magic_bytes={header[:16].hex()}"
+    )
 
     # Check common image formats
-    if claimed_type.startswith('image/'):
+    if claimed_type.startswith("image/"):
         # PNG: starts with \x89PNG
-        if header.startswith(b'\x89PNG'):
-            return claimed_type in ['image/png', 'image/x-png']
+        if header.startswith(b"\x89PNG"):
+            return claimed_type in ["image/png", "image/x-png"]
         # JPEG: starts with \xff\xd8\xff
-        elif header.startswith(b'\xff\xd8\xff'):
-            return claimed_type in ['image/jpeg', 'image/jpg', 'image/pjpeg']
+        elif header.startswith(b"\xff\xd8\xff"):
+            return claimed_type in ["image/jpeg", "image/jpg", "image/pjpeg"]
         # GIF
-        elif header.startswith(b'GIF87a') or header.startswith(b'GIF89a'):
-            return claimed_type in ['image/gif']
+        elif header.startswith(b"GIF87a") or header.startswith(b"GIF89a"):
+            return claimed_type in ["image/gif"]
         # WebP: RIFF....WEBP
-        elif header.startswith(b'RIFF') and b'WEBP' in header[:16]:
-            return claimed_type in ['image/webp']
+        elif header.startswith(b"RIFF") and b"WEBP" in header[:16]:
+            return claimed_type in ["image/webp"]
         # SVG
-        elif header.startswith(b'<?xml') or header.startswith(b'<svg'):
-            return claimed_type in ['image/svg+xml', 'image/svg']
+        elif header.startswith(b"<?xml") or header.startswith(b"<svg"):
+            return claimed_type in ["image/svg+xml", "image/svg"]
         else:
             # Log the actual bytes to help debug
             logger.warning(f"Unknown image magic bytes for claimed type {claimed_type}")
@@ -212,26 +242,30 @@ def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str)
             return False
 
     # Check video formats
-    elif claimed_type.startswith('video/'):
-        if b'ftyp' in header[:32]:  # MP4/MOV container
-            return claimed_type in ['video/mp4', 'video/quicktime']
+    elif claimed_type.startswith("video/"):
+        if b"ftyp" in header[:32]:  # MP4/MOV container
+            return claimed_type in ["video/mp4", "video/quicktime"]
         else:
             logger.warning(f"Unknown video magic bytes for claimed type {claimed_type}")
             return False
 
     # Check audio formats
-    elif claimed_type.startswith('audio/'):
-        if header.startswith(b'ID3') or header.startswith(b'\xff\xfb') or header.startswith(b'\xff\xf3'):
-            return claimed_type in ['audio/mpeg', 'audio/mp3']
-        elif header.startswith(b'RIFF') and b'WAVE' in header[:16]:
-            return claimed_type in ['audio/wav', 'audio/wave']
+    elif claimed_type.startswith("audio/"):
+        if (
+            header.startswith(b"ID3")
+            or header.startswith(b"\xff\xfb")
+            or header.startswith(b"\xff\xf3")
+        ):
+            return claimed_type in ["audio/mpeg", "audio/mp3"]
+        elif header.startswith(b"RIFF") and b"WAVE" in header[:16]:
+            return claimed_type in ["audio/wav", "audio/wave"]
         else:
             logger.warning(f"Unknown audio magic bytes for claimed type {claimed_type}")
             return False
 
     # Check document formats
-    elif claimed_type == 'application/pdf':
-        if header.startswith(b'%PDF'):
+    elif claimed_type == "application/pdf":
+        if header.startswith(b"%PDF"):
             return True
         else:
             logger.warning(f"Invalid PDF magic bytes")
@@ -241,50 +275,47 @@ def validate_file_type_with_magic_bytes(file_contents: bytes, claimed_type: str)
     logger.warning(f"Unrecognized content type for validation: {claimed_type}")
     return False
 
+
 openapi_tags = [
     # V3 API - Primary API (organized logically)
     {
         "name": "v3-clients",
-        "description": "🏢 V3 Client Management - Create and manage clients with brand guidelines"
+        "description": "🏢 V3 Client Management - Create and manage clients with brand guidelines",
     },
     {
         "name": "v3-campaigns",
-        "description": "📢 V3 Campaign Management - Create and manage advertising campaigns"
+        "description": "📢 V3 Campaign Management - Create and manage advertising campaigns",
     },
     {
         "name": "v3-assets",
-        "description": "📁 V3 Asset Management - Upload and manage media assets (images, videos, documents)"
+        "description": "📁 V3 Asset Management - Upload and manage media assets (images, videos, documents)",
     },
     {
         "name": "v3-jobs",
-        "description": "⚙️ V3 Job Management - Create and monitor video generation jobs with storyboards"
+        "description": "⚙️ V3 Job Management - Create and monitor video generation jobs with storyboards",
     },
     {
         "name": "v3-cost",
-        "description": "💰 V3 Cost Estimation - Estimate costs before creating jobs"
+        "description": "💰 V3 Cost Estimation - Estimate costs before creating jobs",
     },
-
     # Legacy APIs
     {
         "name": "Core Entities",
-        "description": "Client and campaign creation (decoupled from assets)."
+        "description": "Client and campaign creation (decoupled from assets).",
     },
     {
         "name": "Asset Management",
-        "description": "Upload and retrieve assets with client/campaign association."
+        "description": "Upload and retrieve assets with client/campaign association.",
     },
     {
         "name": "clients-campaigns",
-        "description": "Legacy client and campaign management endpoints."
+        "description": "Legacy client and campaign management endpoints.",
     },
-    {
-        "name": "creative",
-        "description": "Creative brief parsing and management."
-    },
+    {"name": "creative", "description": "Creative brief parsing and management."},
     {
         "name": "Database",
-        "description": "Database administration and inspection endpoints (admin only)."
-    }
+        "description": "Database administration and inspection endpoints (admin only).",
+    },
 ]
 
 app = FastAPI(title="Physics Simulator API", version="1.0.0", openapi_tags=openapi_tags)
@@ -296,17 +327,19 @@ app.add_middleware(
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5175",  # Alternative Vite port
-        "http://127.0.0.1:5175"
+        "http://127.0.0.1:5175",
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
 # Add rate limiting
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request, exc):
     return JSONResponse({"detail": "Too many requests"}, status_code=429)
+
 
 app.state.limiter = limiter
 
@@ -314,7 +347,10 @@ app.state.limiter = limiter
 STATIC_DIR = Path(__file__).parent.parent / "static"
 if STATIC_DIR.exists() and STATIC_DIR.is_dir():
     # Mount static files
-    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+    app.mount(
+        "/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets"
+    )
+
 
 # Pydantic models
 class Vec3(BaseModel):
@@ -322,19 +358,23 @@ class Vec3(BaseModel):
     y: float
     z: float
 
+
 class Transform(BaseModel):
     position: Vec3
     rotation: Vec3
     scale: Vec3
+
 
 class PhysicsProperties(BaseModel):
     mass: float
     friction: float
     restitution: float
 
+
 class VisualProperties(BaseModel):
     color: str
     shape: str  # "Box", "Sphere", "Cylinder"
+
 
 class PhysicsObject(BaseModel):
     id: str
@@ -343,26 +383,34 @@ class PhysicsObject(BaseModel):
     visualProperties: VisualProperties
     description: Optional[str] = None  # Text description for LLM semantic augmentation
 
+
 class Scene(BaseModel):
     objects: Dict[str, PhysicsObject]
     selectedObject: Optional[str] = None
 
+
 class GenerateRequest(BaseModel):
     prompt: str
     brief_id: Optional[str] = None  # Optional link to creative brief
+
 
 class ValidationResult(BaseModel):
     valid: bool
     message: str
     details: Optional[Dict] = None
 
+
 # AI client initialization
 if settings.REPLICATE_API_KEY:
     ai_client = {
         "api_key": settings.REPLICATE_API_KEY,
-        "base_url": "https://api.replicate.com/v1"
+        "base_url": "https://api.replicate.com/v1",
     }
-    replicate_client = replicate.Client(api_token=settings.REPLICATE_API_KEY) if REPLICATE_AVAILABLE and replicate else None
+    replicate_client = (
+        replicate.Client(api_token=settings.REPLICATE_API_KEY)
+        if REPLICATE_AVAILABLE and replicate
+        else None
+    )
     print("AI client initialized with Replicate")
 else:
     ai_client = None
@@ -375,26 +423,29 @@ DEMO_VIDEO_MODELS = [
         "id": "demo/video-1",
         "name": "Demo Text-to-Video",
         "description": "Generates video from text prompt (demo mode)",
-        "input_schema": None
+        "input_schema": None,
     },
     {
         "id": "demo/video-2",
         "name": "Demo Image-to-Video",
         "description": "Generates video from image and prompt (demo mode)",
-        "input_schema": None
-    }
+        "input_schema": None,
+    },
 ]
 
 # Simple in-memory cache (replace with LMDB later)
 scene_cache = {}
 
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
 
+
 @app.get("/api")
 async def api_root():
     return {"message": "Physics Simulator API", "status": "running"}
+
 
 @app.get("/api/v2/cache/stats")
 async def cache_statistics():
@@ -409,26 +460,31 @@ async def cache_statistics():
         "cache_enabled": True,  # SQLite cache is always available
         "cache_type": "sqlite",
         "statistics": stats,
-        "message": "SQLite cache is working normally"
+        "message": "SQLite cache is working normally",
     }
+
 
 # ============================================================================
 # Authentication Endpoints
 # ============================================================================
+
 
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str
     expires_in: int
 
+
 class CreateAPIKeyRequest(BaseModel):
     name: str
     expires_days: Optional[int] = None
+
 
 class APIKeyResponse(BaseModel):
     api_key: str  # Only returned on creation
     name: str
     created_at: str
+
 
 class APIKeyListItem(BaseModel):
     id: int
@@ -438,8 +494,11 @@ class APIKeyListItem(BaseModel):
     last_used: Optional[str]
     expires_at: Optional[str]
 
+
 @app.post("/api/auth/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), response: Response = None):
+async def login(
+    form_data: OAuth2PasswordRequestForm = Depends(), response: Response = None
+):
     """Login with username and password. Sets HTTP-only cookie."""
     from fastapi import Response
 
@@ -453,13 +512,13 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), response: Resp
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user["username"]},
-        expires_delta=access_token_expires
+        data={"sub": user["username"]}, expires_delta=access_token_expires
     )
 
     # Create response
     if response is None:
         from fastapi import Response
+
         response = Response()
 
     # Set HTTP-only cookie
@@ -470,13 +529,11 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), response: Resp
         secure=os.getenv("ENVIRONMENT") == "production",  # HTTPS only in production
         samesite="lax",
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        path="/"
+        path="/",
     )
 
-    return {
-        "message": "Login successful",
-        "username": user["username"]
-    }
+    return {"message": "Login successful", "username": user["username"]}
+
 
 @app.post("/api/auth/logout")
 async def logout(response: Response = None):
@@ -491,10 +548,10 @@ async def logout(response: Response = None):
 
     return {"message": "Logout successful"}
 
+
 @app.post("/api/auth/api-keys", response_model=APIKeyResponse)
 async def create_new_api_key(
-    request: CreateAPIKeyRequest,
-    current_user: Dict = Depends(verify_auth)
+    request: CreateAPIKeyRequest, current_user: Dict = Depends(verify_auth)
 ):
     """Create a new API key for the authenticated user."""
     from datetime import datetime
@@ -506,21 +563,24 @@ async def create_new_api_key(
     # Calculate expiration
     expires_at = None
     if request.expires_days:
-        expires_at = (datetime.utcnow() + timedelta(days=request.expires_days)).isoformat()
+        expires_at = (
+            datetime.utcnow() + timedelta(days=request.expires_days)
+        ).isoformat()
 
     # Save to database
     key_id = create_api_key(
         key_hash=key_hash,
         name=request.name,
         user_id=current_user["id"],
-        expires_at=expires_at
+        expires_at=expires_at,
     )
 
     return {
         "api_key": api_key,  # Only shown once!
         "name": request.name,
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.utcnow().isoformat(),
     }
+
 
 @app.get("/api/auth/api-keys", response_model=List[APIKeyListItem])
 async def get_api_keys(current_user: Dict = Depends(verify_auth)):
@@ -528,10 +588,10 @@ async def get_api_keys(current_user: Dict = Depends(verify_auth)):
     keys = list_api_keys(current_user["id"])
     return keys
 
+
 @app.delete("/api/auth/api-keys/{key_id}")
 async def revoke_api_key_endpoint(
-    key_id: int,
-    current_user: Dict = Depends(verify_auth)
+    key_id: int, current_user: Dict = Depends(verify_auth)
 ):
     """Revoke an API key."""
     success = revoke_api_key(key_id, current_user["id"])
@@ -539,9 +599,11 @@ async def revoke_api_key_endpoint(
         raise HTTPException(status_code=404, detail="API key not found")
     return {"message": "API key revoked successfully"}
 
+
 # ============================================================================
 # Scene Generation Endpoints
 # ============================================================================
+
 
 def generate_scene(prompt: str) -> Scene:
     """Generate a physics scene from a text prompt using AI."""
@@ -601,14 +663,14 @@ Make scenes physically realistic and interesting to simulate."""
         # Use Claude via Replicate HTTP API
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         payload = {
             "input": {
                 "prompt": f"{system_prompt}\n\n{user_prompt}",
                 "max_tokens": 2000,
-                "temperature": 0.7
+                "temperature": 0.7,
             }
         }
 
@@ -616,7 +678,7 @@ Make scenes physically realistic and interesting to simulate."""
             "https://api.replicate.com/v1/models/anthropic/claude-3.5-sonnet/predictions",
             headers=headers,
             json=payload,
-            timeout=60
+            timeout=60,
         )
         # Log the response for debugging
         print(f"Replicate API response status: {response.status_code}")
@@ -637,6 +699,7 @@ Make scenes physically realistic and interesting to simulate."""
 
         # Poll for completion
         import time
+
         max_attempts = 120  # Increased timeout for Claude
         for attempt in range(max_attempts):
             pred_response = requests.get(prediction_url, headers=headers)
@@ -657,14 +720,19 @@ Make scenes physically realistic and interesting to simulate."""
                     scene_json = output.strip()
                 else:
                     print(f"Unexpected output type: {type(output)}, value: {output}")
-                    raise HTTPException(status_code=500, detail=f"Unexpected output format: {type(output)}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Unexpected output format: {type(output)}",
+                    )
 
                 print(f"Scene JSON (first 200 chars): {scene_json[:200]}")
                 break
             elif status in ["failed", "canceled"]:
                 error = pred_data.get("error", "Unknown error")
                 print(f"Prediction failed: {error}")
-                raise HTTPException(status_code=500, detail=f"Prediction failed: {error}")
+                raise HTTPException(
+                    status_code=500, detail=f"Prediction failed: {error}"
+                )
 
             time.sleep(2)  # Poll every 2 seconds
         else:
@@ -696,9 +764,12 @@ Make scenes physically realistic and interesting to simulate."""
         return scene
 
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Invalid JSON response from AI: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Invalid JSON response from AI: {str(e)}"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+
 
 def create_demo_scene(prompt: str) -> Scene:
     """Create a demo scene for testing when AI is not available."""
@@ -709,55 +780,43 @@ def create_demo_scene(prompt: str) -> Scene:
             transform=Transform(
                 position=Vec3(x=0, y=5, z=0),
                 rotation=Vec3(x=0, y=0, z=0),
-                scale=Vec3(x=1, y=1, z=1)
+                scale=Vec3(x=1, y=1, z=1),
             ),
             physicsProperties=PhysicsProperties(
-                mass=1.0,
-                friction=0.5,
-                restitution=0.3
+                mass=1.0, friction=0.5, restitution=0.3
             ),
-            visualProperties=VisualProperties(
-                color="#ff0000",
-                shape="Box"
-            )
+            visualProperties=VisualProperties(color="#ff0000", shape="Box"),
         ),
         "sphere1": PhysicsObject(
             id="sphere1",
             transform=Transform(
                 position=Vec3(x=2, y=8, z=0),
                 rotation=Vec3(x=0, y=0, z=0),
-                scale=Vec3(x=1, y=1, z=1)
+                scale=Vec3(x=1, y=1, z=1),
             ),
             physicsProperties=PhysicsProperties(
-                mass=0.5,
-                friction=0.2,
-                restitution=0.8
+                mass=0.5, friction=0.2, restitution=0.8
             ),
-            visualProperties=VisualProperties(
-                color="#0000ff",
-                shape="Sphere"
-            )
+            visualProperties=VisualProperties(color="#0000ff", shape="Sphere"),
         ),
         "ground": PhysicsObject(
             id="ground",
             transform=Transform(
                 position=Vec3(x=0, y=-0.5, z=0),
                 rotation=Vec3(x=0, y=0, z=0),
-                scale=Vec3(x=10, y=1, z=10)
+                scale=Vec3(x=10, y=1, z=10),
             ),
             physicsProperties=PhysicsProperties(
                 mass=0.0,  # Static ground
                 friction=0.8,
-                restitution=0.1
+                restitution=0.1,
             ),
-            visualProperties=VisualProperties(
-                color="#888888",
-                shape="Box"
-            )
-        )
+            visualProperties=VisualProperties(color="#888888", shape="Box"),
+        ),
     }
 
     return Scene(objects=objects)
+
 
 def validate_with_genesis(scene: Scene) -> ValidationResult:
     """Validate scene stability using geometric analysis."""
@@ -768,7 +827,7 @@ def validate_with_genesis(scene: Scene) -> ValidationResult:
                 return ValidationResult(
                     valid=False,
                     message=f"Unsupported shape: {obj.visualProperties.shape}",
-                    details={"unsupported_shape": obj.visualProperties.shape}
+                    details={"unsupported_shape": obj.visualProperties.shape},
                 )
 
         # Check for overlapping objects (simple geometric validation)
@@ -776,7 +835,7 @@ def validate_with_genesis(scene: Scene) -> ValidationResult:
         objects_list = list(scene.objects.items())
 
         for i, (id1, obj1) in enumerate(objects_list):
-            for j, (id2, obj2) in enumerate(objects_list[i+1:], i+1):
+            for j, (id2, obj2) in enumerate(objects_list[i + 1 :], i + 1):
                 # Skip ground objects (mass = 0)
                 if obj1.physicsProperties.mass == 0 or obj2.physicsProperties.mass == 0:
                     continue
@@ -785,31 +844,52 @@ def validate_with_genesis(scene: Scene) -> ValidationResult:
                 dx = obj1.transform.position.x - obj2.transform.position.x
                 dy = obj1.transform.position.y - obj2.transform.position.y
                 dz = obj1.transform.position.z - obj2.transform.position.z
-                distance = (dx**2 + dy**2 + dz**2)**0.5
+                distance = (dx**2 + dy**2 + dz**2) ** 0.5
 
                 # Calculate minimum separation needed
-                if obj1.visualProperties.shape == "Box" and obj2.visualProperties.shape == "Box":
+                if (
+                    obj1.visualProperties.shape == "Box"
+                    and obj2.visualProperties.shape == "Box"
+                ):
                     # Box-box collision: check if bounding boxes overlap
                     min_sep_x = (obj1.transform.scale.x + obj2.transform.scale.x) / 2
                     min_sep_y = (obj1.transform.scale.y + obj2.transform.scale.y) / 2
                     min_sep_z = (obj1.transform.scale.z + obj2.transform.scale.z) / 2
 
-                    if (abs(dx) < min_sep_x and abs(dy) < min_sep_y and abs(dz) < min_sep_z):
+                    if (
+                        abs(dx) < min_sep_x
+                        and abs(dy) < min_sep_y
+                        and abs(dz) < min_sep_z
+                    ):
                         overlapping_pairs.append((id1, id2))
 
-                elif obj1.visualProperties.shape == "Sphere" and obj2.visualProperties.shape == "Sphere":
+                elif (
+                    obj1.visualProperties.shape == "Sphere"
+                    and obj2.visualProperties.shape == "Sphere"
+                ):
                     # Sphere-sphere collision
-                    min_distance = (obj1.transform.scale.x + obj2.transform.scale.x) / 2  # Assume uniform scale
+                    min_distance = (
+                        obj1.transform.scale.x + obj2.transform.scale.x
+                    ) / 2  # Assume uniform scale
                     if distance < min_distance:
                         overlapping_pairs.append((id1, id2))
 
                 else:
                     # Mixed sphere-box: approximate with sphere radius
-                    sphere_obj = obj1 if obj1.visualProperties.shape == "Sphere" else obj2
+                    sphere_obj = (
+                        obj1 if obj1.visualProperties.shape == "Sphere" else obj2
+                    )
                     box_obj = obj2 if obj1.visualProperties.shape == "Sphere" else obj1
 
                     sphere_radius = sphere_obj.transform.scale.x / 2
-                    box_half_size = max(box_obj.transform.scale.x, box_obj.transform.scale.y, box_obj.transform.scale.z) / 2
+                    box_half_size = (
+                        max(
+                            box_obj.transform.scale.x,
+                            box_obj.transform.scale.y,
+                            box_obj.transform.scale.z,
+                        )
+                        / 2
+                    )
 
                     min_distance = sphere_radius + box_half_size
                     if distance < min_distance:
@@ -835,27 +915,27 @@ def validate_with_genesis(scene: Scene) -> ValidationResult:
                 details={
                     "overlapping_pairs": overlapping_pairs,
                     "high_objects": high_objects,
-                    "max_height_threshold": 5.0
-                }
+                    "max_height_threshold": 5.0,
+                },
             )
         else:
             return ValidationResult(
                 valid=True,
                 message="Scene appears geometrically stable",
-                details={"checked_objects": len(scene.objects)}
+                details={"checked_objects": len(scene.objects)},
             )
 
     except Exception as e:
         return ValidationResult(
             valid=False,
             message=f"Validation failed: {str(e)}",
-            details={"error": str(e)}
+            details={"error": str(e)},
         )
+
 
 @app.post("/api/generate")
 async def api_generate_scene(
-    request: GenerateRequest,
-    current_user: Dict = Depends(verify_auth)
+    request: GenerateRequest, current_user: Dict = Depends(verify_auth)
 ):
     """Generate a physics scene from a text prompt. Optionally links to creative brief. Requires authentication."""
     try:
@@ -863,19 +943,19 @@ async def api_generate_scene(
         brief_context = None
         if request.brief_id:
             from .database import get_creative_brief
+
             brief = get_creative_brief(request.brief_id, current_user["id"])
             if not brief:
-                raise HTTPException(status_code=404, detail="Brief not found or access denied")
+                raise HTTPException(
+                    status_code=404, detail="Brief not found or access denied"
+                )
             brief_context = brief
 
         scene = generate_scene(request.prompt)
         scene_dict = scene.dict()
 
         # Save to database with brief linkage
-        metadata = {
-            "source": "generate",
-            "user_id": current_user["id"]
-        }
+        metadata = {"source": "generate", "user_id": current_user["id"]}
         if request.brief_id:
             metadata["brief_id"] = request.brief_id
 
@@ -883,7 +963,7 @@ async def api_generate_scene(
             prompt=request.prompt,
             scene_data=scene_dict,
             model="claude-3.5-sonnet",
-            metadata=metadata
+            metadata=metadata,
         )
 
         # Add scene_id to response
@@ -894,29 +974,34 @@ async def api_generate_scene(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scene generation failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Scene generation failed: {str(e)}"
+        )
+
 
 @app.post("/api/validate")
-async def api_validate_scene(
-    scene: Scene,
-    current_user: Dict = Depends(verify_auth)
-):
+async def api_validate_scene(scene: Scene, current_user: Dict = Depends(verify_auth)):
     """Validate a physics scene for stability using Genesis simulation. Requires authentication."""
     try:
         result = validate_with_genesis(scene)
         return result.dict()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scene validation failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Scene validation failed: {str(e)}"
+        )
+
 
 class RefineRequest(BaseModel):
     scene: Scene
     prompt: str
+
 
 class VideoModel(BaseModel):
     id: str
     name: str
     description: str
     input_schema: Optional[Dict] = None
+
 
 class RunVideoRequest(BaseModel):
     model_id: str
@@ -925,6 +1010,7 @@ class RunVideoRequest(BaseModel):
     version: Optional[str] = None  # Model version ID for reliable predictions
     brief_id: Optional[str] = None  # Link to creative brief for context
 
+
 class RunImageRequest(BaseModel):
     model_id: str
     input: Dict[str, Any]  # Accepts strings, numbers, bools, etc.
@@ -932,12 +1018,14 @@ class RunImageRequest(BaseModel):
     version: Optional[str] = None  # Model version ID for reliable predictions
     brief_id: Optional[str] = None  # Link to creative brief for context
 
+
 class RunAudioRequest(BaseModel):
     model_id: str
     input: Dict[str, Any]  # Accepts strings, numbers, bools, etc.
     collection: Optional[str] = None
     version: Optional[str] = None  # Model version ID for reliable predictions
     brief_id: Optional[str] = None  # Link to creative brief for context
+
 
 class ImageGenerationRequest(BaseModel):
     prompt: Optional[str] = None
@@ -947,25 +1035,30 @@ class ImageGenerationRequest(BaseModel):
     client_id: Optional[str] = None  # For tracking ownership
     campaign_id: str  # Required - link to campaign
 
-    @validator('prompt', 'asset_id', 'image_id', 'video_id', always=True)
+    @validator("prompt", "asset_id", "image_id", "video_id", always=True)
     def check_at_least_one(cls, v, values):
         # Check if at least one of the required fields is provided
-        has_prompt = values.get('prompt') or v
-        has_asset = values.get('asset_id')
-        has_image = values.get('image_id')
-        has_video = values.get('video_id')
+        has_prompt = values.get("prompt") or v
+        has_asset = values.get("asset_id")
+        has_image = values.get("image_id")
+        has_video = values.get("video_id")
 
         if not any([has_prompt, has_asset, has_image, has_video]):
-            raise ValueError('At least one of prompt, asset_id, image_id, or video_id must be provided')
+            raise ValueError(
+                "At least one of prompt, asset_id, image_id, or video_id must be provided"
+            )
         return v
+
 
 class VideoModel(str, Enum):
     SEEDANCE = "bytedance/seedance-1-lite"
     KLING = "kwaivgi/kling-v2.1"
 
+
 class AudioModel(str, Enum):
     MUSICGEN = "meta/musicgen"
     RIFFUSION = "riffusion/riffusion"
+
 
 class VideoGenerationRequest(BaseModel):
     prompt: Optional[str] = None
@@ -976,17 +1069,20 @@ class VideoGenerationRequest(BaseModel):
     campaign_id: str  # Required - link to campaign
     model: VideoModel = VideoModel.SEEDANCE  # Default to seedance-1-lite
 
-    @validator('prompt', 'asset_id', 'image_id', 'video_id', always=True)
+    @validator("prompt", "asset_id", "image_id", "video_id", always=True)
     def check_at_least_one(cls, v, values):
         # Check if at least one of the required fields is provided
-        has_prompt = values.get('prompt') or v
-        has_asset = values.get('asset_id')
-        has_image = values.get('image_id')
-        has_video = values.get('video_id')
+        has_prompt = values.get("prompt") or v
+        has_asset = values.get("asset_id")
+        has_image = values.get("image_id")
+        has_video = values.get("video_id")
 
         if not any([has_prompt, has_asset, has_image, has_video]):
-            raise ValueError('At least one of prompt, asset_id, image_id, or video_id must be provided')
+            raise ValueError(
+                "At least one of prompt, asset_id, image_id, or video_id must be provided"
+            )
         return v
+
 
 class AudioGenerationRequest(BaseModel):
     prompt: str  # Required for audio generation
@@ -994,6 +1090,7 @@ class AudioGenerationRequest(BaseModel):
     campaign_id: str  # Required - link to campaign
     model: AudioModel = AudioModel.MUSICGEN  # Default to MusicGen
     duration: Optional[int] = 8  # Duration in seconds (default 8)
+
 
 class GenesisRenderRequest(BaseModel):
     scene: Scene
@@ -1003,6 +1100,7 @@ class GenesisRenderRequest(BaseModel):
     quality: str = "high"  # "draft", "high", "ultra"
     camera_config: Optional[Dict] = None
     scene_context: Optional[str] = None
+
 
 def refine_scene(scene: Scene, prompt: str) -> Scene:
     """Refine an existing physics scene based on a text prompt using AI."""
@@ -1065,14 +1163,14 @@ Make minimal, targeted changes based on the prompt."""
         # Use Claude via Replicate HTTP API
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         payload = {
             "input": {
                 "prompt": f"{system_prompt}\n\n{user_prompt}",
                 "max_tokens": 2000,
-                "temperature": 0.7
+                "temperature": 0.7,
             }
         }
 
@@ -1080,7 +1178,7 @@ Make minimal, targeted changes based on the prompt."""
             "https://api.replicate.com/v1/models/anthropic/claude-3.5-sonnet/predictions",
             headers=headers,
             json=payload,
-            timeout=60
+            timeout=60,
         )
         # Log the response for debugging
         print(f"Replicate API response status: {response.status_code}")
@@ -1098,6 +1196,7 @@ Make minimal, targeted changes based on the prompt."""
 
         # Poll for completion
         import time
+
         max_attempts = 120  # Increased timeout for Claude
         for attempt in range(max_attempts):
             pred_response = requests.get(prediction_url, headers=headers)
@@ -1117,14 +1216,21 @@ Make minimal, targeted changes based on the prompt."""
                     refined_scene_json = output.strip()
                 else:
                     print(f"Unexpected output type: {type(output)}, value: {output}")
-                    raise HTTPException(status_code=500, detail=f"Unexpected output format: {type(output)}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Unexpected output format: {type(output)}",
+                    )
 
-                print(f"Refined scene JSON (first 200 chars): {refined_scene_json[:200]}")
+                print(
+                    f"Refined scene JSON (first 200 chars): {refined_scene_json[:200]}"
+                )
                 break
             elif status in ["failed", "canceled"]:
                 error = pred_data.get("error", "Unknown error")
                 print(f"Prediction failed: {error}")
-                raise HTTPException(status_code=500, detail=f"Prediction failed: {error}")
+                raise HTTPException(
+                    status_code=500, detail=f"Prediction failed: {error}"
+                )
 
             time.sleep(2)  # Poll every 2 seconds
         else:
@@ -1156,14 +1262,18 @@ Make minimal, targeted changes based on the prompt."""
         return refined_scene
 
     except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"Invalid JSON response from AI: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Invalid JSON response from AI: {str(e)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scene refinement failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Scene refinement failed: {str(e)}"
+        )
+
 
 @app.post("/api/refine")
 async def api_refine_scene(
-    request: RefineRequest,
-    current_user: Dict = Depends(verify_auth)
+    request: RefineRequest, current_user: Dict = Depends(verify_auth)
 ):
     """Refine an existing physics scene based on a text prompt. Requires authentication."""
     try:
@@ -1172,7 +1282,10 @@ async def api_refine_scene(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Scene refinement failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Scene refinement failed: {str(e)}"
+        )
+
 
 # Scene history endpoints
 @app.get("/api/scenes")
@@ -1180,26 +1293,19 @@ async def api_list_scenes(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     model: Optional[str] = Query(None),
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """List generated scenes with pagination and optional model filter. Requires authentication."""
     try:
         scenes = list_scenes(limit=limit, offset=offset, model=model)
         total = get_scene_count(model=model)
-        return {
-            "scenes": scenes,
-            "total": total,
-            "limit": limit,
-            "offset": offset
-        }
+        return {"scenes": scenes, "total": total, "limit": limit, "offset": offset}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list scenes: {str(e)}")
 
+
 @app.get("/api/scenes/{scene_id}")
-async def api_get_scene(
-    scene_id: int,
-    current_user: Dict = Depends(verify_auth)
-):
+async def api_get_scene(scene_id: int, current_user: Dict = Depends(verify_auth)):
     """Get a specific scene by ID. Requires authentication."""
     try:
         scene = get_scene_by_id(scene_id)
@@ -1211,11 +1317,9 @@ async def api_get_scene(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get scene: {str(e)}")
 
+
 @app.delete("/api/scenes/{scene_id}")
-async def api_delete_scene(
-    scene_id: int,
-    current_user: Dict = Depends(verify_auth)
-):
+async def api_delete_scene(scene_id: int, current_user: Dict = Depends(verify_auth)):
     """Delete a scene by ID. Requires authentication."""
     try:
         deleted = delete_scene(scene_id)
@@ -1227,6 +1331,7 @@ async def api_delete_scene(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete scene: {str(e)}")
 
+
 @app.get("/api/models")
 async def api_get_models():
     """Get list of models that have generated scenes."""
@@ -1236,10 +1341,11 @@ async def api_get_models():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get models: {str(e)}")
 
+
 @app.get("/api/replicate-models")
 async def api_get_replicate_models(
     query: Optional[str] = Query(None, description="Search query"),
-    cursor: Optional[str] = Query(None, description="Pagination cursor")
+    cursor: Optional[str] = Query(None, description="Pagination cursor"),
 ):
     """Get list of available models from Replicate."""
     try:
@@ -1248,7 +1354,7 @@ async def api_get_replicate_models(
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Build URL with query params
@@ -1272,31 +1378,37 @@ async def api_get_replicate_models(
         results = data.get("results", [])
 
         for model_data in results:
-            models.append({
-                "owner": model_data.get("owner"),
-                "name": model_data.get("name"),
-                "description": model_data.get("description"),
-                "url": model_data.get("url"),
-                "cover_image_url": model_data.get("cover_image_url"),
-                "latest_version": model_data.get("latest_version", {}).get("id") if model_data.get("latest_version") else None,
-                "run_count": model_data.get("run_count", 0),
-            })
+            models.append(
+                {
+                    "owner": model_data.get("owner"),
+                    "name": model_data.get("name"),
+                    "description": model_data.get("description"),
+                    "url": model_data.get("url"),
+                    "cover_image_url": model_data.get("cover_image_url"),
+                    "latest_version": model_data.get("latest_version", {}).get("id")
+                    if model_data.get("latest_version")
+                    else None,
+                    "run_count": model_data.get("run_count", 0),
+                }
+            )
 
-        return {
-            "results": models,
-            "next": data.get("next")
-        }
+        return {"results": models, "next": data.get("next")}
 
     except Exception as e:
         print(f"Error fetching models from Replicate: {str(e)}")
         import traceback
+
         traceback.print_exc()
         # Fallback to demo models
         return {"results": DEMO_VIDEO_MODELS, "next": None}
 
+
 @app.get("/api/video-models")
 async def api_get_video_models(
-    collection: Optional[str] = Query("text-to-video", description="Collection slug: text-to-video, image-to-video, etc.")
+    collection: Optional[str] = Query(
+        "text-to-video",
+        description="Collection slug: text-to-video, image-to-video, etc.",
+    ),
 ):
     """Get video generation models from Replicate collections API."""
     try:
@@ -1306,7 +1418,7 @@ async def api_get_video_models(
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Use collections API with the specified collection slug
@@ -1319,24 +1431,30 @@ async def api_get_video_models(
         models = []
         for model_data in data.get("models", []):
             model_id = f"{model_data.get('owner')}/{model_data.get('name')}"
-            models.append({
-                "id": model_id,
-                "name": model_data.get("name", ""),
-                "owner": model_data.get("owner", ""),
-                "description": model_data.get("description"),
-                "cover_image_url": model_data.get("cover_image_url"),
-                "latest_version": model_data.get("latest_version", {}).get("id") if model_data.get("latest_version") else None,
-                "run_count": model_data.get("run_count", 0),
-                "input_schema": None  # Will be fetched when model is selected
-            })
+            models.append(
+                {
+                    "id": model_id,
+                    "name": model_data.get("name", ""),
+                    "owner": model_data.get("owner", ""),
+                    "description": model_data.get("description"),
+                    "cover_image_url": model_data.get("cover_image_url"),
+                    "latest_version": model_data.get("latest_version", {}).get("id")
+                    if model_data.get("latest_version")
+                    else None,
+                    "run_count": model_data.get("run_count", 0),
+                    "input_schema": None,  # Will be fetched when model is selected
+                }
+            )
 
         return {"models": models}
     except Exception as e:
         print(f"Error fetching video models from collection '{collection}': {str(e)}")
         import traceback
+
         traceback.print_exc()
         # Fallback to demo models
         return {"models": [model for model in DEMO_VIDEO_MODELS]}
+
 
 @app.get("/api/video-models/{model_owner}/{model_name}/schema")
 async def api_get_model_schema(model_owner: str, model_name: str):
@@ -1347,7 +1465,7 @@ async def api_get_model_schema(model_owner: str, model_name: str):
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Fetch model details including schema
@@ -1360,7 +1478,9 @@ async def api_get_model_schema(model_owner: str, model_name: str):
         latest_version = data.get("latest_version") or {}
         version_id = latest_version.get("id")
         openapi_schema = latest_version.get("openapi_schema") or {}
-        input_schema = openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
+        input_schema = (
+            openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
+        )
 
         # Extract properties and required fields
         properties = input_schema.get("properties", {})
@@ -1370,13 +1490,15 @@ async def api_get_model_schema(model_owner: str, model_name: str):
         return {
             "input_schema": properties,
             "required": required_fields,
-            "version": version_id  # Include version ID for predictions
+            "version": version_id,  # Include version ID for predictions
         }
     except Exception as e:
         print(f"Error fetching model schema: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return {"input_schema": {"prompt": {"type": "string"}}}
+
 
 def process_video_to_text_background(
     video_id: int,
@@ -1384,15 +1506,12 @@ def process_video_to_text_background(
     api_key: str,
     model_id: str,
     input_params: dict,
-    collection: str
+    collection: str,
 ):
     """Background task to poll Replicate for video-to-text completion."""
     import time
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     max_attempts = 120  # 4 minutes (2 seconds * 120)
 
@@ -1415,7 +1534,7 @@ def process_video_to_text_background(
                     metadata = {
                         "replicate_id": pred_data.get("id"),
                         "prediction_url": prediction_url,
-                        "text_output": output
+                        "text_output": output,
                     }
 
                     # Update database with completed text generation
@@ -1423,38 +1542,31 @@ def process_video_to_text_background(
                         video_id=video_id,
                         status="completed",
                         video_url="",  # No video URL for text output
-                        metadata=metadata
+                        metadata=metadata,
                     )
-                    print(f"Video-to-text {video_id} completed successfully: {output[:100]}...")
+                    print(
+                        f"Video-to-text {video_id} completed successfully: {output[:100]}..."
+                    )
                     return
                 else:
                     # No text output in response
                     metadata = {
                         "replicate_id": pred_data.get("id"),
                         "prediction_url": prediction_url,
-                        "error": "No text output in Replicate response"
+                        "error": "No text output in Replicate response",
                     }
                     update_video_status(
-                        video_id=video_id,
-                        status="failed",
-                        metadata=metadata
+                        video_id=video_id, status="failed", metadata=metadata
                     )
                     print(f"Video-to-text {video_id} failed: no output")
                     return
 
             elif status in ["failed", "canceled"]:
                 error = pred_data.get("error", "Unknown error")
-                metadata = {
-                    "error": error,
-                    "replicate_id": pred_data.get("id")
-                }
+                metadata = {"error": error, "replicate_id": pred_data.get("id")}
 
                 # Update database with failure
-                update_video_status(
-                    video_id=video_id,
-                    status=status,
-                    metadata=metadata
-                )
+                update_video_status(video_id=video_id, status=status, metadata=metadata)
                 print(f"Video-to-text {video_id} {status}: {error}")
                 return
 
@@ -1465,17 +1577,18 @@ def process_video_to_text_background(
         update_video_status(
             video_id=video_id,
             status="failed",
-            metadata={"error": "Timeout waiting for Replicate completion"}
+            metadata={"error": "Timeout waiting for Replicate completion"},
         )
 
     except Exception as e:
         print(f"Error polling video-to-text {video_id}: {str(e)}")
         import traceback
+
         traceback.print_exc()
         update_video_status(
             video_id=video_id,
             status="failed",
-            metadata={"error": f"Polling error: {str(e)}"}
+            metadata={"error": f"Polling error: {str(e)}"},
         )
 
 
@@ -1485,15 +1598,12 @@ def process_video_generation_background(
     api_key: str,
     model_id: str,
     input_params: dict,
-    collection: str
+    collection: str,
 ):
     """Background task to poll Replicate for video generation completion."""
     import time
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     prompt = input_params.get("prompt", "")
     max_attempts = 120  # 4 minutes (2 seconds * 120)
@@ -1510,7 +1620,9 @@ def process_video_generation_background(
                 # Check if this is a video-to-text collection
                 # Video-to-text should be handled by process_video_to_text_background or webhook
                 if collection == "video-to-text":
-                    print(f"Video {video_id} is video-to-text, skipping video generation background task (will be handled by video-to-text task or webhook)")
+                    print(
+                        f"Video {video_id} is video-to-text, skipping video generation background task (will be handled by video-to-text task or webhook)"
+                    )
                     return
 
                 output = pred_data.get("output", [])
@@ -1524,7 +1636,9 @@ def process_video_generation_background(
                     from .database import mark_download_attempted, mark_download_failed
 
                     if not mark_download_attempted(video_id):
-                        print(f"Video {video_id} download already attempted by another process, skipping")
+                        print(
+                            f"Video {video_id} download already attempted by another process, skipping"
+                        )
                         return
 
                     # Download and save video to database
@@ -1533,7 +1647,7 @@ def process_video_generation_background(
                         metadata = {
                             "replicate_id": pred_data.get("id"),
                             "prediction_url": prediction_url,
-                            "original_url": video_url
+                            "original_url": video_url,
                         }
 
                         # Update database with completed video
@@ -1541,7 +1655,7 @@ def process_video_generation_background(
                             video_id=video_id,
                             status="completed",
                             video_url=db_url,
-                            metadata=metadata
+                            metadata=metadata,
                         )
                         print(f"Video {video_id} completed successfully")
                         return
@@ -1557,29 +1671,20 @@ def process_video_generation_background(
                     metadata = {
                         "replicate_id": pred_data.get("id"),
                         "prediction_url": prediction_url,
-                        "error": "No video URL in Replicate response"
+                        "error": "No video URL in Replicate response",
                     }
                     update_video_status(
-                        video_id=video_id,
-                        status="failed",
-                        metadata=metadata
+                        video_id=video_id, status="failed", metadata=metadata
                     )
                     print(f"Video {video_id} failed: no output URL")
                     return
 
             elif status in ["failed", "canceled"]:
                 error = pred_data.get("error", "Unknown error")
-                metadata = {
-                    "error": error,
-                    "replicate_id": pred_data.get("id")
-                }
+                metadata = {"error": error, "replicate_id": pred_data.get("id")}
 
                 # Update database with failure
-                update_video_status(
-                    video_id=video_id,
-                    status=status,
-                    metadata=metadata
-                )
+                update_video_status(video_id=video_id, status=status, metadata=metadata)
                 print(f"Video {video_id} {status}: {error}")
                 return
 
@@ -1589,20 +1694,19 @@ def process_video_generation_background(
         update_video_status(
             video_id=video_id,
             status="timeout",
-            metadata={"error": "Video generation timed out"}
+            metadata={"error": "Video generation timed out"},
         )
         print(f"Video {video_id} timed out")
 
     except Exception as e:
         print(f"Error processing video {video_id}: {str(e)}")
         import traceback
+
         traceback.print_exc()
 
         # Update database with error
         update_video_status(
-            video_id=video_id,
-            status="failed",
-            metadata={"error": str(e)}
+            video_id=video_id, status="failed", metadata={"error": str(e)}
         )
 
 
@@ -1610,7 +1714,7 @@ def process_video_generation_background(
 async def api_run_video_model(
     request: RunVideoRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """Initiate video generation and return immediately with a video ID. Requires authentication.
 
@@ -1628,20 +1732,22 @@ async def api_run_video_model(
                 parameters=request.input,
                 collection=request.collection,
                 status="processing",
-                brief_id=request.brief_id
+                brief_id=request.brief_id,
             )
             return {"video_id": video_id, "status": "processing"}
 
         # Basic validation: ensure we have at least a prompt or image parameter
-        if not request.input.get("prompt") and not any(k for k in request.input.keys() if "image" in k.lower()):
+        if not request.input.get("prompt") and not any(
+            k for k in request.input.keys() if "image" in k.lower()
+        ):
             raise HTTPException(
                 status_code=400,
-                detail="Missing required input: must provide either 'prompt' or an image parameter"
+                detail="Missing required input: must provide either 'prompt' or an image parameter",
             )
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Convert parameter types
@@ -1699,7 +1805,9 @@ async def api_run_video_model(
             print(f"DEBUG: Sending to Replicate API (model-based):")
             print(f"  Model: {request.model_id}")
 
-        print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
+        print(
+            f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}"
+        )
         if use_webhooks:
             print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
         else:
@@ -1717,14 +1825,18 @@ async def api_run_video_model(
             except:
                 error_msg = error_detail
 
-            raise HTTPException(status_code=400, detail=f"Replicate API error: {error_msg}")
+            raise HTTPException(
+                status_code=400, detail=f"Replicate API error: {error_msg}"
+            )
 
         result = response.json()
 
         # Get the prediction URL
         prediction_url = result.get("urls", {}).get("get")
         if not prediction_url:
-            raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
+            raise HTTPException(
+                status_code=500, detail="No prediction URL returned from Replicate"
+            )
 
         # Enhance prompt with brief context if provided
         enhanced_prompt = request.input.get("prompt", "")
@@ -1733,6 +1845,7 @@ async def api_run_video_model(
         if request.brief_id:
             try:
                 from .database import get_creative_brief
+
                 brief = get_creative_brief(request.brief_id, current_user["id"])
                 if brief:
                     # Add brief context to prompt
@@ -1752,7 +1865,7 @@ async def api_run_video_model(
             collection=request.collection,
             status="processing",
             metadata=metadata,
-            brief_id=request.brief_id
+            brief_id=request.brief_id,
         )
 
         # Start background task to poll for completion (fallback if webhook fails)
@@ -1760,10 +1873,10 @@ async def api_run_video_model(
             process_video_generation_background,
             video_id=video_id,
             prediction_url=prediction_url,
-            api_key=ai_client['api_key'],
+            api_key=ai_client["api_key"],
             model_id=request.model_id,
             input_params=request.input,
-            collection=request.collection
+            collection=request.collection,
         )
 
         # Return immediately with video ID
@@ -1774,13 +1887,15 @@ async def api_run_video_model(
     except Exception as e:
         print(f"Error initiating video generation: {str(e)}")
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
 
 def resolve_image_reference(
     asset_id: Optional[str] = None,
     image_id: Optional[int] = None,
-    video_id: Optional[int] = None
+    video_id: Optional[int] = None,
 ) -> str:
     """
     Resolve an image reference (asset_id, image_id, or video_id) to a public URL for Replicate.
@@ -1797,25 +1912,24 @@ def resolve_image_reference(
         HTTPException: If reference is invalid, not found, or multiple references provided
     """
     # Count how many references are provided
-    refs_provided = sum([asset_id is not None, image_id is not None, video_id is not None])
+    refs_provided = sum(
+        [asset_id is not None, image_id is not None, video_id is not None]
+    )
 
     if refs_provided == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="No image reference provided"
-        )
+        raise HTTPException(status_code=400, detail="No image reference provided")
 
     if refs_provided > 1:
         raise HTTPException(
             status_code=400,
-            detail="Provide exactly one image reference (asset_id, image_id, or video_id)"
+            detail="Provide exactly one image reference (asset_id, image_id, or video_id)",
         )
 
     base_url = settings.BASE_URL
     if not base_url:
         raise HTTPException(
             status_code=500,
-            detail="BASE_URL not configured - cannot generate public URLs for Replicate"
+            detail="BASE_URL not configured - cannot generate public URLs for Replicate",
         )
 
     # Handle asset_id
@@ -1825,14 +1939,14 @@ def resolve_image_reference(
             raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
 
         # Check if it's an image or video asset
-        if asset.get('type') not in ['image', 'video']:
+        if asset.get("type") not in ["image", "video"]:
             raise HTTPException(
                 status_code=400,
-                detail=f"Asset must be an image or video, got {asset.get('type')}"
+                detail=f"Asset must be an image or video, got {asset.get('type')}",
             )
 
         # For images, use data endpoint; for videos, use thumbnail if available
-        if asset.get('type') == 'video':
+        if asset.get("type") == "video":
             # Use thumbnail for videos
             return f"{base_url}/api/v2/assets/{asset_id}/thumbnail"
         else:
@@ -1845,16 +1959,17 @@ def resolve_image_reference(
             raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
 
         # Check if image is completed
-        if image.get('status') != 'completed':
+        if image.get("status") != "completed":
             raise HTTPException(
                 status_code=400,
-                detail=f"Image {image_id} is not completed (status: {image.get('status')})"
+                detail=f"Image {image_id} is not completed (status: {image.get('status')})",
             )
 
         # Prefer Replicate's original URL (publicly accessible) over localhost
         # This allows external services like Replicate to fetch the image
         import json
-        metadata = image.get('metadata')
+
+        metadata = image.get("metadata")
         if metadata:
             if isinstance(metadata, str):
                 try:
@@ -1863,7 +1978,7 @@ def resolve_image_reference(
                     pass
 
             if isinstance(metadata, dict):
-                original_url = metadata.get('original_url')
+                original_url = metadata.get("original_url")
                 if original_url:
                     return original_url
 
@@ -1877,10 +1992,10 @@ def resolve_image_reference(
             raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
 
         # Check if video is completed
-        if video.get('status') != 'completed':
+        if video.get("status") != "completed":
             raise HTTPException(
                 status_code=400,
-                detail=f"Video {video_id} is not completed (status: {video.get('status')})"
+                detail=f"Video {video_id} is not completed (status: {video.get('status')})",
             )
 
         # For videos, we'll use the thumbnail endpoint (images)
@@ -1889,7 +2004,10 @@ def resolve_image_reference(
         return f"{base_url}/api/videos/{video_id}/data"
 
     # Should never reach here
-    raise HTTPException(status_code=500, detail="Internal error resolving image reference")
+    raise HTTPException(
+        status_code=500, detail="Internal error resolving image reference"
+    )
+
 
 def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3) -> str:
     """
@@ -1928,7 +2046,9 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
 
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"Downloading video (attempt {attempt}/{max_retries}) from {video_url} to {file_path}")
+            print(
+                f"Downloading video (attempt {attempt}/{max_retries}) from {video_url} to {file_path}"
+            )
 
             # Download with timeout
             response = requests.get(video_url, stream=True, timeout=300)
@@ -1938,7 +2058,7 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
             temp_path = file_path.with_suffix(file_path.suffix + ".tmp")
             bytes_downloaded = 0
 
-            with open(temp_path, 'wb') as f:
+            with open(temp_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
@@ -1949,29 +2069,35 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
                 raise ValueError("Downloaded file is empty (0 bytes)")
 
             if bytes_downloaded < 1024:  # Less than 1KB is suspicious
-                raise ValueError(f"Downloaded file is too small ({bytes_downloaded} bytes)")
+                raise ValueError(
+                    f"Downloaded file is too small ({bytes_downloaded} bytes)"
+                )
 
             # Validate file is a video by checking magic bytes
-            with open(temp_path, 'rb') as f:
+            with open(temp_path, "rb") as f:
                 header = f.read(12)
                 is_video = False
 
                 # Check common video file signatures
-                if header.startswith(b'\x00\x00\x00\x18ftypmp4') or \
-                   header.startswith(b'\x00\x00\x00\x1cftypisom') or \
-                   header.startswith(b'\x00\x00\x00\x14ftyp') or \
-                   header[4:8] == b'ftyp':  # Generic MP4/MOV
+                if (
+                    header.startswith(b"\x00\x00\x00\x18ftypmp4")
+                    or header.startswith(b"\x00\x00\x00\x1cftypisom")
+                    or header.startswith(b"\x00\x00\x00\x14ftyp")
+                    or header[4:8] == b"ftyp"
+                ):  # Generic MP4/MOV
                     is_video = True
-                elif header.startswith(b'RIFF') and header[8:12] == b'AVI ':  # AVI
+                elif header.startswith(b"RIFF") and header[8:12] == b"AVI ":  # AVI
                     is_video = True
-                elif header.startswith(b'\x1a\x45\xdf\xa3'):  # WebM/MKV
+                elif header.startswith(b"\x1a\x45\xdf\xa3"):  # WebM/MKV
                     is_video = True
 
                 if not is_video:
-                    raise ValueError(f"Downloaded file does not appear to be a valid video (header: {header.hex()})")
+                    raise ValueError(
+                        f"Downloaded file does not appear to be a valid video (header: {header.hex()})"
+                    )
 
             # Read the video data from temp file
-            with open(temp_path, 'rb') as f:
+            with open(temp_path, "rb") as f:
                 video_binary_data = f.read()
 
             # Generate thumbnail from video data
@@ -1980,25 +2106,30 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
                 import subprocess
                 import os
 
-                thumb_temp_path = file_path.with_suffix('.jpg')
+                thumb_temp_path = file_path.with_suffix(".jpg")
 
                 # Extract frame at 1 second using ffmpeg
                 cmd = [
-                    'ffmpeg',
-                    '-i', str(temp_path),
-                    '-ss', '1.0',  # Seek to 1 second
-                    '-vframes', '1',  # Extract 1 frame
-                    '-vf', 'scale=400:-1',  # Resize to 400px width, maintain aspect ratio
-                    '-q:v', '2',  # High quality JPEG
-                    '-y',
-                    str(thumb_temp_path)
+                    "ffmpeg",
+                    "-i",
+                    str(temp_path),
+                    "-ss",
+                    "1.0",  # Seek to 1 second
+                    "-vframes",
+                    "1",  # Extract 1 frame
+                    "-vf",
+                    "scale=400:-1",  # Resize to 400px width, maintain aspect ratio
+                    "-q:v",
+                    "2",  # High quality JPEG
+                    "-y",
+                    str(thumb_temp_path),
                 ]
 
                 result = subprocess.run(cmd, capture_output=True, timeout=10)
 
                 if result.returncode == 0:
                     # Read thumbnail
-                    with open(thumb_temp_path, 'rb') as f:
+                    with open(thumb_temp_path, "rb") as f:
                         thumbnail_data = f.read()
                     print(f"Generated thumbnail: {len(thumbnail_data)} bytes")
                 else:
@@ -2015,23 +2146,26 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
 
             # Store binary data in database (video + thumbnail)
             from .database import get_db
+
             with get_db() as conn:
                 if thumbnail_data:
                     conn.execute(
                         "UPDATE generated_videos SET video_data = ?, thumbnail_data = ? WHERE id = ?",
-                        (video_binary_data, thumbnail_data, video_id)
+                        (video_binary_data, thumbnail_data, video_id),
                     )
                 else:
                     conn.execute(
                         "UPDATE generated_videos SET video_data = ? WHERE id = ?",
-                        (video_binary_data, video_id)
+                        (video_binary_data, video_id),
                     )
                 conn.commit()
 
             # Delete temp file - we only store in database now
             temp_path.unlink()
 
-            print(f"Video downloaded successfully: {bytes_downloaded} bytes stored in DB (video_id={video_id})")
+            print(
+                f"Video downloaded successfully: {bytes_downloaded} bytes stored in DB (video_id={video_id})"
+            )
             # Return a database URL instead of file path
             return f"/api/videos/{video_id}/data"
 
@@ -2046,14 +2180,19 @@ def download_and_save_video(video_url: str, video_id: int, max_retries: int = 3)
 
             if attempt < max_retries:
                 # Exponential backoff: 2, 4, 8 seconds
-                wait_time = 2 ** attempt
+                wait_time = 2**attempt
                 print(f"Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
             else:
-                print(f"All {max_retries} download attempts failed for video {video_id}")
+                print(
+                    f"All {max_retries} download attempts failed for video {video_id}"
+                )
 
     # All retries failed
-    raise Exception(f"Failed to download video after {max_retries} attempts: {last_error}")
+    raise Exception(
+        f"Failed to download video after {max_retries} attempts: {last_error}"
+    )
+
 
 @app.post("/api/webhooks/replicate")
 async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
@@ -2071,6 +2210,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
 
         # Find the video, image, or audio by replicate_id in metadata
         from .database import get_db
+
         video_id = None
         image_id = None
         audio_id = None
@@ -2082,7 +2222,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 SELECT id, collection FROM generated_videos
                 WHERE json_extract(metadata, '$.replicate_id') = ?
                 """,
-                (replicate_id,)
+                (replicate_id,),
             ).fetchone()
 
             if row:
@@ -2095,7 +2235,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                     SELECT id FROM generated_images
                     WHERE json_extract(metadata, '$.replicate_id') = ?
                     """,
-                    (replicate_id,)
+                    (replicate_id,),
                 ).fetchone()
 
                 if row:
@@ -2107,18 +2247,22 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                         SELECT id FROM generated_audio
                         WHERE json_extract(metadata, '$.replicate_id') = ?
                         """,
-                        (replicate_id,)
+                        (replicate_id,),
                     ).fetchone()
 
                     if row:
                         audio_id = row["id"]
 
             if not video_id and not image_id and not audio_id:
-                print(f"No video, image, or audio found for replicate_id: {replicate_id}")
+                print(
+                    f"No video, image, or audio found for replicate_id: {replicate_id}"
+                )
                 return {"status": "ignored"}
 
         if video_id:
-            print(f"Found video_id: {video_id} for replicate_id: {replicate_id}, collection: {video_collection}")
+            print(
+                f"Found video_id: {video_id} for replicate_id: {replicate_id}, collection: {video_collection}"
+            )
 
             if status == "succeeded" and output:
                 # Check if this is a video-to-text collection
@@ -2129,7 +2273,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                     # Store text output in metadata
                     metadata = {
                         "replicate_id": replicate_id,
-                        "text_output": text_output
+                        "text_output": text_output,
                     }
 
                     # Update database with text output
@@ -2137,9 +2281,11 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                         video_id=video_id,
                         status="completed",
                         video_url="",  # No video URL for text output
-                        metadata=metadata
+                        metadata=metadata,
                     )
-                    print(f"Video-to-text {video_id} completed via webhook: {text_output[:100]}...")
+                    print(
+                        f"Video-to-text {video_id} completed via webhook: {text_output[:100]}..."
+                    )
                 else:
                     # Regular video generation - download video
                     video_url = output[0] if isinstance(output, list) else output
@@ -2147,11 +2293,16 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                     if video_url:
                         # Download and save video in background with race condition prevention
                         def download_video_task():
-                            from .database import mark_download_attempted, mark_download_failed
+                            from .database import (
+                                mark_download_attempted,
+                                mark_download_failed,
+                            )
 
                             # Prevent race condition: check if download already attempted
                             if not mark_download_attempted(video_id):
-                                print(f"Video {video_id} download already attempted by another process (webhook), skipping")
+                                print(
+                                    f"Video {video_id} download already attempted by another process (webhook), skipping"
+                                )
                                 return
 
                             try:
@@ -2161,12 +2312,17 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                                     video_id=video_id,
                                     status="completed",
                                     video_url=db_url,
-                                    metadata={"replicate_id": replicate_id, "original_url": video_url}
+                                    metadata={
+                                        "replicate_id": replicate_id,
+                                        "original_url": video_url,
+                                    },
                                 )
                                 print(f"Video {video_id} saved to database via webhook")
                             except Exception as e:
                                 # Download failed after all retries - mark as permanently failed
-                                error_msg = f"Failed to download video after retries: {str(e)}"
+                                error_msg = (
+                                    f"Failed to download video after retries: {str(e)}"
+                                )
                                 print(f"Webhook: {error_msg}")
                                 mark_download_failed(video_id, error_msg)
 
@@ -2177,7 +2333,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 update_video_status(
                     video_id=video_id,
                     status=status,
-                    metadata={"error": error, "replicate_id": replicate_id}
+                    metadata={"error": error, "replicate_id": replicate_id},
                 )
 
         elif image_id:
@@ -2190,11 +2346,16 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 if image_url:
                     # Download and save image in background with race condition prevention
                     def download_image_task():
-                        from .database import mark_image_download_attempted, mark_image_download_failed
+                        from .database import (
+                            mark_image_download_attempted,
+                            mark_image_download_failed,
+                        )
 
                         # Prevent race condition: check if download already attempted
                         if not mark_image_download_attempted(image_id):
-                            print(f"Image {image_id} download already attempted by another process (webhook), skipping")
+                            print(
+                                f"Image {image_id} download already attempted by another process (webhook), skipping"
+                            )
                             return
 
                         try:
@@ -2204,12 +2365,17 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                                 image_id=image_id,
                                 status="completed",
                                 image_url=db_url,
-                                metadata={"replicate_id": replicate_id, "original_url": image_url}
+                                metadata={
+                                    "replicate_id": replicate_id,
+                                    "original_url": image_url,
+                                },
                             )
                             print(f"Image {image_id} saved to database via webhook")
                         except Exception as e:
                             # Download failed after all retries - mark as permanently failed
-                            error_msg = f"Failed to download image after retries: {str(e)}"
+                            error_msg = (
+                                f"Failed to download image after retries: {str(e)}"
+                            )
                             print(f"Webhook: {error_msg}")
                             mark_image_download_failed(image_id, error_msg)
 
@@ -2220,7 +2386,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 update_image_status(
                     image_id=image_id,
                     status=status,
-                    metadata={"error": error, "replicate_id": replicate_id}
+                    metadata={"error": error, "replicate_id": replicate_id},
                 )
 
         elif audio_id:
@@ -2234,16 +2400,25 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 elif isinstance(output, list) and len(output) > 0:
                     audio_url = output[0]
                 elif isinstance(output, dict):
-                    audio_url = output.get("audio") or output.get("file") or output.get("output")
+                    audio_url = (
+                        output.get("audio")
+                        or output.get("file")
+                        or output.get("output")
+                    )
 
                 if audio_url:
                     # Download and save audio in background with race condition prevention
                     def download_audio_task():
-                        from .database import mark_audio_download_attempted, mark_audio_download_failed
+                        from .database import (
+                            mark_audio_download_attempted,
+                            mark_audio_download_failed,
+                        )
 
                         # Prevent race condition: check if download already attempted
                         if not mark_audio_download_attempted(audio_id):
-                            print(f"Audio {audio_id} download already attempted by another process (webhook), skipping")
+                            print(
+                                f"Audio {audio_id} download already attempted by another process (webhook), skipping"
+                            )
                             return
 
                         try:
@@ -2253,12 +2428,17 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                                 audio_id=audio_id,
                                 status="completed",
                                 audio_url=db_url,
-                                metadata={"replicate_id": replicate_id, "original_url": audio_url}
+                                metadata={
+                                    "replicate_id": replicate_id,
+                                    "original_url": audio_url,
+                                },
                             )
                             print(f"Audio {audio_id} saved to database via webhook")
                         except Exception as e:
                             # Download failed after all retries - mark as permanently failed
-                            error_msg = f"Failed to download audio after retries: {str(e)}"
+                            error_msg = (
+                                f"Failed to download audio after retries: {str(e)}"
+                            )
                             print(f"Webhook: {error_msg}")
                             mark_audio_download_failed(audio_id, error_msg)
 
@@ -2269,7 +2449,7 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
                 update_audio_status(
                     audio_id=audio_id,
                     status=status,
-                    metadata={"error": error, "replicate_id": replicate_id}
+                    metadata={"error": error, "replicate_id": replicate_id},
                 )
 
         return {"status": "processed"}
@@ -2277,8 +2457,10 @@ async def replicate_webhook(request: dict, background_tasks: BackgroundTasks):
     except Exception as e:
         print(f"Error processing webhook: {e}")
         import traceback
+
         traceback.print_exc()
         return {"status": "error", "message": str(e)}
+
 
 @app.get("/api/videos")
 async def api_list_videos(
@@ -2287,7 +2469,7 @@ async def api_list_videos(
     offset: int = Query(0, ge=0),
     model_id: Optional[str] = Query(None),
     collection: Optional[str] = Query(None),
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     List generated videos from the database. Requires authentication.
@@ -2297,7 +2479,9 @@ async def api_list_videos(
     from .database import list_videos, count_videos
     from datetime import datetime, timedelta
 
-    videos = list_videos(limit=limit, offset=offset, model_id=model_id, collection=collection)
+    videos = list_videos(
+        limit=limit, offset=offset, model_id=model_id, collection=collection
+    )
     total = count_videos(model_id=model_id, collection=collection)
 
     # Auto-retry any videos in 'processing' status on gallery refresh
@@ -2310,6 +2494,7 @@ async def api_list_videos(
         if isinstance(metadata, str):
             try:
                 import json
+
                 metadata = json.loads(metadata)
             except:
                 metadata = {}
@@ -2336,7 +2521,7 @@ async def api_list_videos(
 
             headers = {
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
 
             try:
@@ -2365,8 +2550,8 @@ async def api_list_videos(
                                 "replicate_id": pred_data.get("id"),
                                 "prediction_url": pred_url,
                                 "original_url": video_url,
-                                "auto_retried": True
-                            }
+                                "auto_retried": True,
+                            },
                         )
                         print(f"Auto-retry: Video {vid_id} completed")
                 elif status in ["failed", "canceled"]:
@@ -2374,7 +2559,11 @@ async def api_list_videos(
                     update_video_status(
                         video_id=vid_id,
                         status=status,
-                        metadata={"error": error, "replicate_id": pred_data.get("id"), "auto_retried": True}
+                        metadata={
+                            "error": error,
+                            "replicate_id": pred_data.get("id"),
+                            "auto_retried": True,
+                        },
                     )
                     print(f"Auto-retry: Video {vid_id} {status}")
                 # If still processing, leave as-is
@@ -2391,6 +2580,7 @@ async def api_list_videos(
             if isinstance(metadata, str):
                 try:
                     import json
+
                     metadata = json.loads(metadata)
                 except:
                     metadata = {}
@@ -2401,24 +2591,27 @@ async def api_list_videos(
 
     return {"videos": videos, "total": total}
 
+
 @app.get("/api/videos/{video_id}")
-async def api_get_video(
-    video_id: int,
-    current_user: Dict = Depends(verify_auth)
-):
+async def api_get_video(video_id: int, current_user: Dict = Depends(verify_auth)):
     """Get a specific video by ID (used for polling video status). Requires authentication."""
     video = get_video_by_id(video_id)
     if not video:
         raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
     return video
 
+
 # ============================================================================
 # Image Generation Endpoints
 # ============================================================================
 
+
 @app.get("/api/image-models")
 async def api_get_image_models(
-    collection: Optional[str] = Query("text-to-image", description="Collection slug: text-to-image, super-resolution, etc.")
+    collection: Optional[str] = Query(
+        "text-to-image",
+        description="Collection slug: text-to-image, super-resolution, etc.",
+    ),
 ):
     """Get image generation models from Replicate collections API."""
     try:
@@ -2428,23 +2621,25 @@ async def api_get_image_models(
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Special handling for curated image-editing collection
         if collection == "image-editing":
-            return {"models": [
-                {
-                    "id": "reve/create",
-                    "name": "Reve Create",
-                    "owner": "reve",
-                    "description": "Natural language image editing - remove objects, change backgrounds, swap seasons, restyle elements, or make any adjustment you can describe in words",
-                    "cover_image_url": None,
-                    "latest_version": None,
-                    "run_count": 0,
-                    "input_schema": None
-                }
-            ]}
+            return {
+                "models": [
+                    {
+                        "id": "reve/create",
+                        "name": "Reve Create",
+                        "owner": "reve",
+                        "description": "Natural language image editing - remove objects, change backgrounds, swap seasons, restyle elements, or make any adjustment you can describe in words",
+                        "cover_image_url": None,
+                        "latest_version": None,
+                        "run_count": 0,
+                        "input_schema": None,
+                    }
+                ]
+            }
 
         # Use collections API with the specified collection slug
         url = f"https://api.replicate.com/v1/collections/{collection}"
@@ -2456,16 +2651,20 @@ async def api_get_image_models(
         models = []
         for model_data in data.get("models", []):
             model_id = f"{model_data.get('owner')}/{model_data.get('name')}"
-            models.append({
-                "id": model_id,
-                "name": model_data.get("name", ""),
-                "owner": model_data.get("owner", ""),
-                "description": model_data.get("description"),
-                "cover_image_url": model_data.get("cover_image_url"),
-                "latest_version": model_data.get("latest_version", {}).get("id") if model_data.get("latest_version") else None,
-                "run_count": model_data.get("run_count", 0),
-                "input_schema": None  # Will be fetched when model is selected
-            })
+            models.append(
+                {
+                    "id": model_id,
+                    "name": model_data.get("name", ""),
+                    "owner": model_data.get("owner", ""),
+                    "description": model_data.get("description"),
+                    "cover_image_url": model_data.get("cover_image_url"),
+                    "latest_version": model_data.get("latest_version", {}).get("id")
+                    if model_data.get("latest_version")
+                    else None,
+                    "run_count": model_data.get("run_count", 0),
+                    "input_schema": None,  # Will be fetched when model is selected
+                }
+            )
 
         # If the collection is super-resolution, ensure the configured upscaler is included
         # This allows flexibility to change upscaler models via UPSCALER_MODEL env variable
@@ -2476,24 +2675,29 @@ async def api_get_image_models(
                 # Add it manually with dynamic name based on model ID
                 owner, name = upscaler_model_id.split("/")
                 display_name = name.replace("-", " ").replace("_", " ").title()
-                models.insert(0, {
-                    "id": upscaler_model_id,
-                    "name": display_name,
-                    "owner": owner,
-                    "description": "High-resolution AI image upscaler with stunning detail and quality",
-                    "cover_image_url": None,
-                    "latest_version": None,
-                    "run_count": 0,
-                    "input_schema": None
-                })
+                models.insert(
+                    0,
+                    {
+                        "id": upscaler_model_id,
+                        "name": display_name,
+                        "owner": owner,
+                        "description": "High-resolution AI image upscaler with stunning detail and quality",
+                        "cover_image_url": None,
+                        "latest_version": None,
+                        "run_count": 0,
+                        "input_schema": None,
+                    },
+                )
 
         return {"models": models}
     except Exception as e:
         print(f"Error fetching image models from collection '{collection}': {str(e)}")
         import traceback
+
         traceback.print_exc()
         # Fallback to empty list
         return {"models": []}
+
 
 @app.get("/api/image-models/{model_owner}/{model_name}/schema")
 async def api_get_image_model_schema(model_owner: str, model_name: str):
@@ -2504,7 +2708,7 @@ async def api_get_image_model_schema(model_owner: str, model_name: str):
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Fetch model details including schema
@@ -2517,7 +2721,9 @@ async def api_get_image_model_schema(model_owner: str, model_name: str):
         latest_version = data.get("latest_version") or {}
         version_id = latest_version.get("id")
         openapi_schema = latest_version.get("openapi_schema") or {}
-        input_schema = openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
+        input_schema = (
+            openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
+        )
 
         # Extract properties and required fields
         properties = input_schema.get("properties", {})
@@ -2527,13 +2733,15 @@ async def api_get_image_model_schema(model_owner: str, model_name: str):
         return {
             "input_schema": properties,
             "required": required_fields,
-            "version": version_id  # Include version ID for predictions
+            "version": version_id,  # Include version ID for predictions
         }
     except Exception as e:
         print(f"Error fetching image model schema: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return {"input_schema": {"prompt": {"type": "string"}}}
+
 
 def process_image_generation_background(
     image_id: int,
@@ -2541,15 +2749,12 @@ def process_image_generation_background(
     api_key: str,
     model_id: str,
     input_params: dict,
-    collection: str
+    collection: str,
 ):
     """Background task to poll Replicate for image generation completion."""
     import time
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     prompt = input_params.get("prompt", "")
     max_attempts = 120  # 4 minutes (2 seconds * 120)
@@ -2571,10 +2776,15 @@ def process_image_generation_background(
 
                 if image_url:
                     # Prevent race condition: check if download already attempted
-                    from .database import mark_image_download_attempted, mark_image_download_failed
+                    from .database import (
+                        mark_image_download_attempted,
+                        mark_image_download_failed,
+                    )
 
                     if not mark_image_download_attempted(image_id):
-                        print(f"Image {image_id} download already attempted by another process, skipping")
+                        print(
+                            f"Image {image_id} download already attempted by another process, skipping"
+                        )
                         return
 
                     # Download and save image to database
@@ -2583,7 +2793,7 @@ def process_image_generation_background(
                         metadata = {
                             "replicate_id": pred_data.get("id"),
                             "prediction_url": prediction_url,
-                            "original_url": image_url
+                            "original_url": image_url,
                         }
 
                         # Update database with completed image
@@ -2591,7 +2801,7 @@ def process_image_generation_background(
                             image_id=image_id,
                             status="completed",
                             image_url=db_url,
-                            metadata=metadata
+                            metadata=metadata,
                         )
                         print(f"Image {image_id} completed successfully")
                         return
@@ -2607,29 +2817,20 @@ def process_image_generation_background(
                     metadata = {
                         "replicate_id": pred_data.get("id"),
                         "prediction_url": prediction_url,
-                        "error": "No image URL in Replicate response"
+                        "error": "No image URL in Replicate response",
                     }
                     update_image_status(
-                        image_id=image_id,
-                        status="failed",
-                        metadata=metadata
+                        image_id=image_id, status="failed", metadata=metadata
                     )
                     print(f"Image {image_id} failed: no output URL")
                     return
 
             elif status in ["failed", "canceled"]:
                 error = pred_data.get("error", "Unknown error")
-                metadata = {
-                    "error": error,
-                    "replicate_id": pred_data.get("id")
-                }
+                metadata = {"error": error, "replicate_id": pred_data.get("id")}
 
                 # Update database with failure
-                update_image_status(
-                    image_id=image_id,
-                    status=status,
-                    metadata=metadata
-                )
+                update_image_status(image_id=image_id, status=status, metadata=metadata)
                 print(f"Image {image_id} {status}: {error}")
                 return
 
@@ -2639,21 +2840,21 @@ def process_image_generation_background(
         update_image_status(
             image_id=image_id,
             status="timeout",
-            metadata={"error": "Image generation timed out"}
+            metadata={"error": "Image generation timed out"},
         )
         print(f"Image {image_id} timed out")
 
     except Exception as e:
         print(f"Error processing image {image_id}: {str(e)}")
         import traceback
+
         traceback.print_exc()
 
         # Update database with error
         update_image_status(
-            image_id=image_id,
-            status="failed",
-            metadata={"error": str(e)}
+            image_id=image_id, status="failed", metadata={"error": str(e)}
         )
+
 
 def process_audio_generation_background(
     audio_id: int,
@@ -2661,15 +2862,12 @@ def process_audio_generation_background(
     api_key: str,
     model_id: str,
     input_params: dict,
-    collection: str
+    collection: str,
 ):
     """Background task to poll Replicate for audio generation completion."""
     import time
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     prompt = input_params.get("prompt", "")
     max_attempts = 180  # 6 minutes (2 seconds * 180) - audio generation can take longer
@@ -2693,14 +2891,23 @@ def process_audio_generation_background(
                     audio_url = output[0]
                 elif isinstance(output, dict):
                     # Some models return output as dict with 'audio' or 'file' key
-                    audio_url = output.get("audio") or output.get("file") or output.get("output")
+                    audio_url = (
+                        output.get("audio")
+                        or output.get("file")
+                        or output.get("output")
+                    )
 
                 if audio_url:
                     # Prevent race condition: check if download already attempted
-                    from .database import mark_audio_download_attempted, mark_audio_download_failed
+                    from .database import (
+                        mark_audio_download_attempted,
+                        mark_audio_download_failed,
+                    )
 
                     if not mark_audio_download_attempted(audio_id):
-                        print(f"Audio {audio_id} download already attempted by another process, skipping")
+                        print(
+                            f"Audio {audio_id} download already attempted by another process, skipping"
+                        )
                         return
 
                     # Download and save audio to database
@@ -2714,7 +2921,7 @@ def process_audio_generation_background(
                             "replicate_id": pred_data.get("id"),
                             "prediction_url": prediction_url,
                             "original_url": audio_url,
-                            "metrics": pred_data.get("metrics", {})
+                            "metrics": pred_data.get("metrics", {}),
                         }
 
                         # Update database with completed audio
@@ -2722,7 +2929,7 @@ def process_audio_generation_background(
                             audio_id=audio_id,
                             status="completed",
                             audio_url=db_url,
-                            metadata=metadata
+                            metadata=metadata,
                         )
                         print(f"Audio {audio_id} completed successfully")
                         return
@@ -2738,29 +2945,20 @@ def process_audio_generation_background(
                     metadata = {
                         "replicate_id": pred_data.get("id"),
                         "prediction_url": prediction_url,
-                        "error": "No audio URL in Replicate response"
+                        "error": "No audio URL in Replicate response",
                     }
                     update_audio_status(
-                        audio_id=audio_id,
-                        status="failed",
-                        metadata=metadata
+                        audio_id=audio_id, status="failed", metadata=metadata
                     )
                     print(f"Audio {audio_id} failed: no output URL")
                     return
 
             elif status in ["failed", "canceled"]:
                 error = pred_data.get("error", "Unknown error")
-                metadata = {
-                    "error": error,
-                    "replicate_id": pred_data.get("id")
-                }
+                metadata = {"error": error, "replicate_id": pred_data.get("id")}
 
                 # Update database with failure
-                update_audio_status(
-                    audio_id=audio_id,
-                    status=status,
-                    metadata=metadata
-                )
+                update_audio_status(audio_id=audio_id, status=status, metadata=metadata)
                 print(f"Audio {audio_id} {status}: {error}")
                 return
 
@@ -2770,27 +2968,27 @@ def process_audio_generation_background(
         update_audio_status(
             audio_id=audio_id,
             status="timeout",
-            metadata={"error": "Audio generation timed out"}
+            metadata={"error": "Audio generation timed out"},
         )
         print(f"Audio {audio_id} timed out")
 
     except Exception as e:
         print(f"Error processing audio {audio_id}: {str(e)}")
         import traceback
+
         traceback.print_exc()
 
         # Update database with error
         update_audio_status(
-            audio_id=audio_id,
-            status="failed",
-            metadata={"error": str(e)}
+            audio_id=audio_id, status="failed", metadata={"error": str(e)}
         )
+
 
 @app.post("/api/run-image-model")
 async def api_run_image_model(
     request: RunImageRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """Initiate image generation and return immediately with an image ID. Requires authentication.
 
@@ -2817,20 +3015,22 @@ async def api_run_image_model(
                 model_id=request.model_id,
                 parameters=request.input,
                 collection=request.collection,
-                status="processing"
+                status="processing",
             )
             return {"image_id": image_id, "status": "processing"}
 
         # Basic validation: ensure we have at least a prompt or image parameter
-        if not request.input.get("prompt") and not any(k for k in request.input.keys() if "image" in k.lower()):
+        if not request.input.get("prompt") and not any(
+            k for k in request.input.keys() if "image" in k.lower()
+        ):
             raise HTTPException(
                 status_code=400,
-                detail="Missing required input: must provide either 'prompt' or an image parameter"
+                detail="Missing required input: must provide either 'prompt' or an image parameter",
             )
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Convert parameter types
@@ -2865,7 +3065,7 @@ async def api_run_image_model(
                 if not isinstance(scale, (int, float)) or not (1 <= scale <= 4):
                     raise HTTPException(
                         status_code=400,
-                        detail="Scale parameter must be between 1 and 4"
+                        detail="Scale parameter must be between 1 and 4",
                     )
 
             # Validate dynamic/HDR parameter (if provided)
@@ -2874,7 +3074,7 @@ async def api_run_image_model(
                 if not isinstance(dynamic, (int, float)) or not (3 <= dynamic <= 9):
                     raise HTTPException(
                         status_code=400,
-                        detail="Dynamic (HDR) parameter must be between 3 and 9"
+                        detail="Dynamic (HDR) parameter must be between 3 and 9",
                     )
 
             # Validate sharpen parameter (if provided)
@@ -2883,16 +3083,18 @@ async def api_run_image_model(
                 if not isinstance(sharpen, (int, float)) or not (0 <= sharpen <= 10):
                     raise HTTPException(
                         status_code=400,
-                        detail="Sharpen parameter must be between 0 and 10"
+                        detail="Sharpen parameter must be between 0 and 10",
                     )
 
             # Validate image URL parameter (required for upscaling)
             if "image" in converted_input:
                 image_url = converted_input["image"]
-                if not isinstance(image_url, str) or not image_url.startswith(('http://', 'https://')):
+                if not isinstance(image_url, str) or not image_url.startswith(
+                    ("http://", "https://")
+                ):
                     raise HTTPException(
                         status_code=400,
-                        detail="Image parameter must be a valid HTTP/HTTPS URL"
+                        detail="Image parameter must be a valid HTTP/HTTPS URL",
                     )
 
         # Get the base URL for webhooks
@@ -2925,7 +3127,9 @@ async def api_run_image_model(
             print(f"DEBUG: Sending to Replicate API (model-based) for image:")
             print(f"  Model: {request.model_id}")
 
-        print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
+        print(
+            f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}"
+        )
         if use_webhooks:
             print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
         else:
@@ -2943,14 +3147,18 @@ async def api_run_image_model(
             except:
                 error_msg = error_detail
 
-            raise HTTPException(status_code=400, detail=f"Replicate API error: {error_msg}")
+            raise HTTPException(
+                status_code=400, detail=f"Replicate API error: {error_msg}"
+            )
 
         result = response.json()
 
         # Get the prediction URL
         prediction_url = result.get("urls", {}).get("get")
         if not prediction_url:
-            raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
+            raise HTTPException(
+                status_code=500, detail="No prediction URL returned from Replicate"
+            )
 
         # Enhance prompt with brief context if provided
         enhanced_prompt = request.input.get("prompt", "")
@@ -2959,6 +3167,7 @@ async def api_run_image_model(
         if request.brief_id:
             try:
                 from .database import get_creative_brief
+
                 brief = get_creative_brief(request.brief_id, current_user["id"])
                 if brief:
                     # Add brief context to prompt
@@ -2978,7 +3187,7 @@ async def api_run_image_model(
             collection=request.collection,
             status="processing",
             metadata=metadata,
-            brief_id=request.brief_id
+            brief_id=request.brief_id,
         )
 
         # Start background task to poll for completion (fallback if webhook fails)
@@ -2986,10 +3195,10 @@ async def api_run_image_model(
             process_image_generation_background,
             image_id=image_id,
             prediction_url=prediction_url,
-            api_key=ai_client['api_key'],
+            api_key=ai_client["api_key"],
             model_id=request.model_id,
             input_params=request.input,
-            collection=request.collection
+            collection=request.collection,
         )
 
         # Return immediately with image ID
@@ -3000,6 +3209,7 @@ async def api_run_image_model(
     except Exception as e:
         print(f"Error initiating image generation: {str(e)}")
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
@@ -3008,7 +3218,7 @@ async def api_run_image_model(
 async def api_run_audio_model(
     request: RunAudioRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """Initiate audio generation and return immediately with an audio ID. Requires authentication.
 
@@ -3029,7 +3239,7 @@ async def api_run_audio_model(
                 model_id=request.model_id,
                 parameters=request.input,
                 collection=request.collection,
-                status="processing"
+                status="processing",
             )
             return {"audio_id": audio_id, "status": "processing"}
 
@@ -3037,12 +3247,43 @@ async def api_run_audio_model(
         if not request.input.get("prompt") and not request.input.get("text"):
             raise HTTPException(
                 status_code=400,
-                detail="Missing required input: must provide either 'prompt' or 'text'"
+                detail="Missing required input: must provide either 'prompt' or 'text'",
             )
+
+        # Validate continuation parameters if continuation is enabled
+        if request.input.get("continuation"):
+            continuation_start = request.input.get("continuation_start")
+            continuation_end = request.input.get("continuation_end")
+
+            if continuation_start is not None and continuation_end is not None:
+                try:
+                    start_val = float(continuation_start)
+                    end_val = float(continuation_end)
+
+                    if start_val >= end_val:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Continuation start time must be less than end time",
+                        )
+                    if start_val < 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Continuation start time must be positive",
+                        )
+                    if end_val <= 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Continuation end time must be greater than 0",
+                        )
+                except (ValueError, TypeError):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Continuation start and end times must be valid numbers",
+                    )
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Convert parameter types (string to int/float where appropriate)
@@ -3102,7 +3343,9 @@ async def api_run_audio_model(
             print(f"DEBUG: Sending to Replicate API (model-based) for audio:")
             print(f"  Model: {request.model_id}")
 
-        print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
+        print(
+            f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}"
+        )
         if use_webhooks:
             print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
         else:
@@ -3121,14 +3364,18 @@ async def api_run_audio_model(
             except:
                 error_msg = error_detail
 
-            raise HTTPException(status_code=400, detail=f"Replicate API error: {error_msg}")
+            raise HTTPException(
+                status_code=400, detail=f"Replicate API error: {error_msg}"
+            )
 
         result = response.json()
 
         # Get the prediction URL
         prediction_url = result.get("urls", {}).get("get")
         if not prediction_url:
-            raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
+            raise HTTPException(
+                status_code=500, detail="No prediction URL returned from Replicate"
+            )
 
         # Get prompt from input
         prompt = request.input.get("prompt") or request.input.get("text", "")
@@ -3146,7 +3393,7 @@ async def api_run_audio_model(
             collection=request.collection,
             status="processing",
             metadata=metadata,
-            brief_id=request.brief_id
+            brief_id=request.brief_id,
         )
 
         # Start background task to poll for completion (fallback if webhook fails)
@@ -3154,10 +3401,10 @@ async def api_run_audio_model(
             process_audio_generation_background,
             audio_id=audio_id,
             prediction_url=prediction_url,
-            api_key=ai_client['api_key'],
+            api_key=ai_client["api_key"],
             model_id=request.model_id,
             input_params=request.input,
-            collection=request.collection
+            collection=request.collection,
         )
 
         # Return immediately with audio ID
@@ -3168,6 +3415,7 @@ async def api_run_audio_model(
     except Exception as e:
         print(f"Error initiating audio generation: {str(e)}")
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
@@ -3176,7 +3424,7 @@ async def api_run_audio_model(
 async def api_run_video_to_text_model(
     request: RunAudioRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """Initiate video-to-text generation and return immediately with a video ID. Requires authentication.
 
@@ -3196,13 +3444,13 @@ async def api_run_video_to_text_model(
                 model_id=request.model_id,
                 parameters=request.input,
                 collection=request.collection,
-                status="processing"
+                status="processing",
             )
             return {"video_id": video_id, "status": "processing"}
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Convert parameter types (string to int/float where appropriate)
@@ -3262,7 +3510,9 @@ async def api_run_video_to_text_model(
             print(f"DEBUG: Sending to Replicate API (model-based) for video-to-text:")
             print(f"  Model: {request.model_id}")
 
-        print(f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}")
+        print(
+            f"  Input types: {[(k, type(v).__name__, v) for k, v in converted_input.items()]}"
+        )
         if use_webhooks:
             print(f"  Webhook URL: {base_url}/api/webhooks/replicate")
         else:
@@ -3281,14 +3531,18 @@ async def api_run_video_to_text_model(
             except:
                 error_msg = error_detail
 
-            raise HTTPException(status_code=400, detail=f"Replicate API error: {error_msg}")
+            raise HTTPException(
+                status_code=400, detail=f"Replicate API error: {error_msg}"
+            )
 
         result = response.json()
 
         # Get the prediction URL
         prediction_url = result.get("urls", {}).get("get")
         if not prediction_url:
-            raise HTTPException(status_code=500, detail="No prediction URL returned from Replicate")
+            raise HTTPException(
+                status_code=500, detail="No prediction URL returned from Replicate"
+            )
 
         # Get prompt from input (video_url or video parameter)
         prompt = f"Video-to-text: {request.model_id}"
@@ -3310,7 +3564,7 @@ async def api_run_video_to_text_model(
             collection=request.collection,
             status="processing",
             metadata=metadata,
-            brief_id=request.brief_id
+            brief_id=request.brief_id,
         )
 
         # Start background task to poll for completion (fallback if webhook fails)
@@ -3318,10 +3572,10 @@ async def api_run_video_to_text_model(
             process_video_to_text_background,
             video_id=video_id,
             prediction_url=prediction_url,
-            api_key=ai_client['api_key'],
+            api_key=ai_client["api_key"],
             model_id=request.model_id,
             input_params=request.input,
-            collection=request.collection
+            collection=request.collection,
         )
 
         # Return immediately with video ID
@@ -3332,6 +3586,7 @@ async def api_run_video_to_text_model(
     except Exception as e:
         print(f"Error initiating video-to-text generation: {str(e)}")
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
@@ -3340,7 +3595,7 @@ async def api_run_video_to_text_model(
 async def api_generate_images_from_brief(
     request: Dict,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """Generate images from all scenes in a creative brief.
 
@@ -3362,6 +3617,7 @@ async def api_generate_images_from_brief(
 
         # Fetch the brief
         from database import get_brief
+
         brief = get_brief(brief_id, current_user["id"])
 
         if not brief:
@@ -3389,7 +3645,9 @@ async def api_generate_images_from_brief(
             # Model name should now be in format "owner/model"
             # If not, skip this scene
             if "/" not in model_name:
-                print(f"Warning: Invalid model format '{model_name}', expected 'owner/model', skipping scene")
+                print(
+                    f"Warning: Invalid model format '{model_name}', expected 'owner/model', skipping scene"
+                )
                 continue
 
             model_id = model_name
@@ -3400,20 +3658,26 @@ async def api_generate_images_from_brief(
                 input={"prompt": generation_prompt},
                 collection="text-to-image",
                 version=None,
-                brief_id=brief_id
+                brief_id=brief_id,
             )
 
             # Call the existing image generation endpoint logic
             try:
-                result = await api_run_image_model(image_request, background_tasks, current_user)
+                result = await api_run_image_model(
+                    image_request, background_tasks, current_user
+                )
                 image_ids.append(result["image_id"])
-                print(f"Created image {result['image_id']} for scene prompt: {generation_prompt[:50]}...")
+                print(
+                    f"Created image {result['image_id']} for scene prompt: {generation_prompt[:50]}..."
+                )
             except Exception as e:
                 print(f"Error generating image for scene: {str(e)}")
                 # Continue with other scenes even if one fails
 
         if not image_ids:
-            raise HTTPException(status_code=500, detail="Failed to generate any images from brief")
+            raise HTTPException(
+                status_code=500, detail="Failed to generate any images from brief"
+            )
 
         return {"imageIds": image_ids, "count": len(image_ids)}
 
@@ -3422,6 +3686,7 @@ async def api_generate_images_from_brief(
     except Exception as e:
         print(f"Error generating images from brief: {str(e)}")
         import traceback
+
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
@@ -3457,7 +3722,9 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
     last_error = None
     for attempt in range(max_retries):
         try:
-            print(f"Downloading image {image_id} (attempt {attempt + 1}/{max_retries}): {image_url}")
+            print(
+                f"Downloading image {image_id} (attempt {attempt + 1}/{max_retries}): {image_url}"
+            )
 
             # Download with timeout
             response = requests.get(image_url, timeout=60, stream=True)
@@ -3466,7 +3733,9 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
             # Verify it's an image
             content_type = response.headers.get("content-type", "")
             if not content_type.startswith("image/"):
-                raise ValueError(f"Invalid content type: {content_type}, expected image/*")
+                raise ValueError(
+                    f"Invalid content type: {content_type}, expected image/*"
+                )
 
             # Download to temp file and collect binary data
             image_binary_data = bytearray()
@@ -3485,17 +3754,20 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
 
             # Store binary data in database
             from .database import get_db
+
             with get_db() as conn:
                 conn.execute(
                     "UPDATE generated_images SET image_data = ?, status = 'completed' WHERE id = ?",
-                    (bytes(image_binary_data), image_id)
+                    (bytes(image_binary_data), image_id),
                 )
                 conn.commit()
 
             # Delete temp file - we only store in database now
             file_path.unlink()
 
-            print(f"Image {image_id} downloaded successfully: {file_size} bytes stored in DB")
+            print(
+                f"Image {image_id} downloaded successfully: {file_size} bytes stored in DB"
+            )
             # Return a database URL instead of file path
             # Use NGROK_URL for external services like Replicate, fall back to BASE_URL
             ngrok_url = os.getenv("NGROK_URL", "").strip()
@@ -3523,12 +3795,15 @@ def download_and_save_image(image_url: str, image_id: int, max_retries: int = 3)
 
             # Wait before retrying (exponential backoff)
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt  # 1s, 2s, 4s, etc.
+                wait_time = 2**attempt  # 1s, 2s, 4s, etc.
                 print(f"Waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
 
     # All retries failed
-    raise Exception(f"Failed to download image after {max_retries} attempts. Last error: {str(last_error)}")
+    raise Exception(
+        f"Failed to download image after {max_retries} attempts. Last error: {str(last_error)}"
+    )
+
 
 def download_and_save_audio(audio_url: str, audio_id: int, max_retries: int = 3) -> str:
     """
@@ -3561,7 +3836,9 @@ def download_and_save_audio(audio_url: str, audio_id: int, max_retries: int = 3)
     last_error = None
     for attempt in range(max_retries):
         try:
-            print(f"Downloading audio {audio_id} (attempt {attempt + 1}/{max_retries}): {audio_url}")
+            print(
+                f"Downloading audio {audio_id} (attempt {attempt + 1}/{max_retries}): {audio_url}"
+            )
 
             # Download with timeout
             response = requests.get(audio_url, timeout=120, stream=True)
@@ -3569,8 +3846,13 @@ def download_and_save_audio(audio_url: str, audio_id: int, max_retries: int = 3)
 
             # Verify it's an audio file
             content_type = response.headers.get("content-type", "")
-            if not (content_type.startswith("audio/") or content_type == "application/octet-stream"):
-                raise ValueError(f"Invalid content type: {content_type}, expected audio/*")
+            if not (
+                content_type.startswith("audio/")
+                or content_type == "application/octet-stream"
+            ):
+                raise ValueError(
+                    f"Invalid content type: {content_type}, expected audio/*"
+                )
 
             # Download to temp file and collect binary data
             audio_binary_data = bytearray()
@@ -3589,17 +3871,20 @@ def download_and_save_audio(audio_url: str, audio_id: int, max_retries: int = 3)
 
             # Store binary data in database
             from .database import get_db
+
             with get_db() as conn:
                 conn.execute(
                     "UPDATE generated_audio SET audio_data = ?, status = 'completed' WHERE id = ?",
-                    (bytes(audio_binary_data), audio_id)
+                    (bytes(audio_binary_data), audio_id),
                 )
                 conn.commit()
 
             # Delete temp file - we only store in database now
             file_path.unlink()
 
-            print(f"Audio {audio_id} downloaded successfully: {file_size} bytes stored in DB")
+            print(
+                f"Audio {audio_id} downloaded successfully: {file_size} bytes stored in DB"
+            )
             # Return a database URL instead of file path
             base_url = os.getenv("BASE_URL", "").strip()
             if base_url:
@@ -3621,12 +3906,15 @@ def download_and_save_audio(audio_url: str, audio_id: int, max_retries: int = 3)
 
             # Wait before retrying (exponential backoff)
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt  # 1s, 2s, 4s, etc.
+                wait_time = 2**attempt  # 1s, 2s, 4s, etc.
                 print(f"Waiting {wait_time}s before retry...")
                 time.sleep(wait_time)
 
     # All retries failed
-    raise Exception(f"Failed to download audio after {max_retries} attempts. Last error: {str(last_error)}")
+    raise Exception(
+        f"Failed to download audio after {max_retries} attempts. Last error: {str(last_error)}"
+    )
+
 
 @app.get("/api/images")
 async def api_get_images(
@@ -3635,14 +3923,16 @@ async def api_get_images(
     offset: int = Query(0, ge=0),
     model_id: Optional[str] = None,
     collection: Optional[str] = None,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Get generated images. Requires authentication.
 
     Automatically retries fetching images stuck in 'processing' status when gallery refreshes.
     """
-    images = list_images(limit=limit, offset=offset, model_id=model_id, collection=collection)
+    images = list_images(
+        limit=limit, offset=offset, model_id=model_id, collection=collection
+    )
 
     # Auto-retry any images in 'processing' status on gallery refresh
     for image in images:
@@ -3654,6 +3944,7 @@ async def api_get_images(
         if isinstance(metadata, str):
             try:
                 import json
+
                 metadata = json.loads(metadata)
             except:
                 metadata = {}
@@ -3680,7 +3971,7 @@ async def api_get_images(
 
             headers = {
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
 
             try:
@@ -3709,8 +4000,8 @@ async def api_get_images(
                                 "replicate_id": pred_data.get("id"),
                                 "prediction_url": pred_url,
                                 "original_url": image_url,
-                                "auto_retried": True
-                            }
+                                "auto_retried": True,
+                            },
                         )
                         print(f"Auto-retry: Image {img_id} completed")
                 elif status in ["failed", "canceled"]:
@@ -3718,7 +4009,11 @@ async def api_get_images(
                     update_image_status(
                         image_id=img_id,
                         status=status,
-                        metadata={"error": error, "replicate_id": pred_data.get("id"), "auto_retried": True}
+                        metadata={
+                            "error": error,
+                            "replicate_id": pred_data.get("id"),
+                            "auto_retried": True,
+                        },
                     )
                     print(f"Auto-retry: Image {img_id} {status}")
                 # If still processing, leave as-is
@@ -3730,16 +4025,15 @@ async def api_get_images(
 
     return {"images": images}
 
+
 @app.get("/api/images/{image_id}")
-async def api_get_image(
-    image_id: int,
-    current_user: Dict = Depends(verify_auth)
-):
+async def api_get_image(image_id: int, current_user: Dict = Depends(verify_auth)):
     """Get a specific image by ID (used for polling image status). Requires authentication."""
     image = get_image_by_id(image_id)
     if not image:
         raise HTTPException(status_code=404, detail=f"Image {image_id} not found")
     return image
+
 
 @app.get("/api/audio")
 async def api_get_audio(
@@ -3750,7 +4044,7 @@ async def api_get_audio(
     client_id: Optional[str] = None,
     campaign_id: Optional[str] = None,
     status: Optional[str] = None,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Get generated audio/music. Requires authentication.
@@ -3770,7 +4064,7 @@ async def api_get_audio(
         collection=collection,
         status=status,
         client_id=client_id,
-        campaign_id=campaign_id
+        campaign_id=campaign_id,
     )
 
     # Additional model_id filtering (since list_audio doesn't support it yet)
@@ -3779,43 +4073,41 @@ async def api_get_audio(
 
     return {"audio": audio_files, "count": len(audio_files)}
 
+
 @app.get("/api/audio/{audio_id}")
-async def api_get_audio_by_id(
-    audio_id: int,
-    current_user: Dict = Depends(verify_auth)
-):
+async def api_get_audio_by_id(audio_id: int, current_user: Dict = Depends(verify_auth)):
     """Get a specific audio by ID. Requires authentication."""
     audio = get_audio_by_id(audio_id)
     if not audio:
         raise HTTPException(status_code=404, detail=f"Audio {audio_id} not found")
     return audio
 
+
 @app.delete("/api/audio/{audio_id}")
-async def api_delete_audio(
-    audio_id: int,
-    current_user: Dict = Depends(verify_auth)
-):
+async def api_delete_audio(audio_id: int, current_user: Dict = Depends(verify_auth)):
     """Delete an audio by ID. Requires authentication."""
     if delete_audio(audio_id):
         return {"success": True, "message": f"Audio {audio_id} deleted"}
     else:
-        raise HTTPException(status_code=500, detail="Failed to delete audio from database")
+        raise HTTPException(
+            status_code=500, detail="Failed to delete audio from database"
+        )
+
 
 @app.get("/api/audio/{audio_id}/data")
-async def api_get_audio_data(
-    audio_id: int
-):
+async def api_get_audio_data(audio_id: int):
     """Get the binary audio data from database. Public endpoint for audio playback."""
     from .database import get_db
 
     with get_db() as conn:
         row = conn.execute(
-            "SELECT audio_data, model_id FROM generated_audio WHERE id = ?",
-            (audio_id,)
+            "SELECT audio_data, model_id FROM generated_audio WHERE id = ?", (audio_id,)
         ).fetchone()
 
         if not row or not row["audio_data"]:
-            raise HTTPException(status_code=404, detail=f"Audio data not found for ID {audio_id}")
+            raise HTTPException(
+                status_code=404, detail=f"Audio data not found for ID {audio_id}"
+            )
 
         # Determine media type from model or default to mp3
         media_type = "audio/mpeg"  # Default to MP3
@@ -3827,18 +4119,23 @@ async def api_get_audio_data(
 
         # Return binary audio data
         from fastapi.responses import Response
+
         return Response(
             content=row["audio_data"],
             media_type=media_type,
             headers={
                 "Content-Disposition": f"inline; filename=audio_{audio_id}.mp3",
-                "Accept-Ranges": "bytes"
-            }
+                "Accept-Ranges": "bytes",
+            },
         )
+
 
 @app.get("/api/audio-models")
 async def api_get_audio_models(
-    collection: Optional[str] = Query("ai-music-generation", description="Collection slug: ai-music-generation, text-to-speech, etc.")
+    collection: Optional[str] = Query(
+        "ai-music-generation",
+        description="Collection slug: ai-music-generation, text-to-speech, etc.",
+    ),
 ):
     """Get audio generation models from Replicate collections API."""
     try:
@@ -3848,7 +4145,7 @@ async def api_get_audio_models(
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Use collections API with the specified collection slug
@@ -3861,24 +4158,30 @@ async def api_get_audio_models(
         models = []
         for model_data in data.get("models", []):
             model_id = f"{model_data.get('owner')}/{model_data.get('name')}"
-            models.append({
-                "id": model_id,
-                "name": model_data.get("name", ""),
-                "owner": model_data.get("owner", ""),
-                "description": model_data.get("description"),
-                "cover_image_url": model_data.get("cover_image_url"),
-                "latest_version": model_data.get("latest_version", {}).get("id") if model_data.get("latest_version") else None,
-                "run_count": model_data.get("run_count", 0),
-                "input_schema": None  # Will be fetched when model is selected
-            })
+            models.append(
+                {
+                    "id": model_id,
+                    "name": model_data.get("name", ""),
+                    "owner": model_data.get("owner", ""),
+                    "description": model_data.get("description"),
+                    "cover_image_url": model_data.get("cover_image_url"),
+                    "latest_version": model_data.get("latest_version", {}).get("id")
+                    if model_data.get("latest_version")
+                    else None,
+                    "run_count": model_data.get("run_count", 0),
+                    "input_schema": None,  # Will be fetched when model is selected
+                }
+            )
 
         return {"models": models}
     except Exception as e:
         print(f"Error fetching audio models from collection '{collection}': {str(e)}")
         import traceback
+
         traceback.print_exc()
         # Fallback to empty list
         return {"models": []}
+
 
 @app.get("/api/audio-models/{model_owner}/{model_name}/schema")
 async def api_get_audio_model_schema(model_owner: str, model_name: str):
@@ -3889,7 +4192,7 @@ async def api_get_audio_model_schema(model_owner: str, model_name: str):
 
         headers = {
             "Authorization": f"Bearer {ai_client['api_key']}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         # Fetch model details including schema
@@ -3902,7 +4205,9 @@ async def api_get_audio_model_schema(model_owner: str, model_name: str):
         latest_version = data.get("latest_version") or {}
         version_id = latest_version.get("id")
         openapi_schema = latest_version.get("openapi_schema") or {}
-        input_schema = openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
+        input_schema = (
+            openapi_schema.get("components", {}).get("schemas", {}).get("Input", {})
+        )
 
         # Extract properties and required fields
         properties = input_schema.get("properties", {})
@@ -3912,38 +4217,41 @@ async def api_get_audio_model_schema(model_owner: str, model_name: str):
         return {
             "input_schema": properties,
             "required": required,
-            "version": version_id  # Include version ID for predictions
+            "version": version_id,  # Include version ID for predictions
         }
     except Exception as e:
-        print(f"Error fetching schema for audio model {model_owner}/{model_name}: {str(e)}")
+        print(
+            f"Error fetching schema for audio model {model_owner}/{model_name}: {str(e)}"
+        )
         import traceback
+
         traceback.print_exc()
         return {"input_schema": {"prompt": {"type": "string"}}}
 
+
 @app.get("/api/images/{image_id}/data")
-async def api_get_image_data(
-    image_id: int
-):
+async def api_get_image_data(image_id: int):
     """Get the binary image data from database. Public endpoint for external services."""
     from .database import get_db
 
     with get_db() as conn:
         row = conn.execute(
-            "SELECT image_data FROM generated_images WHERE id = ?",
-            (image_id,)
+            "SELECT image_data FROM generated_images WHERE id = ?", (image_id,)
         ).fetchone()
 
         if not row or not row["image_data"]:
-            raise HTTPException(status_code=404, detail=f"Image data not found for ID {image_id}")
+            raise HTTPException(
+                status_code=404, detail=f"Image data not found for ID {image_id}"
+            )
 
         # Return binary image data
         from fastapi.responses import Response
+
         return Response(content=row["image_data"], media_type="image/png")
 
+
 @app.get("/api/images/{image_id}/thumbnail")
-async def api_get_image_thumbnail(
-    image_id: int
-):
+async def api_get_image_thumbnail(image_id: int):
     """Get a thumbnail (400px width) of the image for gallery display. Public endpoint."""
     from .database import get_db
     from PIL import Image
@@ -3951,12 +4259,13 @@ async def api_get_image_thumbnail(
 
     with get_db() as conn:
         row = conn.execute(
-            "SELECT image_data FROM generated_images WHERE id = ?",
-            (image_id,)
+            "SELECT image_data FROM generated_images WHERE id = ?", (image_id,)
         ).fetchone()
 
         if not row or not row["image_data"]:
-            raise HTTPException(status_code=404, detail=f"Image data not found for ID {image_id}")
+            raise HTTPException(
+                status_code=404, detail=f"Image data not found for ID {image_id}"
+            )
 
         # Load image and create thumbnail
         image = Image.open(io.BytesIO(row["image_data"]))
@@ -3970,17 +4279,17 @@ async def api_get_image_thumbnail(
 
         # Convert to bytes
         output = io.BytesIO()
-        image.save(output, format='JPEG', quality=85, optimize=True)
+        image.save(output, format="JPEG", quality=85, optimize=True)
         thumbnail_data = output.getvalue()
 
         # Return thumbnail
         from fastapi.responses import Response
+
         return Response(content=thumbnail_data, media_type="image/jpeg")
 
+
 @app.get("/api/videos/{video_id}/thumbnail")
-async def api_get_video_thumbnail(
-    video_id: int
-):
+async def api_get_video_thumbnail(video_id: int):
     """Return cached thumbnail or generate on-the-fly if not cached. Public endpoint for gallery."""
     import tempfile
     import subprocess
@@ -3990,20 +4299,25 @@ async def api_get_video_thumbnail(
     with get_db() as conn:
         row = conn.execute(
             "SELECT video_data, thumbnail_data FROM generated_videos WHERE id = ?",
-            (video_id,)
+            (video_id,),
         ).fetchone()
 
         if not row:
-            raise HTTPException(status_code=404, detail=f"Video not found for ID {video_id}")
+            raise HTTPException(
+                status_code=404, detail=f"Video not found for ID {video_id}"
+            )
 
         # Return cached thumbnail if available
         if row["thumbnail_data"]:
             from fastapi.responses import Response
+
             return Response(content=row["thumbnail_data"], media_type="image/jpeg")
 
         # Fallback: generate thumbnail on-the-fly if not cached
         if not row["video_data"]:
-            raise HTTPException(status_code=404, detail=f"Video data not found for ID {video_id}")
+            raise HTTPException(
+                status_code=404, detail=f"Video data not found for ID {video_id}"
+            )
 
         video_data = row["video_data"]
 
@@ -4012,24 +4326,29 @@ async def api_get_video_thumbnail(
         """Blocking thumbnail generation - runs in thread pool"""
         import os
 
-        with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as video_file:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as video_file:
             video_file.write(video_data)
             video_path = video_file.name
 
-        with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as thumb_file:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as thumb_file:
             thumb_path = thumb_file.name
 
         try:
             # Extract frame at 1 second using ffmpeg
             cmd = [
-                'ffmpeg',
-                '-i', video_path,
-                '-ss', '1.0',  # Seek to 1 second
-                '-vframes', '1',  # Extract 1 frame
-                '-vf', 'scale=400:-1',  # Resize to 400px width, maintain aspect ratio
-                '-q:v', '2',  # High quality JPEG
-                '-y',
-                thumb_path
+                "ffmpeg",
+                "-i",
+                video_path,
+                "-ss",
+                "1.0",  # Seek to 1 second
+                "-vframes",
+                "1",  # Extract 1 frame
+                "-vf",
+                "scale=400:-1",  # Resize to 400px width, maintain aspect ratio
+                "-q:v",
+                "2",  # High quality JPEG
+                "-y",
+                thumb_path,
             ]
 
             result = subprocess.run(cmd, capture_output=True, timeout=10)
@@ -4038,14 +4357,14 @@ async def api_get_video_thumbnail(
                 raise Exception("FFmpeg failed to generate thumbnail")
 
             # Read thumbnail
-            with open(thumb_path, 'rb') as f:
+            with open(thumb_path, "rb") as f:
                 thumbnail_bytes = f.read()
 
             # Cache the generated thumbnail in the database for future requests
             with get_db() as conn:
                 conn.execute(
                     "UPDATE generated_videos SET thumbnail_data = ? WHERE id = ?",
-                    (thumbnail_bytes, video_id)
+                    (thumbnail_bytes, video_id),
                 )
                 conn.commit()
 
@@ -4067,31 +4386,32 @@ async def api_get_video_thumbnail(
         thumbnail_data = await asyncio.to_thread(generate_thumbnail)
 
         from fastapi.responses import Response
+
         return Response(content=thumbnail_data, media_type="image/jpeg")
 
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="Thumbnail generation timed out")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error generating thumbnail: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Error generating thumbnail: {str(e)}"
+        )
 
 
 @app.get("/api/videos/{video_id}/data")
 @app.get("/api/videos/{video_id}/data.mp4")
-async def api_get_video_data(
-    video_id: int,
-    request: Request
-):
+async def api_get_video_data(video_id: int, request: Request):
     """Get the binary video data from database with HTTP Range support for streaming."""
     from .database import get_db
 
     with get_db() as conn:
         row = conn.execute(
-            "SELECT video_data FROM generated_videos WHERE id = ?",
-            (video_id,)
+            "SELECT video_data FROM generated_videos WHERE id = ?", (video_id,)
         ).fetchone()
 
         if not row or not row["video_data"]:
-            raise HTTPException(status_code=404, detail=f"Video data not found for ID {video_id}")
+            raise HTTPException(
+                status_code=404, detail=f"Video data not found for ID {video_id}"
+            )
 
         video_data = row["video_data"]
         file_size = len(video_data)
@@ -4108,14 +4428,17 @@ async def api_get_video_data(
 
                 # Validate range
                 if start >= file_size or end >= file_size or start > end:
-                    raise HTTPException(status_code=416, detail="Requested range not satisfiable")
+                    raise HTTPException(
+                        status_code=416, detail="Requested range not satisfiable"
+                    )
 
                 # Extract requested chunk
-                chunk = video_data[start:end + 1]
+                chunk = video_data[start : end + 1]
                 chunk_size = len(chunk)
 
                 # Return 206 Partial Content with range headers
                 from fastapi.responses import Response
+
                 return Response(
                     content=chunk,
                     status_code=206,
@@ -4124,7 +4447,7 @@ async def api_get_video_data(
                         "Content-Range": f"bytes {start}-{end}/{file_size}",
                         "Accept-Ranges": "bytes",
                         "Content-Length": str(chunk_size),
-                    }
+                    },
                 )
             except (ValueError, IndexError):
                 # Invalid range format, fall through to full file response
@@ -4132,19 +4455,18 @@ async def api_get_video_data(
 
         # Return full video data (200 OK) if no range or invalid range
         from fastapi.responses import Response
+
         return Response(
             content=video_data,
             media_type="video/mp4",
             headers={
                 "Accept-Ranges": "bytes",
                 "Content-Length": str(file_size),
-            }
+            },
         )
 
-def process_video_combination_background(
-    video_id: int,
-    source_video_ids: List[int]
-):
+
+def process_video_combination_background(video_id: int, source_video_ids: List[int]):
     """Background task to combine videos using ffmpeg and store in database."""
     import tempfile
     import subprocess
@@ -4162,14 +4484,17 @@ def process_video_combination_background(
                     # Get video data from database
                     row = conn.execute(
                         "SELECT video_data FROM generated_videos WHERE id = ?",
-                        (source_id,)
+                        (source_id,),
                     ).fetchone()
 
                     if not row or not row["video_data"]:
                         # Mark as failed
                         conn.execute(
                             "UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?",
-                            (f"Source video {source_id} not found in blob storage", video_id)
+                            (
+                                f"Source video {source_id} not found in blob storage",
+                                video_id,
+                            ),
                         )
                         conn.commit()
                         print(f"Failed: Source video {source_id} not found")
@@ -4179,7 +4504,9 @@ def process_video_combination_background(
                     video_file = temp_path / f"video_{idx}.mp4"
                     video_file.write_bytes(row["video_data"])
                     video_files.append(video_file)
-                    print(f"Loaded video {source_id} from blob storage ({len(row['video_data'])} bytes)")
+                    print(
+                        f"Loaded video {source_id} from blob storage ({len(row['video_data'])} bytes)"
+                    )
 
             # Create concat file for ffmpeg
             concat_file = temp_path / "concat.txt"
@@ -4191,11 +4518,15 @@ def process_video_combination_background(
             output_file = temp_path / "combined.mp4"
             cmd = [
                 "ffmpeg",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_file),
-                "-c", "copy",
-                str(output_file)
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-c",
+                "copy",
+                str(output_file),
             ]
 
             print(f"Running ffmpeg on server: {' '.join(cmd)}")
@@ -4207,7 +4538,7 @@ def process_video_combination_background(
                 with get_db() as conn:
                     conn.execute(
                         "UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?",
-                        (f"FFmpeg failed: {result.stderr[:500]}", video_id)
+                        (f"FFmpeg failed: {result.stderr[:500]}", video_id),
                     )
                     conn.commit()
                 return
@@ -4224,7 +4555,7 @@ def process_video_combination_background(
                            video_data = ?,
                            video_url = ?
                        WHERE id = ?""",
-                    (combined_data, f"/api/videos/{video_id}/data", video_id)
+                    (combined_data, f"/api/videos/{video_id}/data", video_id),
                 )
                 conn.commit()
                 print(f"Video {video_id} completed and stored in database")
@@ -4232,23 +4563,25 @@ def process_video_combination_background(
     except Exception as e:
         print(f"Error combining videos: {str(e)}")
         import traceback
+
         traceback.print_exc()
         # Mark as failed
         try:
             with get_db() as conn:
                 conn.execute(
                     "UPDATE generated_videos SET status = 'failed', error_message = ? WHERE id = ?",
-                    (str(e)[:500], video_id)
+                    (str(e)[:500], video_id),
                 )
                 conn.commit()
         except:
             pass
 
+
 @app.post("/api/videos/combine")
 async def api_combine_videos(
     video_ids: List[int],
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """Combine multiple videos into one using ffmpeg server-side with blob storage.
 
@@ -4264,8 +4597,7 @@ async def api_combine_videos(
     with get_db() as conn:
         for vid_id in video_ids:
             row = conn.execute(
-                "SELECT id FROM generated_videos WHERE id = ?",
-                (vid_id,)
+                "SELECT id FROM generated_videos WHERE id = ?", (vid_id,)
             ).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail=f"Video {vid_id} not found")
@@ -4278,14 +4610,12 @@ async def api_combine_videos(
         model_id="ffmpeg-concat",
         parameters={"source_video_ids": video_ids},
         status="processing",
-        metadata={"source_videos": video_ids, "combination_type": "concat"}
+        metadata={"source_videos": video_ids, "combination_type": "concat"},
     )
 
     # Process in background
     background_tasks.add_task(
-        process_video_combination_background,
-        new_video_id,
-        video_ids
+        process_video_combination_background, new_video_id, video_ids
     )
 
     # Return the new video ID immediately
@@ -4294,13 +4624,12 @@ async def api_combine_videos(
         "status": "processing",
         "message": "Video combination started. Check status at /api/videos/{id}",
         "video_url": f"/api/videos/{new_video_id}/data",
-        "source_videos": video_ids
+        "source_videos": video_ids,
     }
 
+
 @app.get("/api/admin/storage/stats")
-async def api_get_storage_stats(
-    current_user: Dict = Depends(get_current_admin_user)
-):
+async def api_get_storage_stats(current_user: Dict = Depends(get_current_admin_user)):
     """Get video storage statistics. Admin only."""
     from pathlib import Path
     import os
@@ -4314,12 +4643,16 @@ async def api_get_storage_stats(
             "total_size_mb": 0,
             "total_size_gb": 0,
             "videos_directory": str(videos_dir),
-            "directory_exists": False
+            "directory_exists": False,
         }
 
     # Count files and calculate total size
-    video_files = list(videos_dir.glob("*.mp4")) + list(videos_dir.glob("*.mov")) + \
-                  list(videos_dir.glob("*.avi")) + list(videos_dir.glob("*.webm"))
+    video_files = (
+        list(videos_dir.glob("*.mp4"))
+        + list(videos_dir.glob("*.mov"))
+        + list(videos_dir.glob("*.avi"))
+        + list(videos_dir.glob("*.webm"))
+    )
 
     total_size = sum(f.stat().st_size for f in video_files if f.is_file())
 
@@ -4335,16 +4668,18 @@ async def api_get_storage_stats(
                 "filename": f.name,
                 "size_bytes": f.stat().st_size,
                 "size_mb": round(f.stat().st_size / (1024 * 1024), 2),
-                "created": f.stat().st_ctime
+                "created": f.stat().st_ctime,
             }
-            for f in sorted(video_files, key=lambda x: x.stat().st_ctime, reverse=True)[:20]
-        ]
+            for f in sorted(video_files, key=lambda x: x.stat().st_ctime, reverse=True)[
+                :20
+            ]
+        ],
     }
+
 
 @app.delete("/api/admin/storage/videos/{video_id}")
 async def api_delete_video_file(
-    video_id: int,
-    current_user: Dict = Depends(get_current_admin_user)
+    video_id: int, current_user: Dict = Depends(get_current_admin_user)
 ):
     """Delete a video file and database record. Admin only."""
     from pathlib import Path
@@ -4368,15 +4703,18 @@ async def api_delete_video_file(
 
     # Delete database record
     from .database import delete_video
+
     if delete_video(video_id):
         return {"success": True, "message": f"Video {video_id} deleted"}
     else:
-        raise HTTPException(status_code=500, detail="Failed to delete video from database")
+        raise HTTPException(
+            status_code=500, detail="Failed to delete video from database"
+        )
+
 
 @app.post("/api/upload-image")
 async def upload_image(
-    file: UploadFile = File(...),
-    current_user: Dict = Depends(verify_auth)
+    file: UploadFile = File(...), current_user: Dict = Depends(verify_auth)
 ):
     """Upload an image file and return its URL. Requires authentication."""
     import uuid
@@ -4387,7 +4725,7 @@ async def upload_image(
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type: {file.content_type}. Allowed types: {', '.join(allowed_types)}"
+            detail=f"Invalid file type: {file.content_type}. Allowed types: {', '.join(allowed_types)}",
         )
 
     # Create uploads directory
@@ -4411,7 +4749,7 @@ async def upload_image(
         if len(contents) > max_size:
             raise HTTPException(
                 status_code=400,
-                detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB"
+                detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB",
             )
 
         with open(file_path, "wb") as f:
@@ -4422,25 +4760,24 @@ async def upload_image(
 
         # For local development, return data URL since Replicate can't access localhost
         # For production (HTTPS), return HTTP URL
-        if base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
+        if base_url.startswith("http://localhost") or base_url.startswith(
+            "http://127.0.0.1"
+        ):
             import base64
+
             # Create data URL for Replicate API (works in local dev)
-            data_url = f"data:{file.content_type};base64,{base64.b64encode(contents).decode()}"
-            print(f"Uploaded image (local dev): {file_path} -> data URL ({len(contents)} bytes)")
-            return {
-                "success": True,
-                "url": data_url,
-                "filename": unique_filename
-            }
+            data_url = (
+                f"data:{file.content_type};base64,{base64.b64encode(contents).decode()}"
+            )
+            print(
+                f"Uploaded image (local dev): {file_path} -> data URL ({len(contents)} bytes)"
+            )
+            return {"success": True, "url": data_url, "filename": unique_filename}
         else:
             # Production: return HTTP URL
             image_url = f"{base_url}/data/uploads/{unique_filename}"
             print(f"Uploaded image: {file_path} -> {image_url}")
-            return {
-                "success": True,
-                "url": image_url,
-                "filename": unique_filename
-            }
+            return {"success": True, "url": image_url, "filename": unique_filename}
 
     except Exception as e:
         # Clean up file if it was created
@@ -4451,18 +4788,24 @@ async def upload_image(
 
 @app.post("/api/upload-video")
 async def upload_video(
-    file: UploadFile = File(...),
-    current_user: Dict = Depends(verify_auth)
+    file: UploadFile = File(...), current_user: Dict = Depends(verify_auth)
 ):
     """Upload a video file, store in database as blob, and return its URL. Requires authentication."""
     from .database import get_db
 
     # Validate file type
-    allowed_types = ["video/mp4", "video/mpeg", "video/quicktime", "video/x-msvideo", "video/x-matroska", "video/webm"]
+    allowed_types = [
+        "video/mp4",
+        "video/mpeg",
+        "video/quicktime",
+        "video/x-msvideo",
+        "video/x-matroska",
+        "video/webm",
+    ]
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type: {file.content_type}. Allowed types: {', '.join(allowed_types)}"
+            detail=f"Invalid file type: {file.content_type}. Allowed types: {', '.join(allowed_types)}",
         )
 
     # Read file contents
@@ -4474,7 +4817,7 @@ async def upload_video(
         if len(contents) > max_size:
             raise HTTPException(
                 status_code=400,
-                detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB"
+                detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB",
             )
 
         # Store video in database as blob with collection "upload"
@@ -4493,8 +4836,8 @@ async def upload_video(
                     "{}",
                     "upload",  # Special collection for uploaded videos
                     "completed",
-                    contents
-                )
+                    contents,
+                ),
             )
             upload_id = cursor.lastrowid
 
@@ -4503,7 +4846,7 @@ async def upload_video(
             video_url = f"/api/videos/{upload_id}/data.mp4"
             conn.execute(
                 "UPDATE generated_videos SET video_url = ? WHERE id = ?",
-                (video_url, upload_id)
+                (video_url, upload_id),
             )
             conn.commit()
 
@@ -4512,25 +4855,26 @@ async def upload_video(
 
         # For local development, return data URL since Replicate can't access localhost
         # For production (HTTPS), return HTTP URL that serves from database
-        if base_url.startswith("http://localhost") or base_url.startswith("http://127.0.0.1"):
+        if base_url.startswith("http://localhost") or base_url.startswith(
+            "http://127.0.0.1"
+        ):
             import base64
+
             # Create data URL for Replicate API (works in local dev)
-            data_url = f"data:{file.content_type};base64,{base64.b64encode(contents).decode()}"
-            print(f"Uploaded video (local dev, blob ID {upload_id}): data URL ({len(contents)} bytes)")
-            return {
-                "success": True,
-                "url": data_url,
-                "id": upload_id
-            }
+            data_url = (
+                f"data:{file.content_type};base64,{base64.b64encode(contents).decode()}"
+            )
+            print(
+                f"Uploaded video (local dev, blob ID {upload_id}): data URL ({len(contents)} bytes)"
+            )
+            return {"success": True, "url": data_url, "id": upload_id}
         else:
             # Production: return HTTP URL that serves blob from database (with .mp4 extension)
             full_video_url = f"{base_url}{video_url}"
-            print(f"Uploaded video to database (blob ID {upload_id}): {full_video_url} ({len(contents)} bytes)")
-            return {
-                "success": True,
-                "url": full_video_url,
-                "id": upload_id
-            }
+            print(
+                f"Uploaded video to database (blob ID {upload_id}): {full_video_url} ({len(contents)} bytes)"
+            )
+            return {"success": True, "url": full_video_url, "id": upload_id}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to upload video: {str(e)}")
@@ -4540,17 +4884,28 @@ async def upload_video(
 # V2 Asset Upload Endpoints
 # ============================================================================
 
-@app.post("/api/v2/upload-asset", tags=["Asset Management"], response_model=Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset])
+
+@app.post(
+    "/api/v2/upload-asset",
+    tags=["Asset Management"],
+    response_model=Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset],
+)
 @limiter.limit("10/minute")
 async def upload_asset_v2(
     request: Request,
     file: UploadFile = File(...),
-    clientId: str = Form(...),  # REQUIRED - every asset must be associated with a client
+    clientId: str = Form(
+        ...
+    ),  # REQUIRED - every asset must be associated with a client
     campaignId: Optional[str] = Form(None),
     name: Optional[str] = Form(None),
-    type: Optional[str] = Form(None),  # Optional: "image", "video", "audio", or "document" - if empty, inferred from filetype
-    tags: Optional[str] = Form(None),  # Optional: JSON array string of tags, e.g., '["brand", "logo"]'
-    current_user: Dict = Depends(verify_auth)
+    type: Optional[str] = Form(
+        None
+    ),  # Optional: "image", "video", "audio", or "document" - if empty, inferred from filetype
+    tags: Optional[str] = Form(
+        None
+    ),  # Optional: JSON array string of tags, e.g., '["brand", "logo"]'
+    current_user: Dict = Depends(verify_auth),
 ) -> Asset:
     """
     Upload a media asset (image, video, audio, or document).
@@ -4583,7 +4938,7 @@ async def upload_asset_v2(
         if type not in allowed_asset_types:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid type: {type}. Must be one of: {', '.join(allowed_asset_types)}"
+                detail=f"Invalid type: {type}. Must be one of: {', '.join(allowed_asset_types)}",
             )
 
     # Parse tags if provided
@@ -4594,32 +4949,36 @@ async def upload_asset_v2(
             if not isinstance(parsed_tags, list):
                 raise HTTPException(
                     status_code=400,
-                    detail="Tags must be a JSON array of strings, e.g., '[\"brand\", \"logo\"]'"
+                    detail='Tags must be a JSON array of strings, e.g., \'["brand", "logo"]\'',
                 )
             # Validate all tags are strings
             if not all(isinstance(tag, str) for tag in parsed_tags):
-                raise HTTPException(
-                    status_code=400,
-                    detail="All tags must be strings"
-                )
+                raise HTTPException(status_code=400, detail="All tags must be strings")
         except json.JSONDecodeError:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid tags format. Must be valid JSON array, e.g., '[\"brand\", \"logo\"]'"
+                detail='Invalid tags format. Must be valid JSON array, e.g., \'["brand", "logo"]\'',
             )
 
     # Validate file type
     allowed_types = {
-        "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
-        "video/mp4", "video/quicktime",
-        "audio/mpeg", "audio/mp3", "audio/wav",
-        "application/pdf"
+        "image/jpeg",
+        "image/jpg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "video/mp4",
+        "video/quicktime",
+        "audio/mpeg",
+        "audio/mp3",
+        "audio/wav",
+        "application/pdf",
     }
 
     if file.content_type not in allowed_types:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid file type: {file.content_type}. Allowed: images (jpg, png, gif, webp), videos (mp4, mov), audio (mp3, wav), documents (pdf)"
+            detail=f"Invalid file type: {file.content_type}. Allowed: images (jpg, png, gif, webp), videos (mp4, mov), audio (mp3, wav), documents (pdf)",
         )
 
     # Read file contents
@@ -4629,7 +4988,9 @@ async def upload_asset_v2(
         raise HTTPException(status_code=400, detail=f"Failed to read file: {str(e)}")
 
     # Log upload details for debugging
-    logger.info(f"Upload: filename={file.filename}, content_type={file.content_type}, size={len(contents)} bytes")
+    logger.info(
+        f"Upload: filename={file.filename}, content_type={file.content_type}, size={len(contents)} bytes"
+    )
 
     # Validate file size (max 50MB)
     max_size = 50 * 1024 * 1024  # 50MB
@@ -4637,7 +4998,7 @@ async def upload_asset_v2(
     if size_bytes > max_size:
         raise HTTPException(
             status_code=400,
-            detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB"
+            detail=f"File too large. Maximum size is {max_size / (1024 * 1024)}MB",
         )
 
     # Determine file extension
@@ -4655,7 +5016,7 @@ async def upload_asset_v2(
             "audio/mpeg": ".mp3",
             "audio/mp3": ".mp3",
             "audio/wav": ".wav",
-            "application/pdf": ".pdf"
+            "application/pdf": ".pdf",
         }
         file_ext = ext_map.get(file.content_type, ".bin")
 
@@ -4663,7 +5024,9 @@ async def upload_asset_v2(
     asset_id = str(uuid.uuid4())
     user_id = current_user["id"]
 
-    logger.info(f"Asset upload started: {asset_id} ({size_bytes} bytes) by user {user_id}")
+    logger.info(
+        f"Asset upload started: {asset_id} ({size_bytes} bytes) by user {user_id}"
+    )
 
     # Extract metadata from bytes (use temp file only for video/audio which need ffprobe)
     metadata = {}
@@ -4675,18 +5038,18 @@ async def upload_asset_v2(
 
         file_format = get_file_format("", file.content_type)
         if file_ext:
-            file_format = file_ext.lstrip('.')
+            file_format = file_ext.lstrip(".")
 
         inferred_asset_type = determine_asset_type(file.content_type, file_format)
 
         metadata = {
-            'asset_type': inferred_asset_type,
-            'format': file_format,
-            'size': size_bytes
+            "asset_type": inferred_asset_type,
+            "format": file_format,
+            "size": size_bytes,
         }
 
         # Extract type-specific metadata
-        if inferred_asset_type == 'image':
+        if inferred_asset_type == "image":
             # Extract image metadata from bytes using PIL
             try:
                 from PIL import Image
@@ -4694,31 +5057,35 @@ async def upload_asset_v2(
 
                 img = Image.open(BytesIO(contents))
                 width, height = img.size
-                metadata['width'] = width
-                metadata['height'] = height
+                metadata["width"] = width
+                metadata["height"] = height
                 img.close()
                 logger.info(f"Extracted image metadata: {width}x{height}")
             except Exception as e:
                 logger.warning(f"Failed to extract image metadata: {e}")
 
-        elif inferred_asset_type in ['video', 'audio']:
+        elif inferred_asset_type in ["video", "audio"]:
             # For video/audio, we need a temp file for ffprobe
             # Create temp file, extract metadata, then delete
             import tempfile
 
             try:
-                with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as temp_file:
+                with tempfile.NamedTemporaryFile(
+                    suffix=file_ext, delete=False
+                ) as temp_file:
                     temp_file.write(contents)
                     temp_file_path = temp_file.name
 
                 # Extract metadata using the temp file
-                if inferred_asset_type == 'video':
+                if inferred_asset_type == "video":
                     from backend.asset_metadata import extract_video_metadata
+
                     video_meta = extract_video_metadata(temp_file_path)
                     metadata.update(video_meta)
                     logger.info(f"Extracted video metadata: {video_meta}")
                 else:  # audio
                     from backend.asset_metadata import extract_audio_metadata
+
                     audio_meta = extract_audio_metadata(temp_file_path)
                     metadata.update(audio_meta)
                     logger.info(f"Extracted audio metadata: {audio_meta}")
@@ -4734,13 +5101,13 @@ async def upload_asset_v2(
     except Exception as e:
         logger.warning(f"Metadata extraction failed: {e}")
         metadata = {
-            'asset_type': 'document',
-            'format': file_ext.lstrip('.'),
-            'size': size_bytes
+            "asset_type": "document",
+            "format": file_ext.lstrip("."),
+            "size": size_bytes,
         }
 
     # Use provided type parameter if given, otherwise use inferred type (fallback to 'document')
-    asset_type = type if type else metadata.get('asset_type', 'document')
+    asset_type = type if type else metadata.get("asset_type", "document")
 
     # Note: Thumbnail generation for videos is skipped in blob-only mode
     # Videos are stored entirely in database, thumbnails would require complex temp file handling
@@ -4759,23 +5126,25 @@ async def upload_asset_v2(
             name=display_name,
             asset_type=asset_type,  # Use the determined asset_type (from param or inferred)
             url=asset_url,
-            format=metadata.get('format', file_ext.lstrip('.')),
+            format=metadata.get("format", file_ext.lstrip(".")),
             size=size_bytes,
             user_id=user_id,
             client_id=clientId,
             campaign_id=campaignId,
             tags=parsed_tags,  # Pass the parsed tags array
-            width=metadata.get('width'),
-            height=metadata.get('height'),
-            duration=metadata.get('duration'),
+            width=metadata.get("width"),
+            height=metadata.get("height"),
+            duration=metadata.get("duration"),
             thumbnail_url=thumbnail_url,
             waveform_url=None,  # TODO: Implement waveform generation for audio
-            page_count=metadata.get('pageCount'),
+            page_count=metadata.get("pageCount"),
             asset_id=asset_id,  # Pass the pre-generated asset_id
-            blob_data=contents  # CRITICAL: Store file contents in database BLOB
+            blob_data=contents,  # CRITICAL: Store file contents in database BLOB
         )
 
-        logger.info(f"Asset saved to database: {asset_id} (blob: {len(contents)} bytes)")
+        logger.info(
+            f"Asset saved to database: {asset_id} (blob: {len(contents)} bytes)"
+        )
     except Exception as e:
         # No filesystem cleanup needed - everything is in memory/database
         logger.error(f"Failed to save asset to database: {e}")
@@ -4783,6 +5152,7 @@ async def upload_asset_v2(
 
     # Fetch the created asset to return full discriminated union object
     from backend.database_helpers import get_asset_by_id as get_asset_by_id_helper
+
     created_asset = get_asset_by_id_helper(db_asset_id)
 
     if not created_asset:
@@ -4790,11 +5160,9 @@ async def upload_asset_v2(
 
     return created_asset
 
+
 @app.get("/api/v2/assets/{asset_id}/data", tags=["Asset Management"])
-async def get_asset_data_v2(
-    asset_id: str,
-    current_user: Dict = Depends(verify_auth)
-):
+async def get_asset_data_v2(asset_id: str, current_user: Dict = Depends(verify_auth)):
     """
     Serve uploaded asset binary data from database blob storage.
 
@@ -4815,42 +5183,42 @@ async def get_asset_data_v2(
 
     # Get blob data from database
     from backend.database import get_db
+
     with get_db() as conn:
         row = conn.execute(
-            "SELECT blob_data FROM assets WHERE id = ?",
-            (asset_id,)
+            "SELECT blob_data FROM assets WHERE id = ?", (asset_id,)
         ).fetchone()
 
         if not row or not row["blob_data"]:
             raise HTTPException(
                 status_code=404,
-                detail="Asset binary data not found in database. Asset may have been uploaded before blob storage migration."
+                detail="Asset binary data not found in database. Asset may have been uploaded before blob storage migration.",
             )
 
         blob_data = row["blob_data"]
 
     # Determine media type from asset type and format
     type_map = {
-        'image': 'image',
-        'video': 'video',
-        'audio': 'audio',
-        'document': 'application'
+        "image": "image",
+        "video": "video",
+        "audio": "audio",
+        "document": "application",
     }
-    base_type = type_map.get(asset.type, 'application')
+    base_type = type_map.get(asset.type, "application")
 
     # Format-specific media types
     format_lower = asset.format.lower()
     media_type_map = {
-        'jpg': 'image/jpeg',
-        'jpeg': 'image/jpeg',
-        'png': 'image/png',
-        'gif': 'image/gif',
-        'webp': 'image/webp',
-        'mp4': 'video/mp4',
-        'mov': 'video/quicktime',
-        'mp3': 'audio/mpeg',
-        'wav': 'audio/wav',
-        'pdf': 'application/pdf',
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "gif": "image/gif",
+        "webp": "image/webp",
+        "mp4": "video/mp4",
+        "mov": "video/quicktime",
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "pdf": "application/pdf",
     }
 
     media_type = media_type_map.get(format_lower, f"{base_type}/{format_lower}")
@@ -4862,14 +5230,13 @@ async def get_asset_data_v2(
         headers={
             "Content-Disposition": f'inline; filename="{asset.name}"',
             "Cache-Control": "public, max-age=31536000",  # Cache for 1 year
-        }
+        },
     )
 
 
 @app.get("/api/v2/assets/{asset_id}/thumbnail", tags=["Asset Management"])
 async def get_asset_thumbnail_v2(
-    asset_id: str,
-    current_user: Dict = Depends(verify_auth)
+    asset_id: str, current_user: Dict = Depends(verify_auth)
 ):
     """
     Serve the thumbnail for a video or document asset.
@@ -4889,11 +5256,13 @@ async def get_asset_thumbnail_v2(
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Check if asset has a thumbnail (only VideoAsset and DocumentAsset have thumbnailUrl)
-    if not hasattr(asset, 'thumbnailUrl') or not asset.thumbnailUrl:
+    if not hasattr(asset, "thumbnailUrl") or not asset.thumbnailUrl:
         raise HTTPException(status_code=404, detail="Asset does not have a thumbnail")
 
     # Security: Validate asset_id is a valid UUID (prevents path traversal)
-    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+    )
     if not uuid_pattern.match(asset_id):
         raise HTTPException(status_code=400, detail="Invalid asset ID format")
 
@@ -4917,21 +5286,22 @@ async def get_asset_thumbnail_v2(
     return FileResponse(
         path=str(thumbnail_path),
         media_type="image/jpeg",
-        filename=f"{asset.name}_thumbnail.jpg"
+        filename=f"{asset.name}_thumbnail.jpg",
     )
 
+
 @app.delete("/api/v2/assets/{asset_id}", tags=["Asset Management"])
-async def delete_asset_v2(
-    asset_id: str,
-    current_user: Dict = Depends(verify_auth)
-):
+async def delete_asset_v2(asset_id: str, current_user: Dict = Depends(verify_auth)):
     """
     Delete an uploaded asset.
     Only the owner can delete their assets.
     """
     import os
     import re
-    from backend.database_helpers import get_asset_by_id as get_asset_helper, delete_asset as delete_asset_helper
+    from backend.database_helpers import (
+        get_asset_by_id as get_asset_helper,
+        delete_asset as delete_asset_helper,
+    )
 
     # Get asset metadata to verify ownership
     asset = get_asset_helper(asset_id)
@@ -4940,20 +5310,26 @@ async def delete_asset_v2(
 
     # Verify ownership
     if asset.userId != str(current_user["id"]):
-        raise HTTPException(status_code=403, detail="You don't have permission to delete this asset")
+        raise HTTPException(
+            status_code=403, detail="You don't have permission to delete this asset"
+        )
 
     # Security: Validate and sanitize file format (prevents path traversal)
     format_clean = validate_and_sanitize_format(asset.format)
 
     # Security: Validate asset_id is a valid UUID (prevents path traversal)
-    uuid_pattern = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+    )
     if not uuid_pattern.match(asset_id):
         raise HTTPException(status_code=400, detail="Invalid asset ID format")
 
     # Delete from database first
     deleted = delete_asset_helper(asset_id)
     if not deleted:
-        raise HTTPException(status_code=500, detail="Failed to delete asset from database")
+        raise HTTPException(
+            status_code=500, detail="Failed to delete asset from database"
+        )
 
     # Delete file from disk with sanitized path
     uploads_base = Path(__file__).parent / "DATA" / "assets"
@@ -4983,25 +5359,30 @@ async def delete_asset_v2(
     thumbnail_path = uploads_base / f"{asset_id}_thumb.jpg"
     try:
         thumbnail_path_resolved = thumbnail_path.resolve()
-        if str(thumbnail_path_resolved).startswith(str(uploads_base_resolved)) and thumbnail_path.exists():
+        if (
+            str(thumbnail_path_resolved).startswith(str(uploads_base_resolved))
+            and thumbnail_path.exists()
+        ):
             os.remove(thumbnail_path)
             logger.info(f"Deleted thumbnail: {thumbnail_path}")
     except Exception as e:
         logger.warning(f"Failed to delete thumbnail {thumbnail_path}: {e}")
 
-    return {
-        "success": True,
-        "message": f"Asset {asset_id} deleted successfully"
-    }
+    return {"success": True, "message": f"Asset {asset_id} deleted successfully"}
 
-@app.get("/api/v2/assets", tags=["Asset Management"], response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]])
+
+@app.get(
+    "/api/v2/assets",
+    tags=["Asset Management"],
+    response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]],
+)
 async def list_assets_v2(
     current_user: Dict = Depends(verify_auth),
     clientId: Optional[str] = Query(None),
     campaignId: Optional[str] = Query(None),
     asset_type: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
 ) -> List[Asset]:
     """
     List assets with optional filtering.
@@ -5023,19 +5404,25 @@ async def list_assets_v2(
         campaign_id=campaignId,
         asset_type=asset_type,
         limit=limit,
-        offset=offset
+        offset=offset,
     )
 
     return assets
 
 
-@app.get("/api/v2/clients/{client_id}/assets", tags=["Asset Management"], response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]])
+@app.get(
+    "/api/v2/clients/{client_id}/assets",
+    tags=["Asset Management"],
+    response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]],
+)
 async def get_client_assets(
     client_id: str,
     current_user: Dict = Depends(verify_auth),
-    asset_type: Optional[str] = Query(None, description="Filter by type: image, video, audio, document"),
+    asset_type: Optional[str] = Query(
+        None, description="Filter by type: image, video, audio, document"
+    ),
     limit: int = Query(50, ge=1, le=100, description="Maximum results"),
-    offset: int = Query(0, ge=0, description="Pagination offset")
+    offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> List[Asset]:
     """
     Get all assets associated with a specific client.
@@ -5058,19 +5445,25 @@ async def get_client_assets(
         campaign_id=None,  # Get all assets for client regardless of campaign
         asset_type=asset_type,
         limit=limit,
-        offset=offset
+        offset=offset,
     )
 
     return assets
 
 
-@app.get("/api/v2/campaigns/{campaign_id}/assets", tags=["Asset Management"], response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]])
+@app.get(
+    "/api/v2/campaigns/{campaign_id}/assets",
+    tags=["Asset Management"],
+    response_model=List[Union[ImageAsset, VideoAsset, AudioAsset, DocumentAsset]],
+)
 async def get_campaign_assets(
     campaign_id: str,
     current_user: Dict = Depends(verify_auth),
-    asset_type: Optional[str] = Query(None, description="Filter by type: image, video, audio, document"),
+    asset_type: Optional[str] = Query(
+        None, description="Filter by type: image, video, audio, document"
+    ),
     limit: int = Query(50, ge=1, le=100, description="Maximum results"),
-    offset: int = Query(0, ge=0, description="Pagination offset")
+    offset: int = Query(0, ge=0, description="Pagination offset"),
 ) -> List[Asset]:
     """
     Get all assets associated with a specific campaign.
@@ -5093,7 +5486,7 @@ async def get_campaign_assets(
         campaign_id=campaign_id,
         asset_type=asset_type,
         limit=limit,
-        offset=offset
+        offset=offset,
     )
 
     return assets
@@ -5101,8 +5494,7 @@ async def get_campaign_assets(
 
 @app.post("/api/genesis/render")
 async def api_genesis_render(
-    request: GenesisRenderRequest,
-    current_user: Dict = Depends(verify_auth)
+    request: GenesisRenderRequest, current_user: Dict = Depends(verify_auth)
 ):
     """
     Render a scene using Genesis photorealistic ray-tracer with LLM semantic augmentation.
@@ -5127,8 +5519,7 @@ async def api_genesis_render(
 
         # Create renderer with specified quality
         renderer = create_renderer(
-            quality=request.quality,
-            output_dir="./backend/DATA/genesis_videos"
+            quality=request.quality, output_dir="./backend/DATA/genesis_videos"
         )
 
         # Render the scene
@@ -5138,7 +5529,7 @@ async def api_genesis_render(
             fps=request.fps,
             resolution=request.resolution,
             camera_config=request.camera_config,
-            scene_context=request.scene_context
+            scene_context=request.scene_context,
         )
 
         # Clean up
@@ -5152,6 +5543,7 @@ async def api_genesis_render(
 
         # Save to database
         from .database import save_genesis_video
+
         video_id = save_genesis_video(
             scene_data=scene_data,
             video_path=video_path,
@@ -5163,8 +5555,8 @@ async def api_genesis_render(
             object_descriptions=object_descriptions if object_descriptions else None,
             metadata={
                 "camera_config": request.camera_config,
-                "renderer": "Genesis Rasterizer"  # or RayTracer when available
-            }
+                "renderer": "Genesis Rasterizer",  # or RayTracer when available
+            },
         )
 
         # Return video URL (relative to backend)
@@ -5177,29 +5569,30 @@ async def api_genesis_render(
             "video_url": video_url,
             "quality": request.quality,
             "duration": request.duration,
-            "fps": request.fps
+            "fps": request.fps,
         }
 
     except ImportError as e:
         raise HTTPException(
             status_code=503,
-            detail=f"Genesis not available. Install with: pip install genesis-world==0.3.7. Error: {str(e)}"
+            detail=f"Genesis not available. Install with: pip install genesis-world==0.3.7. Error: {str(e)}",
         )
     except Exception as e:
         print(f"Genesis rendering error: {str(e)}")
         import traceback
+
         traceback.print_exc()
         raise HTTPException(
-            status_code=500,
-            detail=f"Genesis rendering failed: {str(e)}"
+            status_code=500, detail=f"Genesis rendering failed: {str(e)}"
         )
+
 
 @app.get("/api/genesis/videos")
 async def list_genesis_videos_endpoint(
     limit: int = 50,
     offset: int = 0,
     quality: Optional[str] = None,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """List Genesis-rendered videos from the database. Requires authentication."""
     try:
@@ -5213,15 +5606,15 @@ async def list_genesis_videos_endpoint(
             "videos": videos,
             "total": total,
             "limit": limit,
-            "offset": offset
+            "offset": offset,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list videos: {e}")
 
+
 @app.get("/api/genesis/videos/{video_id}")
 async def get_genesis_video_endpoint(
-    video_id: int,
-    current_user: Dict = Depends(verify_auth)
+    video_id: int, current_user: Dict = Depends(verify_auth)
 ):
     """Get a specific Genesis video by ID. Requires authentication."""
     try:
@@ -5231,19 +5624,16 @@ async def get_genesis_video_endpoint(
         if not video:
             raise HTTPException(status_code=404, detail=f"Video {video_id} not found")
 
-        return {
-            "success": True,
-            "video": video
-        }
+        return {"success": True, "video": video}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get video: {e}")
 
+
 @app.delete("/api/genesis/videos/{video_id}")
 async def delete_genesis_video_endpoint(
-    video_id: int,
-    current_user: Dict = Depends(verify_auth)
+    video_id: int, current_user: Dict = Depends(verify_auth)
 ):
     """Delete a Genesis video by ID. Requires authentication."""
     try:
@@ -5253,6 +5643,7 @@ async def delete_genesis_video_endpoint(
 
         # Get video info first to delete the file
         from .database import get_genesis_video_by_id
+
         video = get_genesis_video_by_id(video_id)
 
         if not video:
@@ -5267,20 +5658,23 @@ async def delete_genesis_video_endpoint(
             if video_path.exists():
                 os.remove(video_path)
 
-        return {
-            "success": True,
-            "deleted": deleted
-        }
+        return {"success": True, "deleted": deleted}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete video: {e}")
 
+
 # Serve rendered videos
 from fastapi.staticfiles import StaticFiles
+
 GENESIS_VIDEO_DIR = Path(__file__).parent / "DATA" / "genesis_videos"
 if GENESIS_VIDEO_DIR.exists():
-    app.mount("/data/genesis_videos", StaticFiles(directory=str(GENESIS_VIDEO_DIR)), name="genesis_videos")
+    app.mount(
+        "/data/genesis_videos",
+        StaticFiles(directory=str(GENESIS_VIDEO_DIR)),
+        name="genesis_videos",
+    )
 
 # Serve generated videos from Replicate
 VIDEOS_DIR = Path(__file__).parent / "DATA" / "videos"
@@ -5307,17 +5701,14 @@ from .models.video_generation import (
     VideoProgress,
     VideoStatus,
     StoryboardEntry,
-    Scene
+    Scene,
 )
-from .database import (
-    create_video_job,
-    update_storyboard_data,
-    get_jobs_by_client
-)
+from .database import create_video_job, update_storyboard_data, get_jobs_by_client
 from .services.replicate_client import ReplicateClient
 import logging
 
 logger = logging.getLogger(__name__)
+
 
 def db_job_to_response(job: Dict[str, Any]) -> JobResponse:
     """Convert database job record to JobResponse model."""
@@ -5335,7 +5726,7 @@ def db_job_to_response(job: Dict[str, Any]) -> JobResponse:
         scenes_completed=progress_data.get("scenes_completed", 0),
         current_scene=progress_data.get("current_scene"),
         estimated_completion_seconds=progress_data.get("estimated_completion_seconds"),
-        message=progress_data.get("message")
+        message=progress_data.get("message"),
     )
 
     # Parse storyboard
@@ -5353,13 +5744,14 @@ def db_job_to_response(job: Dict[str, Any]) -> JobResponse:
 
     # Handle datetime fields
     from datetime import datetime
+
     created_at = job["created_at"]
     if isinstance(created_at, str):
-        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+        created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
 
     updated_at = job.get("updated_at") or job["created_at"]
     if isinstance(updated_at, str):
-        updated_at = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+        updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
 
     return JobResponse(
         job_id=job["id"],
@@ -5372,8 +5764,9 @@ def db_job_to_response(job: Dict[str, Any]) -> JobResponse:
         created_at=created_at,
         updated_at=updated_at,
         approved=job.get("approved", False),
-        error_message=job.get("error_message")
+        error_message=job.get("error_message"),
     )
+
 
 @app.post("/api/v2/generate", response_model=JobResponse)
 @limiter.limit("5/minute")
@@ -5381,7 +5774,7 @@ async def create_generation_job(
     request: Request,
     gen_request: GenerationRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Create a new video generation job.
@@ -5402,8 +5795,7 @@ async def create_generation_job(
         try:
             replicate_client = ReplicateClient()
             estimated_cost = replicate_client.estimate_cost(
-                num_images=estimated_scenes,
-                video_duration=gen_request.duration
+                num_images=estimated_scenes, video_duration=gen_request.duration
             )
         except ValueError as e:
             # Replicate API key not set - use mock cost for POC
@@ -5421,11 +5813,11 @@ async def create_generation_job(
                 "duration": gen_request.duration,
                 "style": gen_request.style,
                 "aspect_ratio": gen_request.aspect_ratio,
-                "brand_guidelines": gen_request.brand_guidelines
+                "brand_guidelines": gen_request.brand_guidelines,
             },
             estimated_cost=estimated_cost,
             client_id=client_id,
-            status="pending"
+            status="pending",
         )
 
         if not job_id:
@@ -5447,6 +5839,7 @@ async def create_generation_job(
     except Exception as e:
         logger.error(f"Error creating generation job: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}")
+
 
 @app.get("/api/v2/jobs/{job_id}", response_model=JobResponse)
 async def get_job_status(job_id: int):
@@ -5472,11 +5865,12 @@ async def get_job_status(job_id: int):
         logger.error(f"Error fetching job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch job: {str(e)}")
 
+
 @app.get("/api/v2/jobs", response_model=List[JobResponse])
 async def list_jobs(
     status: Optional[str] = None,
     limit: int = Query(default=50, ge=1, le=100),
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     List video generation jobs for the authenticated user.
@@ -5497,7 +5891,7 @@ async def list_jobs(
             except ValueError:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid status: {status}. Must be one of: {', '.join([s.value for s in VideoStatus])}"
+                    detail=f"Invalid status: {status}. Must be one of: {', '.join([s.value for s in VideoStatus])}",
                 )
             jobs = get_jobs_by_client(client_id, status=status, limit=limit)
         else:
@@ -5511,10 +5905,10 @@ async def list_jobs(
         logger.error(f"Error listing jobs: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list jobs: {str(e)}")
 
+
 @app.post("/api/v2/jobs/{job_id}/approve", response_model=JobResponse)
 async def approve_job_storyboard(
-    job_id: int,
-    current_user: Dict = Depends(verify_auth)
+    job_id: int, current_user: Dict = Depends(verify_auth)
 ):
     """
     Approve a job's storyboard for rendering.
@@ -5540,12 +5934,14 @@ async def approve_job_storyboard(
         if job.get("status") != "storyboard_ready":
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot approve job in status '{job.get('status')}'. Must be 'storyboard_ready'."
+                detail=f"Cannot approve job in status '{job.get('status')}'. Must be 'storyboard_ready'.",
             )
 
         # Verify storyboard exists
         if not job.get("storyboard_data"):
-            raise HTTPException(status_code=400, detail="No storyboard available to approve")
+            raise HTTPException(
+                status_code=400, detail="No storyboard available to approve"
+            )
 
         # Approve storyboard
         success = approve_storyboard(job_id)
@@ -5568,13 +5964,14 @@ async def approve_job_storyboard(
         logger.error(f"Error approving job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to approve job: {str(e)}")
 
+
 @app.post("/api/v2/jobs/{job_id}/render", response_model=JobResponse)
 @limiter.limit("5/minute")
 async def render_approved_video(
     request: Request,
     job_id: int,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Trigger video rendering from an approved storyboard.
@@ -5599,26 +5996,34 @@ async def render_approved_video(
 
         # Verify approved
         if not job.get("approved"):
-            raise HTTPException(status_code=400, detail="Storyboard must be approved before rendering")
+            raise HTTPException(
+                status_code=400, detail="Storyboard must be approved before rendering"
+            )
 
         # Verify storyboard exists
         if not job.get("storyboard_data"):
-            raise HTTPException(status_code=400, detail="No storyboard available to render")
+            raise HTTPException(
+                status_code=400, detail="No storyboard available to render"
+            )
 
         # Update status to rendering
         from .database import update_video_status
+
         update_video_status(job_id, status="rendering")
 
         # Invalidate cache after status change
         invalidate_job_cache(job_id)
 
         # Update progress (uses cache-aware function)
-        update_job_progress_with_cache(job_id, {
-            "current_stage": "rendering",
-            "scenes_total": 0,
-            "scenes_completed": 0,
-            "message": "Starting video rendering..."
-        })
+        update_job_progress_with_cache(
+            job_id,
+            {
+                "current_stage": "rendering",
+                "scenes_total": 0,
+                "scenes_completed": 0,
+                "message": "Starting video rendering...",
+            },
+        )
 
         # Queue background task for rendering (placeholder)
         # TODO: Implement actual video rendering
@@ -5635,7 +6040,10 @@ async def render_approved_video(
         raise
     except Exception as e:
         logger.error(f"Error rendering job {job_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to start rendering: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to start rendering: {str(e)}"
+        )
+
 
 @app.get("/api/v2/jobs/{job_id}/video")
 async def get_job_video(job_id: int):
@@ -5657,7 +6065,7 @@ async def get_job_video(job_id: int):
         if job.get("status") != "completed":
             raise HTTPException(
                 status_code=404,
-                detail=f"Video not ready. Current status: {job.get('status')}"
+                detail=f"Video not ready. Current status: {job.get('status')}",
             )
 
         video_url = job.get("video_url")
@@ -5670,12 +6078,14 @@ async def get_job_video(job_id: int):
         # If it's a local path, serve the file
         if video_url.startswith("/data/"):
             from pathlib import Path
+
             video_path = Path(__file__).parent / video_url.lstrip("/")
             if video_path.exists():
                 return FileResponse(str(video_path))
 
         # Otherwise redirect to external URL
         from fastapi.responses import RedirectResponse
+
         return RedirectResponse(url=video_url)
 
     except HTTPException:
@@ -5684,6 +6094,7 @@ async def get_job_video(job_id: int):
         logger.error(f"Error fetching video for job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch video: {str(e)}")
 
+
 @app.get("/api/v2/jobs/{job_id}/export")
 @limiter.limit("5/minute")
 async def export_job_video(
@@ -5691,7 +6102,7 @@ async def export_job_video(
     job_id: int,
     format: str = Query("mp4", pattern="^(mp4|mov|webm)$"),
     quality: str = Query("medium", pattern="^(low|medium|high)$"),
-    current_user: dict = Depends(verify_auth)
+    current_user: dict = Depends(verify_auth),
 ):
     """
     Export completed video in requested format and quality.
@@ -5705,7 +6116,11 @@ async def export_job_video(
 
     Authentication: Required
     """
-    from .services.video_exporter import export_video, get_export_path, check_ffmpeg_available
+    from .services.video_exporter import (
+        export_video,
+        get_export_path,
+        check_ffmpeg_available,
+    )
     from pathlib import Path
 
     try:
@@ -5713,7 +6128,7 @@ async def export_job_video(
         if not check_ffmpeg_available():
             raise HTTPException(
                 status_code=503,
-                detail="Video export service unavailable (ffmpeg not installed)"
+                detail="Video export service unavailable (ffmpeg not installed)",
             )
 
         # Get job and validate
@@ -5725,7 +6140,7 @@ async def export_job_video(
         if job.get("status") != "completed":
             raise HTTPException(
                 status_code=400,
-                detail=f"Video not ready for export. Current status: {job.get('status')}"
+                detail=f"Video not ready for export. Current status: {job.get('status')}",
             )
 
         video_url = job.get("video_url")
@@ -5739,7 +6154,7 @@ async def export_job_video(
             # For remote URLs, we'd need to download first (not implemented in MVP)
             raise HTTPException(
                 status_code=400,
-                detail="Export is only available for locally stored videos"
+                detail="Export is only available for locally stored videos",
             )
         else:
             input_path = video_url
@@ -5749,7 +6164,9 @@ async def export_job_video(
             raise HTTPException(status_code=404, detail="Source video file not found")
 
         # Generate output path
-        output_path = get_export_path(settings.VIDEO_STORAGE_PATH, job_id, format, quality)
+        output_path = get_export_path(
+            settings.VIDEO_STORAGE_PATH, job_id, format, quality
+        )
 
         # Check if export already exists
         if not os.path.exists(output_path):
@@ -5758,7 +6175,9 @@ async def export_job_video(
             success, error_msg = export_video(input_path, output_path, format, quality)
 
             if not success:
-                raise HTTPException(status_code=500, detail=f"Export failed: {error_msg}")
+                raise HTTPException(
+                    status_code=500, detail=f"Export failed: {error_msg}"
+                )
 
         # Increment download count
         increment_download_count(job_id)
@@ -5767,7 +6186,7 @@ async def export_job_video(
         return FileResponse(
             output_path,
             media_type=f"video/{format}",
-            filename=f"video_{job_id}.{format}"
+            filename=f"video_{job_id}.{format}",
         )
 
     except HTTPException:
@@ -5776,6 +6195,7 @@ async def export_job_video(
         logger.error(f"Error exporting video for job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to export video: {str(e)}")
 
+
 @app.post("/api/v2/jobs/{job_id}/refine", response_model=JobResponse)
 async def refine_job_scene(
     job_id: int,
@@ -5783,7 +6203,7 @@ async def refine_job_scene(
     new_image_prompt: Optional[str] = Query(None, min_length=10, max_length=2000),
     new_description: Optional[str] = Query(None, min_length=10, max_length=1000),
     background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_user: dict = Depends(verify_auth)
+    current_user: dict = Depends(verify_auth),
 ):
     """
     Refine a specific scene in the storyboard.
@@ -5813,8 +6233,7 @@ async def refine_job_scene(
         storyboard_data = job.get("storyboard_data")
         if not storyboard_data:
             raise HTTPException(
-                status_code=400,
-                detail="No storyboard available for refinement"
+                status_code=400, detail="No storyboard available for refinement"
             )
 
         # Check refinement limit
@@ -5822,21 +6241,23 @@ async def refine_job_scene(
         if refinement_count >= 5:
             raise HTTPException(
                 status_code=429,
-                detail="Maximum refinement limit (5) reached for this job"
+                detail="Maximum refinement limit (5) reached for this job",
             )
 
         # Validate at least one refinement type is provided
         if not new_image_prompt and not new_description:
             raise HTTPException(
                 status_code=400,
-                detail="Must provide either new_image_prompt or new_description"
+                detail="Must provide either new_image_prompt or new_description",
             )
 
         # If regenerating image, do it now
         new_image_url = None
         if new_image_prompt:
             try:
-                logger.info(f"Regenerating image for job {job_id}, scene {scene_number}")
+                logger.info(
+                    f"Regenerating image for job {job_id}, scene {scene_number}"
+                )
                 replicate_client = ReplicateClient()
 
                 # Get aspect ratio from job parameters
@@ -5844,7 +6265,9 @@ async def refine_job_scene(
                 aspect_ratio = parameters.get("aspect_ratio", "16:9")
 
                 # Generate new image
-                image_url = replicate_client.generate_image(new_image_prompt, aspect_ratio)
+                image_url = replicate_client.generate_image(
+                    new_image_prompt, aspect_ratio
+                )
                 new_image_url = image_url
 
                 # Increment estimated cost (approximate cost for one image)
@@ -5854,8 +6277,7 @@ async def refine_job_scene(
             except Exception as e:
                 logger.error(f"Failed to regenerate image: {e}")
                 raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to regenerate image: {str(e)}"
+                    status_code=500, detail=f"Failed to regenerate image: {str(e)}"
                 )
 
         # Update the scene in storyboard
@@ -5864,14 +6286,11 @@ async def refine_job_scene(
             scene_number,
             new_image_url=new_image_url,
             new_description=new_description,
-            new_image_prompt=new_image_prompt
+            new_image_prompt=new_image_prompt,
         )
 
         if not success:
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to update storyboard"
-            )
+            raise HTTPException(status_code=500, detail="Failed to update storyboard")
 
         # Fetch updated job
         updated_job = get_job(job_id)
@@ -5887,11 +6306,12 @@ async def refine_job_scene(
         logger.error(f"Error refining scene for job {job_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to refine scene: {str(e)}")
 
+
 @app.post("/api/v2/jobs/{job_id}/reorder", response_model=JobResponse)
 async def reorder_job_scenes(
     job_id: int,
     scene_order: List[int] = Query(..., description="New order of scene numbers"),
-    current_user: dict = Depends(verify_auth)
+    current_user: dict = Depends(verify_auth),
 ):
     """
     Reorder scenes in the storyboard.
@@ -5914,8 +6334,7 @@ async def reorder_job_scenes(
         storyboard_data = job.get("storyboard_data")
         if not storyboard_data:
             raise HTTPException(
-                status_code=400,
-                detail="No storyboard available for reordering"
+                status_code=400, detail="No storyboard available for reordering"
             )
 
         # Validate scene_order
@@ -5928,7 +6347,7 @@ async def reorder_job_scenes(
         if not success:
             raise HTTPException(
                 status_code=400,
-                detail="Failed to reorder scenes. Check that all scene numbers are valid."
+                detail="Failed to reorder scenes. Check that all scene numbers are valid.",
             )
 
         # Fetch updated job
@@ -5943,7 +6362,10 @@ async def reorder_job_scenes(
         raise
     except Exception as e:
         logger.error(f"Error reordering scenes for job {job_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to reorder scenes: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reorder scenes: {str(e)}"
+        )
+
 
 @app.get("/api/v2/jobs/{job_id}/metadata")
 async def get_job_metadata(job_id: int):
@@ -5975,45 +6397,48 @@ async def get_job_metadata(job_id: int):
             "updated_at": job.get("updated_at"),
             "approved": job.get("approved", False),
             "approved_at": job.get("approved_at"),
-
             # Scene information
             "scenes": {
                 "total": len(storyboard_data),
-                "completed": sum(1 for s in storyboard_data if s.get("generation_status") == "completed"),
-                "failed": sum(1 for s in storyboard_data if s.get("generation_status") == "failed"),
+                "completed": sum(
+                    1
+                    for s in storyboard_data
+                    if s.get("generation_status") == "completed"
+                ),
+                "failed": sum(
+                    1 for s in storyboard_data if s.get("generation_status") == "failed"
+                ),
                 "details": [
                     {
                         "scene_number": s.get("scene", {}).get("scene_number"),
                         "duration": s.get("scene", {}).get("duration"),
                         "status": s.get("generation_status"),
-                        "has_image": bool(s.get("image_url"))
+                        "has_image": bool(s.get("image_url")),
                     }
                     for s in storyboard_data
-                ]
+                ],
             },
-
             # Cost information
             "costs": {
                 "estimated": job.get("estimated_cost", 0.0),
                 "actual": job.get("actual_cost", 0.0),
-                "currency": "USD"
+                "currency": "USD",
             },
-
             # Generation metrics
             "metrics": {
                 "refinement_count": get_refinement_count(job_id),
                 "download_count": get_download_count(job_id),
             },
-
             # Video information
             "video": {
                 "available": job.get("status") == "completed",
-                "url": job.get("video_url") if job.get("status") == "completed" else None,
-                "parameters": job.get("parameters", {})
+                "url": job.get("video_url")
+                if job.get("status") == "completed"
+                else None,
+                "parameters": job.get("parameters", {}),
             },
-
             # Error information (if any)
-            "error": job.get("error_message")
+            "error": job.get("error_message"),
         }
 
         return metadata
@@ -6022,11 +6447,15 @@ async def get_job_metadata(job_id: int):
         raise
     except Exception as e:
         logger.error(f"Error fetching metadata for job {job_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch metadata: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch metadata: {str(e)}"
+        )
+
 
 # ============================================================================
 # Simple Image/Video Generation Endpoints
 # ============================================================================
+
 
 @app.post("/api/v2/generate/image")
 @limiter.limit("10/minute")
@@ -6034,7 +6463,7 @@ async def generate_image(
     request: Request,
     gen_request: ImageGenerationRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Generate an image using nano-banana model.
@@ -6061,7 +6490,7 @@ async def generate_image(
             image_url = resolve_image_reference(
                 asset_id=gen_request.asset_id,
                 image_id=gen_request.image_id,
-                video_id=gen_request.video_id
+                video_id=gen_request.video_id,
             )
             nano_banana_input["image_input"] = [image_url]
             nano_banana_input["aspect_ratio"] = "match_input_image"
@@ -6079,7 +6508,7 @@ async def generate_image(
             input=nano_banana_input,
             collection=None,
             version=None,
-            brief_id=None
+            brief_id=None,
         )
 
         # Call the existing run-image-model endpoint logic
@@ -6101,7 +6530,7 @@ async def generate_image(
 
         headers = {
             "Authorization": f"Token {settings.REPLICATE_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         response = requests.post(url, json=payload, headers=headers)
@@ -6115,11 +6544,14 @@ async def generate_image(
             model_id="google/nano-banana",
             parameters=nano_banana_input,
             collection=None,
-            metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
+            metadata={
+                "replicate_id": prediction["id"],
+                "prediction_url": prediction.get("urls", {}).get("get"),
+            },
             status="processing",
             brief_id=None,
             client_id=gen_request.client_id,
-            campaign_id=gen_request.campaign_id
+            campaign_id=gen_request.campaign_id,
         )
 
         # Queue background processing
@@ -6130,7 +6562,7 @@ async def generate_image(
             api_key=settings.REPLICATE_API_KEY,
             model_id="google/nano-banana",
             input_params=nano_banana_input,
-            collection=None
+            collection=None,
         )
 
         # Return immediately with image ID
@@ -6141,8 +6573,12 @@ async def generate_image(
     except Exception as e:
         logger.error(f"Error generating image: {str(e)}")
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to generate image: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate image: {str(e)}"
+        )
+
 
 @app.post("/api/v2/generate/video")
 @limiter.limit("5/minute")
@@ -6150,7 +6586,7 @@ async def generate_video(
     request: Request,
     gen_request: VideoGenerationRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Generate a video using the selected model (default: bytedance/seedance-1-lite).
@@ -6166,7 +6602,9 @@ async def generate_video(
     """
     try:
         # Determine if we have an image reference
-        has_image_ref = any([gen_request.asset_id, gen_request.image_id, gen_request.video_id])
+        has_image_ref = any(
+            [gen_request.asset_id, gen_request.image_id, gen_request.video_id]
+        )
 
         intermediate_image_id = None
 
@@ -6175,7 +6613,7 @@ async def generate_video(
             if not gen_request.prompt:
                 raise HTTPException(
                     status_code=400,
-                    detail="Either provide a prompt (for auto-image generation) or an image reference"
+                    detail="Either provide a prompt (for auto-image generation) or an image reference",
                 )
 
             logger.info("No image reference provided, auto-generating image for video")
@@ -6184,7 +6622,7 @@ async def generate_video(
             image_gen_request = ImageGenerationRequest(
                 prompt=gen_request.prompt,
                 client_id=gen_request.client_id,
-                campaign_id=gen_request.campaign_id
+                campaign_id=gen_request.campaign_id,
             )
 
             # Build nano-banana input
@@ -6192,7 +6630,7 @@ async def generate_video(
                 "prompt": gen_request.prompt,
                 "image_input": [],
                 "aspect_ratio": "16:9",  # Good for video
-                "output_format": "jpg"
+                "output_format": "jpg",
             }
 
             # Call Replicate for image generation
@@ -6200,7 +6638,7 @@ async def generate_video(
             url = "https://api.replicate.com/v1/models/google/nano-banana/predictions"
             headers = {
                 "Authorization": f"Token {settings.REPLICATE_API_KEY}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
             }
 
             response = requests.post(url, json=payload, headers=headers)
@@ -6214,15 +6652,19 @@ async def generate_video(
                 model_id="google/nano-banana",
                 parameters=nano_banana_input,
                 collection=None,
-                metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
+                metadata={
+                    "replicate_id": prediction["id"],
+                    "prediction_url": prediction.get("urls", {}).get("get"),
+                },
                 status="processing",
                 brief_id=None,
                 client_id=gen_request.client_id,
-                campaign_id=gen_request.campaign_id
+                campaign_id=gen_request.campaign_id,
             )
 
             # Wait for image completion (with timeout)
             import time
+
             max_wait = 60  # 60 seconds
             wait_interval = 2  # Check every 2 seconds
             elapsed = 0
@@ -6240,12 +6682,14 @@ async def generate_video(
                         image_url = image_url[0]
 
                     # Download image
-                    download_url = download_and_save_image(image_url, intermediate_image_id)
+                    download_url = download_and_save_image(
+                        image_url, intermediate_image_id
+                    )
                     break
                 elif pred_data.get("status") in ["failed", "canceled"]:
                     raise HTTPException(
                         status_code=500,
-                        detail=f"Image generation failed: {pred_data.get('error')}"
+                        detail=f"Image generation failed: {pred_data.get('error')}",
                     )
 
                 time.sleep(wait_interval)
@@ -6254,7 +6698,7 @@ async def generate_video(
             if elapsed >= max_wait:
                 raise HTTPException(
                     status_code=500,
-                    detail="Image generation timed out after 60 seconds"
+                    detail="Image generation timed out after 60 seconds",
                 )
 
             # Use the generated image as reference
@@ -6264,7 +6708,7 @@ async def generate_video(
         start_image_url = resolve_image_reference(
             asset_id=gen_request.asset_id,
             image_id=gen_request.image_id,
-            video_id=gen_request.video_id
+            video_id=gen_request.video_id,
         )
 
         # Build model-specific input parameters
@@ -6288,10 +6732,12 @@ async def generate_video(
                 "start_image": start_image_url,
                 "mode": "pro",
                 "duration": 5,
-                "negative_prompt": ""
+                "negative_prompt": "",
             }
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported model: {gen_request.model}")
+            raise HTTPException(
+                status_code=400, detail=f"Unsupported model: {gen_request.model}"
+            )
 
         # Call Replicate for video generation
         base_url = settings.BASE_URL
@@ -6307,7 +6753,7 @@ async def generate_video(
         url = f"https://api.replicate.com/v1/models/{model_id}/predictions"
         headers = {
             "Authorization": f"Token {settings.REPLICATE_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         response = requests.post(url, json=payload, headers=headers)
@@ -6321,11 +6767,14 @@ async def generate_video(
             model_id=model_id,
             parameters=model_input,
             collection=None,
-            metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
+            metadata={
+                "replicate_id": prediction["id"],
+                "prediction_url": prediction.get("urls", {}).get("get"),
+            },
             status="processing",
             brief_id=None,
             client_id=gen_request.client_id,
-            campaign_id=gen_request.campaign_id
+            campaign_id=gen_request.campaign_id,
         )
 
         # Queue background processing
@@ -6336,7 +6785,7 @@ async def generate_video(
             api_key=settings.REPLICATE_API_KEY,
             model_id=model_id,
             input_params=model_input,
-            collection=None
+            collection=None,
         )
 
         # Return immediately with video ID
@@ -6351,8 +6800,12 @@ async def generate_video(
     except Exception as e:
         logger.error(f"Error generating video: {str(e)}")
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to generate video: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate video: {str(e)}"
+        )
+
 
 @app.post("/api/v2/generate/audio")
 @limiter.limit("10/minute")
@@ -6360,7 +6813,7 @@ async def generate_audio(
     request: Request,
     gen_request: AudioGenerationRequest,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Generate audio/music using the selected model (default: meta/musicgen).
@@ -6385,7 +6838,7 @@ async def generate_audio(
                 "top_k": 250,
                 "top_p": 0,
                 "classifier_free_guidance": 3,
-                "output_format": "mp3"
+                "output_format": "mp3",
             }
         elif gen_request.model == AudioModel.RIFFUSION:
             # Riffusion parameters
@@ -6393,10 +6846,12 @@ async def generate_audio(
                 "prompt_a": gen_request.prompt,
                 "denoising": 0.75,
                 "num_inference_steps": 50,
-                "seed_image_id": "vibes"
+                "seed_image_id": "vibes",
             }
         else:
-            raise HTTPException(status_code=400, detail=f"Unsupported model: {gen_request.model}")
+            raise HTTPException(
+                status_code=400, detail=f"Unsupported model: {gen_request.model}"
+            )
 
         # Call Replicate for audio generation
         base_url = settings.BASE_URL
@@ -6412,7 +6867,7 @@ async def generate_audio(
         url = f"https://api.replicate.com/v1/models/{model_id}/predictions"
         headers = {
             "Authorization": f"Token {settings.REPLICATE_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         response = requests.post(url, json=payload, headers=headers)
@@ -6426,12 +6881,15 @@ async def generate_audio(
             model_id=model_id,
             parameters=model_input,
             collection=None,
-            metadata={"replicate_id": prediction["id"], "prediction_url": prediction.get("urls", {}).get("get")},
+            metadata={
+                "replicate_id": prediction["id"],
+                "prediction_url": prediction.get("urls", {}).get("get"),
+            },
             status="processing",
             brief_id=None,
             client_id=gen_request.client_id,
             campaign_id=gen_request.campaign_id,
-            duration=gen_request.duration
+            duration=gen_request.duration,
         )
 
         # Launch background task to poll for completion and download audio
@@ -6442,10 +6900,12 @@ async def generate_audio(
             api_key=settings.REPLICATE_API_KEY,
             model_id=model_id,
             input_params=model_input,
-            collection=None
+            collection=None,
         )
 
-        logger.info(f"Audio generation started: audio_id={audio_id}, model={model_id}, replicate_id={prediction['id']}")
+        logger.info(
+            f"Audio generation started: audio_id={audio_id}, model={model_id}, replicate_id={prediction['id']}"
+        )
 
         # Return immediately with audio ID
         return {"audio_id": audio_id, "status": "processing", "model": model_id}
@@ -6455,15 +6915,19 @@ async def generate_audio(
     except Exception as e:
         logger.error(f"Error generating audio: {str(e)}")
         import traceback
+
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to generate audio: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate audio: {str(e)}"
+        )
+
 
 @app.get("/api/v2/clients/{client_id}/generated-images")
 async def get_client_generated_images(
     client_id: str,
     status: Optional[str] = None,
     limit: int = 50,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Get all generated images for a specific client.
@@ -6479,12 +6943,13 @@ async def get_client_generated_images(
         logger.error(f"Error fetching images for client {client_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch images: {str(e)}")
 
+
 @app.get("/api/v2/clients/{client_id}/generated-videos")
 async def get_client_generated_videos(
     client_id: str,
     status: Optional[str] = None,
     limit: int = 50,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Get all generated videos for a specific client.
@@ -6500,12 +6965,13 @@ async def get_client_generated_videos(
         logger.error(f"Error fetching videos for client {client_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch videos: {str(e)}")
 
+
 @app.get("/api/v2/campaigns/{campaign_id}/generated-images")
 async def get_campaign_generated_images(
     campaign_id: str,
     status: Optional[str] = None,
     limit: int = 50,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Get all generated images for a specific campaign.
@@ -6521,12 +6987,13 @@ async def get_campaign_generated_images(
         logger.error(f"Error fetching images for campaign {campaign_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch images: {str(e)}")
 
+
 @app.get("/api/v2/campaigns/{campaign_id}/generated-videos")
 async def get_campaign_generated_videos(
     campaign_id: str,
     status: Optional[str] = None,
     limit: int = 50,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Get all generated videos for a specific campaign.
@@ -6541,6 +7008,7 @@ async def get_campaign_generated_videos(
     except Exception as e:
         logger.error(f"Error fetching videos for campaign {campaign_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch videos: {str(e)}")
+
 
 # ============================================================================
 # Creative Brief Parsing Endpoints
@@ -6560,11 +7028,12 @@ app.include_router(v3_router)
 # Video/Image Retry Endpoints
 # ============================================
 
+
 @app.post("/api/videos/{video_id}/retry")
 async def retry_video_processing(
     video_id: int,
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(verify_auth)
+    current_user: Dict = Depends(verify_auth),
 ):
     """
     Retry fetching a video from Replicate that may have failed webhook processing.
@@ -6584,7 +7053,7 @@ async def retry_video_processing(
     if not prediction_url and not replicate_id:
         raise HTTPException(
             status_code=400,
-            detail="Video has no Replicate prediction URL or ID in metadata"
+            detail="Video has no Replicate prediction URL or ID in metadata",
         )
 
     # Construct prediction URL if we only have ID
@@ -6596,7 +7065,7 @@ async def retry_video_processing(
         return {
             "message": "Video already completed",
             "video_id": video_id,
-            "status": "completed"
+            "status": "completed",
         }
 
     # Retry the download in background
@@ -6610,7 +7079,7 @@ async def retry_video_processing(
 
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         try:
@@ -6639,22 +7108,26 @@ async def retry_video_processing(
                             "replicate_id": pred_data.get("id"),
                             "prediction_url": prediction_url,
                             "original_url": video_url,
-                            "retried": True
-                        }
+                            "retried": True,
+                        },
                     )
                     print(f"Video {video_id} retry successful")
                 else:
                     update_video_status(
                         video_id=video_id,
                         status="failed",
-                        metadata={"error": "No video URL in response", "retried": True}
+                        metadata={"error": "No video URL in response", "retried": True},
                     )
             elif status in ["failed", "canceled"]:
                 error = pred_data.get("error", "Unknown error")
                 update_video_status(
                     video_id=video_id,
                     status=status,
-                    metadata={"error": error, "replicate_id": pred_data.get("id"), "retried": True}
+                    metadata={
+                        "error": error,
+                        "replicate_id": pred_data.get("id"),
+                        "retried": True,
+                    },
                 )
             elif status == "processing":
                 # Still processing, don't change status
@@ -6663,6 +7136,7 @@ async def retry_video_processing(
         except Exception as e:
             print(f"Error retrying video {video_id}: {e}")
             import traceback
+
             traceback.print_exc()
 
     background_tasks.add_task(retry_task)
@@ -6670,13 +7144,14 @@ async def retry_video_processing(
     return {
         "message": "Retry initiated",
         "video_id": video_id,
-        "prediction_url": prediction_url
+        "prediction_url": prediction_url,
     }
+
 
 @app.post("/api/videos/retry-all-stuck")
 async def retry_all_stuck_videos(
     background_tasks: BackgroundTasks,
-    current_user: Dict = Depends(get_current_admin_user)
+    current_user: Dict = Depends(get_current_admin_user),
 ):
     """
     Admin endpoint: Retry all videos stuck in 'processing' status.
@@ -6697,16 +7172,15 @@ async def retry_all_stuck_videos(
         ).fetchall()
 
         for row in rows:
-            stuck_videos.append({
-                "id": row["id"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
-            })
+            stuck_videos.append(
+                {
+                    "id": row["id"],
+                    "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+                }
+            )
 
     if not stuck_videos:
-        return {
-            "message": "No stuck videos found",
-            "count": 0
-        }
+        return {"message": "No stuck videos found", "count": 0}
 
     # Retry each one
     def retry_all_task():
@@ -6719,7 +7193,7 @@ async def retry_all_stuck_videos(
 
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         for video in stuck_videos:
@@ -6730,7 +7204,9 @@ async def retry_all_stuck_videos(
             replicate_id = metadata.get("replicate_id")
 
             if not prediction_url and replicate_id:
-                prediction_url = f"https://api.replicate.com/v1/predictions/{replicate_id}"
+                prediction_url = (
+                    f"https://api.replicate.com/v1/predictions/{replicate_id}"
+                )
 
             if not prediction_url:
                 print(f"Skipping video {video_id}: no prediction URL")
@@ -6760,8 +7236,8 @@ async def retry_all_stuck_videos(
                                 "replicate_id": pred_data.get("id"),
                                 "prediction_url": prediction_url,
                                 "original_url": video_url,
-                                "bulk_retried": True
-                            }
+                                "bulk_retried": True,
+                            },
                         )
                         print(f"Bulk retry: Video {video_id} completed")
                 elif status in ["failed", "canceled"]:
@@ -6769,7 +7245,11 @@ async def retry_all_stuck_videos(
                     update_video_status(
                         video_id=video_id,
                         status=status,
-                        metadata={"error": error, "replicate_id": pred_data.get("id"), "bulk_retried": True}
+                        metadata={
+                            "error": error,
+                            "replicate_id": pred_data.get("id"),
+                            "bulk_retried": True,
+                        },
                     )
                     print(f"Bulk retry: Video {video_id} {status}")
 
@@ -6781,17 +7261,17 @@ async def retry_all_stuck_videos(
     return {
         "message": f"Retry initiated for {len(stuck_videos)} stuck videos",
         "count": len(stuck_videos),
-        "video_ids": [v["id"] for v in stuck_videos]
+        "video_ids": [v["id"] for v in stuck_videos],
     }
+
 
 # ============================================
 # Database Administration Endpoints
 # ============================================
 
+
 @app.get("/api/db/schema", tags=["Database"])
-async def get_database_schema(
-    current_user: Dict = Depends(get_current_admin_user)
-):
+async def get_database_schema(current_user: Dict = Depends(get_current_admin_user)):
     """
     Get the complete database schema (all tables and their columns).
     Requires admin authentication.
@@ -6803,7 +7283,9 @@ async def get_database_schema(
             cursor = conn.cursor()
 
             # Get all tables
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            )
             tables = [row[0] for row in cursor.fetchall()]
 
             schema = {}
@@ -6812,53 +7294,57 @@ async def get_database_schema(
                 cursor.execute(f"PRAGMA table_info({table})")
                 columns = []
                 for row in cursor.fetchall():
-                    columns.append({
-                        "cid": row[0],
-                        "name": row[1],
-                        "type": row[2],
-                        "notnull": bool(row[3]),
-                        "default_value": row[4],
-                        "primary_key": bool(row[5])
-                    })
+                    columns.append(
+                        {
+                            "cid": row[0],
+                            "name": row[1],
+                            "type": row[2],
+                            "notnull": bool(row[3]),
+                            "default_value": row[4],
+                            "primary_key": bool(row[5]),
+                        }
+                    )
 
                 # Get indexes
                 cursor.execute(f"PRAGMA index_list({table})")
-                indexes = [{"name": row[1], "unique": bool(row[2])} for row in cursor.fetchall()]
+                indexes = [
+                    {"name": row[1], "unique": bool(row[2])}
+                    for row in cursor.fetchall()
+                ]
 
                 # Get foreign keys
                 cursor.execute(f"PRAGMA foreign_key_list({table})")
                 foreign_keys = []
                 for row in cursor.fetchall():
-                    foreign_keys.append({
-                        "id": row[0],
-                        "table": row[2],
-                        "from": row[3],
-                        "to": row[4]
-                    })
+                    foreign_keys.append(
+                        {"id": row[0], "table": row[2], "from": row[3], "to": row[4]}
+                    )
 
                 schema[table] = {
                     "columns": columns,
                     "indexes": indexes,
-                    "foreign_keys": foreign_keys
+                    "foreign_keys": foreign_keys,
                 }
 
             # Get triggers
-            cursor.execute("SELECT name, tbl_name, sql FROM sqlite_master WHERE type='trigger' ORDER BY name")
-            triggers = [{"name": row[0], "table": row[1], "sql": row[2]} for row in cursor.fetchall()]
+            cursor.execute(
+                "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='trigger' ORDER BY name"
+            )
+            triggers = [
+                {"name": row[0], "table": row[1], "sql": row[2]}
+                for row in cursor.fetchall()
+            ]
 
-            return {
-                "tables": schema,
-                "triggers": triggers,
-                "total_tables": len(tables)
-            }
+            return {"tables": schema, "triggers": triggers, "total_tables": len(tables)}
     except Exception as e:
         logger.error(f"Failed to get database schema: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get database schema: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get database schema: {str(e)}"
+        )
+
 
 @app.get("/api/db/download", tags=["Database"])
-async def download_database(
-    current_user: Dict = Depends(get_current_admin_user)
-):
+async def download_database(current_user: Dict = Depends(get_current_admin_user)):
     """
     Download the complete SQLite database file.
     Requires admin authentication.
@@ -6869,7 +7355,7 @@ async def download_database(
 
     try:
         # Create a temporary copy to avoid locking issues
-        with NamedTemporaryFile(delete=False, suffix='.db') as tmp_file:
+        with NamedTemporaryFile(delete=False, suffix=".db") as tmp_file:
             shutil.copy2(DB_PATH, tmp_file.name)
             tmp_path = tmp_file.name
 
@@ -6878,22 +7364,23 @@ async def download_database(
             path=tmp_path,
             media_type="application/x-sqlite3",
             filename="scenes.db",
-            headers={
-                "Content-Disposition": "attachment; filename=scenes.db"
-            }
+            headers={"Content-Disposition": "attachment; filename=scenes.db"},
         )
     except Exception as e:
         logger.error(f"Failed to download database: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to download database: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to download database: {str(e)}"
+        )
+
 
 class SQLQueryRequest(BaseModel):
     query: str
     params: Optional[List[Any]] = None
 
+
 @app.post("/api/db/query", tags=["Database"])
 async def execute_sql_query(
-    request: SQLQueryRequest,
-    current_user: Dict = Depends(get_current_admin_user)
+    request: SQLQueryRequest, current_user: Dict = Depends(get_current_admin_user)
 ):
     """
     Execute a raw SQL query against the database.
@@ -6916,18 +7403,18 @@ async def execute_sql_query(
 
     # Security: Only allow SELECT queries (read-only)
     query_upper = request.query.strip().upper()
-    if not query_upper.startswith('SELECT'):
+    if not query_upper.startswith("SELECT"):
         raise HTTPException(
             status_code=403,
-            detail="Only SELECT queries are allowed. Use database tools for modifications."
+            detail="Only SELECT queries are allowed. Use database tools for modifications.",
         )
 
     # Additional safety checks
-    dangerous_keywords = ['ATTACH', 'DETACH', 'PRAGMA']
+    dangerous_keywords = ["ATTACH", "DETACH", "PRAGMA"]
     if any(keyword in query_upper for keyword in dangerous_keywords):
         raise HTTPException(
             status_code=403,
-            detail=f"Query contains forbidden keywords: {', '.join(dangerous_keywords)}"
+            detail=f"Query contains forbidden keywords: {', '.join(dangerous_keywords)}",
         )
 
     try:
@@ -6958,16 +7445,18 @@ async def execute_sql_query(
                 "query": request.query,
                 "row_count": len(results),
                 "columns": columns,
-                "results": results
+                "results": results,
             }
 
     except Exception as e:
         logger.error(f"SQL query failed: {e}")
         raise HTTPException(status_code=400, detail=f"Query execution failed: {str(e)}")
 
+
 # ============================================================================
 # Frontend Serving (catch-all route - must be last)
 # ============================================================================
+
 
 @app.get("/{full_path:path}")
 async def serve_frontend(full_path: str):
@@ -6985,11 +7474,12 @@ async def serve_frontend(full_path: str):
     # Fallback for development or if static files don't exist
     return {"message": "Frontend not built. Run 'npm run build' to build the frontend."}
 
+
 if __name__ == "__main__":
     print("Starting Physics Simulator API server...")
     uvicorn.run(
         "backend.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=False  # Disable reload in production
+        reload=False,  # Disable reload in production
     )

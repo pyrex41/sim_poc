@@ -93,6 +93,7 @@ type Msg
     | UpdateSearch String
     | GenerateAudio
     | AudioGenerated (Result Http.Error { audio_id : Int, status : String })
+    | AudioGenerationFailed String
     | NavigateToAudio Int
     | PollAudioStatus
     | AudioStatusFetched (Result Http.Error AudioRecord)
@@ -181,18 +182,21 @@ update msg model =
 
         AudioGenerated result ->
             case result of
-                Ok response ->
-                    ( { model
-                        | isGenerating = False
-                        , pollingAudioId = Just response.audio_id
-                        , audioStatus = response.status
-                        , error = Nothing
-                      }
-                    , Task.perform (\_ -> NavigateToAudio response.audio_id) (Task.succeed ())
-                    )
+                 Ok response ->
+                     ( { model
+                         | isGenerating = False
+                         , pollingAudioId = Just response.audio_id
+                         , audioStatus = response.status
+                         , error = Nothing
+                       }
+                     , Task.perform (\_ -> NavigateToAudio response.audio_id) (Task.succeed ())
+                     )
 
-                Err error ->
-                    ( { model | isGenerating = False, error = Just (httpErrorToString error) }, Cmd.none )
+                 Err error ->
+                     ( { model | isGenerating = False, error = Just (httpErrorToString error) }, Cmd.none )
+
+        AudioGenerationFailed errorMsg ->
+             ( { model | isGenerating = False, error = Just errorMsg }, Cmd.none )
 
         NavigateToAudio _ ->
             -- This is handled in Main.elm for navigation
@@ -277,7 +281,11 @@ parseParameter ( key, value ) =
                 |> Result.toMaybe
 
         initialValue =
-            Maybe.withDefault "" default
+            -- Override defaults for continuation parameters to avoid invalid 0 values
+            if key == "continuation_start" || key == "continuation_end" then
+                ""
+            else
+                Maybe.withDefault "" default
     in
     Parameter key initialValue paramType enumValues description default minimum maximum format
 
@@ -382,54 +390,75 @@ viewModelOption model =
 viewParameter : Model -> Parameter -> Html Msg
 viewParameter model param =
     let
-        isDisabled =
-            model.isGenerating
+        -- Hide continuation parameters unless continuation is enabled
+        continuationEnabled =
+            model.parameters
+                |> List.filter (\p -> p.key == "continuation")
+                |> List.head
+                |> Maybe.map (\p -> p.value == "true")
+                |> Maybe.withDefault False
 
-        isRequired =
-            List.member param.key model.requiredFields
+        shouldHide =
+            case param.key of
+                "continuation_start" ->
+                    not continuationEnabled
+                "continuation_end" ->
+                    not continuationEnabled
+                _ ->
+                    False
+    in
+    if shouldHide then
+        text ""  -- Hide the parameter
+    else
+        let
+            isDisabled =
+                model.isGenerating
 
-        labelText =
-            formatParameterName param.key ++ (if isRequired then " *" else "")
+            isRequired =
+                List.member param.key model.requiredFields
 
-        rangeText =
-            case ( param.minimum, param.maximum ) of
-                ( Just min, Just max ) ->
-                    " (" ++ String.fromFloat min ++ " - " ++ String.fromFloat max ++ ")"
+            labelText =
+                formatParameterName param.key ++ (if isRequired then " *" else "")
 
-                ( Just min, Nothing ) ->
-                    " (min: " ++ String.fromFloat min ++ ")"
+            rangeText =
+                case ( param.minimum, param.maximum ) of
+                    ( Just min, Just max ) ->
+                        " (" ++ String.fromFloat min ++ " - " ++ String.fromFloat max ++ ")"
 
-                ( Nothing, Just max ) ->
-                    " (max: " ++ String.fromFloat max ++ ")"
+                    ( Just min, Nothing ) ->
+                        " (min: " ++ String.fromFloat min ++ ")"
 
-                ( Nothing, Nothing ) ->
-                    ""
+                    ( Nothing, Just max ) ->
+                        " (max: " ++ String.fromFloat max ++ ")"
 
-        fullDescription =
-            case param.description of
-                Just desc ->
-                    desc ++ rangeText
-
-                Nothing ->
-                    if rangeText /= "" then
-                        String.trim rangeText
-
-                    else
+                    ( Nothing, Nothing ) ->
                         ""
 
-        defaultHint =
-            case param.default of
-                Just def ->
-                    if fullDescription /= "" then
-                        fullDescription ++ " (default: " ++ def ++ ")"
+            fullDescription =
+                case param.description of
+                    Just desc ->
+                        desc ++ rangeText
 
-                    else
-                        "default: " ++ def
+                    Nothing ->
+                        if rangeText /= "" then
+                            String.trim rangeText
 
-                Nothing ->
-                    fullDescription
-    in
-    div [ class "parameter-field" ]
+                        else
+                            ""
+
+            defaultHint =
+                case param.default of
+                    Just def ->
+                        if fullDescription /= "" then
+                            fullDescription ++ " (default: " ++ def ++ ")"
+
+                        else
+                            "default: " ++ def
+
+                    Nothing ->
+                        fullDescription
+        in
+        div [ class "parameter-field" ]
         [ label [ class "parameter-label" ]
             [ text labelText
             , if defaultHint /= "" then
@@ -552,6 +581,10 @@ schemaResponseDecoder =
 generateAudio : String -> List Parameter -> String -> Maybe String -> Cmd Msg
 generateAudio modelId parameters collection maybeVersion =
     let
+        -- Validate parameters before sending
+        validationResult =
+            validateAudioParameters parameters
+
         encodeParameterValue : Parameter -> Maybe ( String, Encode.Value )
         encodeParameterValue param =
             if String.isEmpty (String.trim param.value) then
@@ -603,14 +636,20 @@ generateAudio modelId parameters collection maybeVersion =
 
                         Nothing ->
                             []
-                   )
+                    )
     in
-    -- Cookies are sent automatically, no need for Authorization header
-    Http.post
-        { url = "/api/run-audio-model"
-        , body = Http.jsonBody (Encode.object requestFields)
-        , expect = Http.expectJson AudioGenerated audioResponseDecoder
-        }
+    case validationResult of
+        Ok validParams ->
+            -- Cookies are sent automatically, no need for Authorization header
+            Http.post
+                { url = "/api/run-audio-model"
+                , body = Http.jsonBody (Encode.object requestFields)
+                , expect = Http.expectJson AudioGenerated audioResponseDecoder
+                }
+
+        Err errorMsg ->
+            -- Return a command that will trigger an error message
+            Task.perform (\_ -> AudioGenerationFailed errorMsg) (Task.succeed ())
 
 audioResponseDecoder : Decode.Decoder { audio_id : Int, status : String }
 audioResponseDecoder =
@@ -630,6 +669,50 @@ audioModelDecoder =
             ]
         )
         (Decode.maybe (Decode.field "input_schema" Decode.value))
+
+
+-- Parameter validation
+validateAudioParameters : List Parameter -> Result String (List Parameter)
+validateAudioParameters params =
+    let
+        getParamValue key =
+            params
+                |> List.filter (\p -> p.key == key)
+                |> List.head
+                |> Maybe.map .value
+                |> Maybe.withDefault ""
+
+        continuationEnabled =
+            getParamValue "continuation" == "true"
+
+        continuationStart =
+            getParamValue "continuation_start"
+
+        continuationEnd =
+            getParamValue "continuation_end"
+    in
+    if continuationEnabled then
+        case (String.toFloat continuationStart, String.toFloat continuationEnd) of
+            (Just start, Just end) ->
+                if start >= end then
+                    Err "Continuation start time must be less than end time"
+                else if start < 0 then
+                    Err "Continuation start time must be positive"
+                else if end <= 0 then
+                    Err "Continuation end time must be greater than 0"
+                else
+                    Ok params
+
+            (Just _, Nothing) ->
+                Err "Continuation end time must be a valid number"
+
+            (Nothing, Just _) ->
+                Err "Continuation start time must be a valid number"
+
+            (Nothing, Nothing) ->
+                Err "Both continuation start and end times must be valid numbers"
+    else
+        Ok params
 
 
 httpErrorToString : Http.Error -> String
