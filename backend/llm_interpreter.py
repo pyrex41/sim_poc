@@ -10,6 +10,7 @@ import json
 from typing import Dict, List, Optional
 from openai import OpenAI
 from pydantic import BaseModel
+from langsmith import traceable
 
 
 class GenesisProperties(BaseModel):
@@ -41,6 +42,7 @@ class LLMInterpreter:
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = "gpt-4o"  # or gpt-4-turbo, gpt-4, gpt-3.5-turbo
 
+    @traceable(name="llm_augment_object", tags=["openai", "genesis", "semantic_augmentation"])
     async def augment_object(
         self,
         shape: str,
@@ -199,6 +201,7 @@ Respond with ONLY the JSON object, no other text.
                 reasoning=f"Failed to parse LLM response: {e}"
             )
 
+    @traceable(name="llm_augment_scene", tags=["openai", "genesis", "scene_augmentation"])
     async def augment_scene(
         self,
         scene_objects,

@@ -2,8 +2,10 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
+from langsmith import traceable
 
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
@@ -18,6 +20,34 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.LOG_LEVEL)
     yield
+
+
+class LangSmithMiddleware(BaseHTTPMiddleware):
+    """Middleware to trace HTTP requests with LangSmith"""
+
+    async def dispatch(self, request: Request, call_next):
+        # Get settings to check if tracing is enabled
+        settings = get_settings()
+
+        # Skip tracing if disabled or for health checks/docs
+        if not settings.LANGCHAIN_TRACING_V2 or request.url.path in ["/v1/health", "/docs", "/openapi.json", "/redoc"]:
+            return await call_next(request)
+
+        # Create traced function for the request
+        @traceable(
+            name=f"{request.method} {request.url.path}",
+            tags=["http_request", "prompt_parser", request.method.lower()],
+            metadata={
+                "method": request.method,
+                "path": request.url.path,
+                "query_params": dict(request.query_params),
+            }
+        )
+        async def process_request():
+            response = await call_next(request)
+            return response
+
+        return await process_request()
 
 
 def create_app() -> FastAPI:
@@ -48,6 +78,9 @@ def create_app() -> FastAPI:
     app.include_router(providers_api.router, prefix="/v1", tags=["providers"])
     app.include_router(cache_admin_api.router, prefix="/v1", tags=["cache"])
     app.include_router(health_api.router, prefix="/v1", tags=["health"])
+
+    # Add LangSmith tracing middleware
+    app.add_middleware(LangSmithMiddleware)
 
     return app
 

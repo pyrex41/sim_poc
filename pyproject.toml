@@ -20,4 +20,7 @@ dependencies = [
     "tenacity>=9.1.2",
     "pydantic-settings>=2.11.0",
     "slowapi>=0.1.9",
+    "langsmith>=0.2.0",
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.3.0",
 ]
