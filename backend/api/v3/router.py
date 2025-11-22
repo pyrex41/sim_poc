@@ -497,7 +497,6 @@ async def get_asset_data(
     token: Optional[str] = Query(
         None, description="Temporary access token for public access"
     ),
-    current_user: Optional[Dict] = Depends(verify_auth) if not token else None,
 ):
     """
     Serve the binary asset data.
@@ -511,7 +510,14 @@ async def get_asset_data(
     """
     from fastapi.responses import Response
     from ...database_helpers import get_db
-    from ...auth import verify_asset_access_token
+    from ...auth import (
+        verify_asset_access_token,
+        _verify_api_key_and_get_user,
+        decode_access_token,
+        get_user_by_username,
+        COOKIE_NAME,
+    )
+    import os
 
     # Verify authentication: either temporary token OR standard auth required
     authenticated = False
@@ -526,14 +532,49 @@ async def get_asset_data(
             raise HTTPException(
                 status_code=401, detail="Invalid or expired access token"
             )
-    elif current_user:
-        # Standard authentication successful
-        authenticated = True
+    else:
+        # No token provided - try standard authentication (API key, cookie, or Bearer token)
+        # Check for local development bypass
+        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        if base_url.startswith("http://localhost") or base_url.startswith(
+            "http://127.0.0.1"
+        ):
+            authenticated = True
+        else:
+            # Try API key from X-API-Key header
+            api_key = request.headers.get("X-API-Key")
+            if api_key:
+                user = _verify_api_key_and_get_user(api_key)
+                if user:
+                    authenticated = True
+
+            # Try cookie authentication
+            if not authenticated:
+                cookie_token = request.cookies.get(COOKIE_NAME)
+                if cookie_token:
+                    payload = decode_access_token(cookie_token)
+                    if payload:
+                        username = payload.get("sub")
+                        if username:
+                            user = get_user_by_username(username)
+                            if user and user.get("is_active"):
+                                authenticated = True
+
+            # Try Bearer token from Authorization header
+            if not authenticated:
+                auth_header = request.headers.get("Authorization")
+                if auth_header and auth_header.startswith("Bearer "):
+                    bearer_token = auth_header[7:]  # Remove "Bearer " prefix
+                    payload = decode_access_token(bearer_token)
+                    if payload:
+                        username = payload.get("sub")
+                        if username:
+                            user = get_user_by_username(username)
+                            if user and user.get("is_active"):
+                                authenticated = True
 
     if not authenticated:
-        raise HTTPException(
-            status_code=401, detail="Authentication required"
-        )
+        raise HTTPException(status_code=401, detail="Authentication required")
 
     try:
         # Query asset directly from database to get blob_id and blob_data
