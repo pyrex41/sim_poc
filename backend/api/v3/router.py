@@ -1783,29 +1783,6 @@ async def create_job_from_image_pairs(
             offset=0
         )
 
-        # Convert asset objects to dicts for xAI processing
-        asset_data = []
-        for asset in assets:
-            if hasattr(asset, '__dict__'):
-                asset_dict = asset.__dict__
-            else:
-                asset_dict = dict(asset)
-            
-            asset_data.append({
-                "id": asset_dict.get("id", ""),
-                "name": asset_dict.get("name", ""),
-                "description": asset_dict.get("name", ""),  # Use name as description if no desc
-                "tags": asset_dict.get("tags", []),
-                "type": asset_dict.get("type", "image"),
-                "url": asset_dict.get("url", ""),
-                "thumbnailUrl": asset_dict.get("thumbnail_url", asset_dict.get("url", "")),
-                "durationSeconds": asset_dict.get("duration", 0),
-                "width": asset_dict.get("width", 0),
-                "height": asset_dict.get("height", 0),
-            })
-        
-        logger.info(f"Prepared {len(asset_data)} assets for xAI processing")
-
         if len(assets) < 2:
             return APIResponse.create_error(
                 f"Need at least 2 image assets, but campaign has {len(assets)}"
@@ -1855,7 +1832,7 @@ async def create_job_from_image_pairs(
                 "id": asset.id,
                 "name": getattr(asset, "name", ""),
                 "description": getattr(asset, "name", ""),  # Use name as description
-                "tags": getattr(asset, "tags", []),
+                "tags": getattr(asset, "tags") or [],  # Ensure tags is always a list, never None
                 "type": "image",
                 "url": getattr(asset, "url", ""),
             }
