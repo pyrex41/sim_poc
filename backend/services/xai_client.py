@@ -123,12 +123,13 @@ class XAIClient:
         # STAGE 1: Group assets by room type
         room_groups = self._group_assets_by_room(image_assets)
 
+        # Adjust num_pairs if we have fewer room types
+        actual_pairs = min(num_pairs, len(room_groups))
         if len(room_groups) < num_pairs:
-            logger.warning(
+            logger.info(
                 f"[TWO-STAGE] Only {len(room_groups)} room types available, "
-                f"but need {num_pairs} pairs. Falling back to single-stage selection."
+                f"adjusting from {num_pairs} to {actual_pairs} pairs."
             )
-            return self._single_stage_selection(image_assets, campaign_context, client_brand_guidelines, num_pairs)
 
         logger.info(f"[TWO-STAGE STAGE 1] Grouped {len(image_assets)} images into {len(room_groups)} room types")
         for room_type, room_assets in room_groups.items():
@@ -136,7 +137,7 @@ class XAIClient:
 
         # STAGE 1: Select which room types to use
         try:
-            selected_room_types = self._select_room_types(room_groups, num_pairs, campaign_context)
+            selected_room_types = self._select_room_types(room_groups, actual_pairs, campaign_context)
             logger.info(f"[TWO-STAGE STAGE 1] Selected {len(selected_room_types)} room types: {selected_room_types}")
         except Exception as e:
             logger.error(f"[TWO-STAGE STAGE 1] Room selection failed: {e}. Falling back to single-stage.")
@@ -168,9 +169,9 @@ class XAIClient:
                 except Exception as e:
                     logger.error(f"[TWO-STAGE STAGE 2] ✗ {room_type}: Failed - {e}")
 
-        if len(pairs) < num_pairs:
+        if len(pairs) < actual_pairs:
             logger.warning(
-                f"[TWO-STAGE] Only got {len(pairs)} pairs from {num_pairs} rooms. "
+                f"[TWO-STAGE] Only got {len(pairs)} pairs from {actual_pairs} rooms. "
                 f"Some room selections failed."
             )
 
