@@ -1,15 +1,23 @@
 # Current Progress - Video Ad Generation Platform
 
-**Last Updated:** 2025-11-21 20:50 UTC
+**Last Updated:** 2025-11-21 21:42 UTC
 **Branch:** simple
-**Overall Status:** 🚀 AI-Powered Video Generation Pipeline COMPLETE
+**Overall Status:** 🚀 AI-Powered Video Generation Pipeline + Property Photo Selection COMPLETE
 
 ---
 
 ## 🎯 Current Status Summary
 
 ### Latest Achievement ✅
-**AI-Powered Image Pair Selection and Video Generation Pipeline**
+**Property Photo Selection for Luxury Lodging Videos**
+- AI-powered scene-based image pair selection using Grok
+- 7 predefined luxury hospitality scene types (35s total)
+- Intelligent selection based on visual quality, tags, transitions, and brand consistency
+- Complete integration with existing video generation pipeline
+- Comprehensive documentation and testing guide
+
+**Previous Achievement:**
+AI-Powered Image Pair Selection and Video Generation Pipeline
 - Fully functional end-to-end workflow
 - xAI Grok-4-1-fast-non-reasoning for intelligent pair selection
 - Unlimited parallel video generation using Replicate API
@@ -41,7 +49,93 @@
 
 ---
 
-## 📊 Recent Accomplishments (Last Session)
+## 📊 Recent Accomplishments (Last Sessions)
+
+### Session 8: Property Photo Selection for Luxury Lodging (Nov 21, ~21:00-21:42 UTC)
+**Status:** ✅ Complete - Luxury Hospitality Video Automation
+
+**Achievements:**
+
+#### 1. Property Photo Selector Service (`backend/services/property_photo_selector.py`, 350 lines)
+- **Purpose**: Intelligent image pair selection for luxury lodging marketing videos
+- **Scene Types**: 7 predefined scenes for 35-second property videos:
+  1. Grand Arrival (5s) - Exterior, architectural style, welcoming entrance
+  2. Refined Interiors (5s) - Lobby/common areas, interior design
+  3. Guest Room Sanctuary (5s) - Room luxury, comfort, amenities
+  4. Culinary Excellence (5s) - Dining experiences, food quality
+  5. Wellness & Recreation (5s) - Pool, spa, fitness, activities
+  6. Unique Experiences (5s) - Distinctive features, local culture
+  7. Lasting Impression (5s) - Hero shot, memorable vista
+- **Features**:
+  - Validates minimum 14 photos (7 scenes × 2 images)
+  - Duplicate image detection across all scenes
+  - Fallback selection for incomplete AI responses
+  - Conversion to video generation format
+
+#### 2. Extended xAI Client (`backend/services/xai_client.py`)
+- **New Method**: `select_property_scene_pairs()` (265+ lines)
+- **Comprehensive Grok Prompt**:
+  - Property information (name, location, type, positioning)
+  - Photo catalog with rich metadata (tags, colors, objects, composition, lighting)
+  - Scene type requirements with detailed guidance
+  - 4 weighted selection criteria:
+    * Visual Quality (30%): Resolution, composition, lighting, color harmony
+    * Tag Alignment (25%): Match with scene ideal tags
+    * Transition Potential (25%): Color compatibility, lighting consistency
+    * Brand Consistency (20%): Property positioning alignment
+  - Critical constraints (no image reuse, smooth transitions, narrative flow)
+  - Structured JSON response with reasoning and scores
+
+#### 3. New Pydantic Models (`backend/api/v3/models.py`)
+- **PropertyPhoto**: Photo metadata (tags, colors, objects, composition, lighting)
+- **PropertyInfo**: Property details (name, location, type, positioning)
+- **PropertyVideoRequest**: Request with 14+ photos and campaign context
+- **PropertyVideoJobResponse**: Selection result with scene pairs and metadata
+- **SceneImagePair**: Selected pair with transition analysis and reasoning
+
+#### 4. New API Endpoint (`backend/api/v3/router.py`)
+**POST /api/v3/jobs/from-property-photos** (lines 1713-1882, 173 lines)
+- Create luxury lodging video from crawled property photos
+- Request accepts:
+  - Property info (name, location, type, positioning)
+  - 14+ photos with metadata
+  - Campaign ID
+  - Optional: clip duration, video model
+- Workflow:
+  1. Call Grok to analyze photos and select scene pairs
+  2. Store photos as assets in database
+  3. Create video job with 7 sub-jobs
+  4. Launch parallel video generation
+  5. Return job ID with selection metadata
+- Background processing with FastAPI BackgroundTasks
+- Integration with existing video pipeline
+
+#### 5. Comprehensive Documentation
+**Created**: `backend/docs/property_video_generation.md` (12,690 bytes)
+- Complete API reference with TypeScript types
+- Example requests (cURL and JavaScript)
+- Scene type definitions and guidance
+- Image selection criteria explanation
+- Workflow integration examples
+- Error handling and best practices
+- Cost estimation guidelines
+- Testing and validation instructions
+
+#### 6. Bug Fixes
+**Authentication Dependency** (backend/api/v3/router.py:1716)
+- Fixed: Changed from `get_current_user_from_api_key` to `verify_auth`
+- Ensures consistency with existing endpoint patterns
+
+**Code References:**
+- Property selector service: backend/services/property_photo_selector.py:1-350
+- XAI scene selection: backend/services/xai_client.py:325-590
+- API endpoint: backend/api/v3/router.py:1713-1882
+- Pydantic models: backend/api/v3/models.py:377-439
+- Documentation: backend/docs/property_video_generation.md
+
+**Impact:** Complete automation of luxury lodging video creation from crawled property photos, enabling scalable property marketing video generation
+
+---
 
 ### Session 7: AI-Powered Image Pair Selection & Video Generation (Nov 21, ~20:00-20:50 UTC)
 **Status:** ✅ Complete - Revolutionary AI Integration
@@ -156,16 +250,15 @@
 
 ## 🚧 Work In Progress
 
-**Current Focus:** Monitoring Job 22 completion
+**Current Focus:** Property video generation ready for testing
 
-**Active Jobs:**
-- Job 22: 2 sub-jobs processing in parallel
+**Status:** All development complete, ready for real property photo testing
 
 **Next Immediate Tasks:**
-1. Verify combined video output quality
-2. Implement temp file cleanup
-3. Add retry logic for failed sub-jobs
-4. Add job cancellation endpoint
+1. Test property photo endpoint with real crawled data
+2. Validate Grok scene selection quality
+3. Monitor end-to-end video generation
+4. Collect feedback on scene type definitions
 
 ---
 
@@ -218,16 +311,19 @@ Review and update MVP task list to reflect AI-driven architecture
 ```
 backend/
 ├── api/v3/
-│   ├── router.py          # V3 endpoints (27 endpoints, 1600+ lines)
-│   └── models.py          # Pydantic models
+│   ├── router.py          # V3 endpoints (28 endpoints, 1882+ lines)
+│   └── models.py          # Pydantic models (extended with property models)
 ├── services/
-│   ├── xai_client.py             # NEW: AI image pair selection (282 lines)
-│   ├── sub_job_orchestrator.py  # NEW: Parallel video generation (411 lines)
-│   ├── video_combiner.py         # NEW: FFmpeg video assembly
-│   ├── replicate_client.py       # UPDATED: Veo3 fixes
-│   ├── asset_downloader.py       # Asset URL handling
-│   ├── scene_generator.py        # OpenAI scene generation
-│   └── storyboard_generator.py   # Existing
+│   ├── property_photo_selector.py  # NEW: Luxury lodging scene selection (350 lines)
+│   ├── xai_client.py               # UPDATED: Property scene selection method (550+ lines)
+│   ├── sub_job_orchestrator.py    # Parallel video generation (411 lines)
+│   ├── video_combiner.py           # FFmpeg video assembly
+│   ├── replicate_client.py         # Veo3 fixes
+│   ├── asset_downloader.py         # Asset URL handling
+│   ├── scene_generator.py          # OpenAI scene generation
+│   └── storyboard_generator.py     # Existing
+├── docs/
+│   └── property_video_generation.md  # NEW: Complete property video API docs
 ├── schemas/
 │   └── assets.py          # Asset models
 ├── database_helpers.py    # CRUD operations (extended)
@@ -284,17 +380,18 @@ root/
 - `job_scenes` (for AI scene generation)
 
 ### API Endpoints (V3)
-**Total:** 27 endpoints
+**Total:** 28 endpoints
 
 **New Endpoints (Nov 21):**
 - POST /api/v3/jobs/from-image-pairs (AI-driven job creation)
+- POST /api/v3/jobs/from-property-photos (Luxury lodging property videos)
 - GET /api/v3/jobs/{job_id}/sub-jobs (progress tracking)
 
 **Categories:**
 - Client Management: 6 endpoints
 - Campaign Management: 6 endpoints
 - Asset Management: 4 endpoints
-- Job Management: 5 endpoints
+- Job Management: 6 endpoints (includes property video generation)
 - Scene Management: 5 endpoints
 - Cost Estimation: 1 endpoint
 
