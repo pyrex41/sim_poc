@@ -10,6 +10,7 @@ import time
 from os import environ
 from typing import Dict, List, Optional, Any
 import requests
+from langsmith import traceable
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -84,6 +85,7 @@ class ReplicateClient:
 
         logger.info("ReplicateClient initialized successfully")
 
+    @traceable(name="replicate_generate_image", tags=["replicate", "image_generation", "flux"])
     def generate_image(
         self,
         prompt: str,
@@ -187,6 +189,7 @@ class ReplicateClient:
                 "prediction_id": None
             }
 
+    @traceable(name="replicate_generate_video", tags=["replicate", "video_generation", "skyreels"])
     def generate_video(
         self,
         image_urls: List[str],
@@ -313,6 +316,7 @@ class ReplicateClient:
                 "duration_seconds": 0
             }
 
+    @traceable(name="replicate_poll_prediction", tags=["replicate", "polling", "status"])
     def poll_prediction(
         self,
         prediction_id: str,
@@ -483,6 +487,7 @@ class ReplicateClient:
 
         return total_cost
 
+    @traceable(name="replicate_generate_video_from_pair", tags=["replicate", "video_generation", "image_to_video"])
     def generate_video_from_pair(
         self,
         image1_url: str,

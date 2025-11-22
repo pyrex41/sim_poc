@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = Field(60, ge=1)
     USE_MOCK_LLM: bool = False
 
+    # LangSmith observability settings
+    LANGCHAIN_TRACING_V2: bool = False
+    LANGCHAIN_API_KEY: str | None = None
+    LANGCHAIN_PROJECT: str = "video-sim-poc"
+    LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

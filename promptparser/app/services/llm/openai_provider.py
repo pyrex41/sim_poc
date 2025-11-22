@@ -7,6 +7,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 import structlog
+from langsmith import traceable
 
 from app.core.config import get_settings
 from app.services.llm.base import LLMProvider
@@ -28,6 +29,7 @@ class OpenAIProvider(LLMProvider):
         self._available = True
         self._latency_ms = 3000
 
+    @traceable(name="openai_complete", tags=["openai", "prompt_parser", "llm_call"])
     async def complete(
         self,
         prompt: str,
@@ -56,6 +58,7 @@ class OpenAIProvider(LLMProvider):
             logger.warning("openai.complete_failed", error=str(exc))
             raise
 
+    @traceable(name="openai_analyze_image", tags=["openai", "vision", "image_analysis"])
     async def analyze_image(self, image_b64: str, question: str) -> dict[str, Any]:
         try:
             if not image_b64.startswith("data:"):

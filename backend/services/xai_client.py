@@ -9,6 +9,7 @@ import json
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 import requests
+from langsmith import traceable
 
 from ..config import get_settings
 
@@ -33,6 +34,7 @@ class XAIClient:
         self.base_url = "https://api.x.ai/v1"
         self.model = "grok-4-1-fast-non-reasoning"
 
+    @traceable(name="xai_select_image_pairs", tags=["xai", "grok", "image_selection", "llm_call"])
     def select_image_pairs(
         self,
         assets: List[Dict[str, Any]],
@@ -458,6 +460,7 @@ Begin your analysis and selection now.
 
         return prompt
 
+    @traceable(name="xai_grok_api_call", tags=["xai", "grok_api", "api_call"])
     def _call_grok_api(
         self, prompt: str, image_assets: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
@@ -586,6 +589,7 @@ Begin your analysis and selection now.
             logger.error(f"Failed to parse Grok response: {e}", exc_info=True)
             raise ValueError(f"Invalid response format from Grok: {e}")
 
+    @traceable(name="xai_select_property_scene_pairs", tags=["xai", "grok", "property_scenes", "llm_call"])
     def select_property_scene_pairs(
         self,
         property_info: Dict[str, Any],

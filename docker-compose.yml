@@ -6,8 +6,21 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Existing environment variables
       - REPLICATE_AI_KEY=${REPLICATE_AI_KEY}
       - DATA=/data
+
+      # LangSmith observability (optional - set LANGCHAIN_TRACING_V2=true to enable)
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
+      - LANGCHAIN_PROJECT=${LANGCHAIN_PROJECT:-video-sim-poc}
+      - LANGCHAIN_ENDPOINT=${LANGCHAIN_ENDPOINT:-https://api.smith.langchain.com}
+
+      # API keys for LLM providers
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - XAI_API_KEY=${XAI_API_KEY}
     volumes:
       - ./data:/data
     restart: unless-stopped

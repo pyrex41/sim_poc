@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: Optional[str] = None
     XAI_API_KEY: Optional[str] = None  # For Grok models
 
+    # LangSmith observability settings
+    LANGCHAIN_TRACING_V2: bool = False  # Enable LangSmith tracing
+    LANGCHAIN_API_KEY: Optional[str] = None  # LangSmith API key
+    LANGCHAIN_PROJECT: str = "video-sim-poc"  # LangSmith project name
+    LANGCHAIN_ENDPOINT: str = "https://api.smith.langchain.com"  # LangSmith API endpoint
+
     # Storage settings
     VIDEO_STORAGE_PATH: str = "./DATA/videos"
 
