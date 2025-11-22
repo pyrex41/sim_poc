@@ -800,8 +800,9 @@ async def upload_assets_from_urls(
             f"Bulk uploading {len(request.assets)} assets for user {current_user['id']}"
         )
 
-        # Create semaphore to limit concurrent downloads (max 5 simultaneous)
-        semaphore = Semaphore(5)
+        # Create semaphore to limit concurrent downloads (max 2 simultaneous for production)
+        # Lower limit prevents overwhelming the server during bulk uploads
+        semaphore = Semaphore(2)
 
         # Process all assets concurrently
         tasks = [

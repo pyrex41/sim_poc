@@ -28,12 +28,12 @@ primary_region = 'dfw'
 
   [[http_service.checks]]
     interval = '30s'
-    timeout = '5s'
-    grace_period = '10s'
+    timeout = '10s'  # Increased from 5s for bulk operations
+    grace_period = '30s'  # Increased from 10s for startup/bulk uploads
     method = 'GET'
     path = '/health'
 
 [[vm]]
-  memory = '2gb'
+  memory = '4gb'  # Increased from 2gb for bulk asset downloads
   cpu_kind = 'shared'
-  cpus = 1
+  cpus = 2  # Increased from 1 for better concurrent performance
