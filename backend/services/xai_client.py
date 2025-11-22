@@ -115,11 +115,13 @@ CAMPAIGN CONTEXT:
 
         # Add brand guidelines if provided
         if brand_guidelines:
+            colors = brand_guidelines.get('colors') or []
+            restrictions = brand_guidelines.get('restrictions') or []
             prompt += f"""
 BRAND GUIDELINES:
-- Colors: {', '.join(brand_guidelines.get('colors', [])) or 'Not specified'}
+- Colors: {', '.join(colors) if colors else 'Not specified'}
 - Tone: {brand_guidelines.get('tone', 'Not specified')}
-- Restrictions: {', '.join(brand_guidelines.get('restrictions', [])) or 'None'}
+- Restrictions: {', '.join(restrictions) if restrictions else 'None'}
 """
 
         # Add asset information

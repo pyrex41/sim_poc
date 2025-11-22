@@ -1393,7 +1393,7 @@ async def get_job_status(
             # If it's already a dict, leave it as-is
 
         # Add debugging info in development
-        if get_settings().debug:
+        if get_settings().ENVIRONMENT == "development":
             job_data["_debug"] = {
                 "raw_parameters": str(job_dict.get("parameters", ""))[:200] + "..." if len(str(job_dict.get("parameters", ""))) > 200 else str(job_dict.get("parameters", "")),
                 "parameter_parse_success": "parameters" in job_dict,

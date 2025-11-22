@@ -272,8 +272,21 @@ async def _process_single_sub_job(
         current_settings = get_settings()
         # Use NGROK_URL if available, otherwise fall back to BASE_URL
         external_url = current_settings.NGROK_URL or current_settings.BASE_URL
-        image1_url = f"{external_url}{image1.url}" if not image1.url.startswith('http') else image1.url
-        image2_url = f"{external_url}{image2.url}" if not image2.url.startswith('http') else image2.url
+
+        # Prefer source_url (original URL) if available, otherwise construct full URL
+        if hasattr(image1, 'source_url') and image1.source_url:
+            image1_url = image1.source_url
+        elif hasattr(image1, 'sourceUrl') and image1.sourceUrl:
+            image1_url = image1.sourceUrl
+        else:
+            image1_url = f"{external_url}{image1.url}" if not image1.url.startswith('http') else image1.url
+
+        if hasattr(image2, 'source_url') and image2.source_url:
+            image2_url = image2.source_url
+        elif hasattr(image2, 'sourceUrl') and image2.sourceUrl:
+            image2_url = image2.sourceUrl
+        else:
+            image2_url = f"{external_url}{image2.url}" if not image2.url.startswith('http') else image2.url
 
         # Debug: Log URLs being sent to Replicate
         logger.error(f"[DEBUG ORCHESTRATOR] NGROK_URL: {current_settings.NGROK_URL}")

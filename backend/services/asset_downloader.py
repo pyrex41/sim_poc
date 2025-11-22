@@ -355,9 +355,12 @@ def _extract_metadata(
     except Exception as e:
         logger.warning(f"Failed to extract metadata: {e}")
         # Return basic metadata even if extraction fails
-        metadata["format"] = (
-            content_type.split("/")[-1] if "/" in content_type else "unknown"
-        )
+        # Handle special cases like svg+xml -> svg
+        format_str = content_type.split("/")[-1] if "/" in content_type else "unknown"
+        # Clean up compound formats (e.g., svg+xml -> svg)
+        if "+" in format_str:
+            format_str = format_str.split("+")[0]
+        metadata["format"] = format_str
 
     return metadata
 
