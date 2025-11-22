@@ -497,7 +497,6 @@ async def get_asset_data(
     token: Optional[str] = Query(
         None, description="Temporary access token for public access"
     ),
-    current_user: Optional[Dict] = Depends(verify_auth),
 ):
     """
     Serve the binary asset data.
@@ -511,7 +510,7 @@ async def get_asset_data(
     """
     from fastapi.responses import Response
     from ...database_helpers import get_db
-    from ...auth import verify_asset_access_token
+    from ...auth import verify_asset_access_token, verify_auth
 
     # Try token-based access first
     if token:
@@ -523,11 +522,15 @@ async def get_asset_data(
             raise HTTPException(
                 status_code=401, detail="Invalid or expired access token"
             )
-    elif not current_user:
-        # No token and no authenticated user
-        raise HTTPException(
-            status_code=401, detail="Authentication required"
-        )
+    else:
+        # No token provided - require standard authentication
+        try:
+            # Manually call verify_auth to check authentication
+            await verify_auth(request, None, None)
+        except HTTPException:
+            raise HTTPException(
+                status_code=401, detail="Authentication required"
+            )
 
     try:
         # Query asset directly from database to get blob_id and blob_data
