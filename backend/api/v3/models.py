@@ -207,6 +207,9 @@ class AdvancedSettings(BaseModel):
     duration: Optional[int] = None
     resolution: Optional[str] = None
     modelPreferences: Optional[List[str]] = None
+    autoApprove: bool = Field(
+        default=False, description="Auto-approve storyboard and start video rendering"
+    )
 
 
 class JobCreateRequest(BaseModel):

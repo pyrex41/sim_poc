@@ -1316,13 +1316,21 @@ async def create_job(
             else:
                 audio_info = {"status": "not_requested"}
 
-            # Update job status to storyboard_ready
-            update_video_status(job_id, "storyboard_ready")
+            auto_approve = request.advanced.autoApprove if request.advanced else False
+
+            if auto_approve:
+                approve_storyboard(job_id)
+                background_tasks.add_task(render_video_task, job_id)
+                update_video_status(job_id, "video_processing")
+                response_status = JobStatus.VIDEO_PROCESSING
+            else:
+                update_video_status(job_id, "storyboard_ready")
+                response_status = JobStatus.STORYBOARD_READY
 
             # Prepare response with audio info and actual cost
             job_response = {
                 "id": str(job_id),
-                "status": JobStatus.STORYBOARD_READY,
+                "status": response_status,
                 "assetIds": processed_asset_ids,
                 "scenes": scenes,
                 "audio": audio_info,
@@ -1949,18 +1957,65 @@ async def create_job_from_image_pairs(
         xai_client = XAIClient()
 
         # Prepare asset data for Grok
-        asset_data = [
-            {
+        logger.info(f"[IMAGE PAIRING] Preparing asset data for {len(assets)} images")
+
+        # Also write to persistent file for debugging
+        debug_log_path = "/tmp/image_pairing_debug.log"
+        with open(debug_log_path, "a") as debug_file:
+            debug_file.write(f"\n{'='*80}\n")
+            debug_file.write(f"NEW JOB - Campaign: {campaign_id}\n")
+            debug_file.write(f"Timestamp: {__import__('datetime').datetime.now().isoformat()}\n")
+            debug_file.write(f"Total assets: {len(assets)}\n")
+            debug_file.write(f"{'='*80}\n\n")
+
+        asset_data = []
+        for i, asset in enumerate(assets):
+            # Parse tags if they're stored as JSON string
+            tags = getattr(asset, "tags", [])
+            if isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except:
+                    tags = []
+            elif tags is None:
+                tags = []
+
+            # Create meaningful description from available metadata
+            name = getattr(asset, "name", "")
+            description_parts = [name]
+            if tags:
+                description_parts.append(f"Tags: {', '.join(tags)}")
+            description = " | ".join(description_parts) if description_parts else "No description"
+
+            asset_dict = {
                 "id": asset.id,
-                "name": getattr(asset, "name", ""),
-                "description": getattr(asset, "name", ""),  # Use name as description
-                "tags": getattr(asset, "tags")
-                or [],  # Ensure tags is always a list, never None
+                "name": name,
+                "description": description,
+                "tags": tags,
                 "type": "image",
                 "url": getattr(asset, "url", ""),
             }
-            for asset in assets
-        ]
+            asset_data.append(asset_dict)
+
+            # Log each asset being sent to Grok
+            logger.info(
+                f"[IMAGE PAIRING] Asset {i+1}/{len(assets)}: "
+                f"id={asset.id[:12]}... name='{name}' tags={tags}"
+            )
+
+            # Write to debug file
+            with open(debug_log_path, "a") as debug_file:
+                debug_file.write(f"Asset {i+1}/{len(assets)}:\n")
+                debug_file.write(f"  ID: {asset.id}\n")
+                debug_file.write(f"  Name: {name}\n")
+                debug_file.write(f"  Tags: {tags}\n")
+                debug_file.write(f"  Description: {description}\n\n")
+
+        # Log summary of asset data
+        logger.info(
+            f"[IMAGE PAIRING] Asset data summary: "
+            f"{len(asset_data)} assets with tags={sum(1 for a in asset_data if a['tags'])}"
+        )
 
         try:
             image_pairs = xai_client.select_image_pairs(

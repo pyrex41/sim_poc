@@ -7,6 +7,7 @@ and order image pairs from campaign assets for video generation.
 
 import json
 import logging
+import time
 from typing import List, Dict, Any, Optional, Tuple
 import requests
 
@@ -33,6 +34,44 @@ class XAIClient:
         self.base_url = "https://api.x.ai/v1"
         self.model = "grok-4-1-fast-non-reasoning"
 
+    def _group_assets_by_room(self, assets: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Group assets by room type extracted from tags.
+
+        For tags like ["Bedroom 1 2"], extracts "Bedroom" as the room type.
+        For tags like ["Ensuite Bathroom 1 1"], extracts "Ensuite Bathroom".
+        """
+        from collections import defaultdict
+        import json
+
+        room_groups = defaultdict(list)
+
+        for asset in assets:
+            tags = asset.get('tags', [])
+
+            # Handle tags stored as JSON string
+            if isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except:
+                    tags = []
+
+            if tags and len(tags) > 0:
+                tag = tags[0]  # Use first tag
+
+                # Extract room type from tag
+                parts = tag.split()
+                if len(parts) >= 1:
+                    # Handle multi-word room types
+                    if parts[0] in ['Ensuite', 'Half', 'Dining', 'Living', 'Laundry', 'Tv']:
+                        room_type = ' '.join(parts[:2]) if len(parts) >= 2 else parts[0]
+                    else:
+                        room_type = parts[0]
+
+                    room_groups[room_type].append(asset)
+
+        return dict(room_groups)
+
     def select_image_pairs(
         self,
         assets: List[Dict[str, Any]],
@@ -41,7 +80,10 @@ class XAIClient:
         num_pairs: Optional[int] = None,
     ) -> List[Tuple[str, str, float, str]]:
         """
-        Select optimal image pairs for video generation using Grok.
+        Two-stage selection process for luxury property videos:
+
+        Stage 1: Select which room types to feature (e.g., best 7 rooms)
+        Stage 2: For each selected room, pick best 2 images to form a pair
 
         Args:
             assets: List of asset dicts with keys: id, name, description, tags, url, type
@@ -53,6 +95,8 @@ class XAIClient:
             List of tuples: (image1_id, image2_id, score, reasoning)
             Ordered by quality score (highest first)
         """
+        import concurrent.futures
+
         if not assets or len(assets) < 2:
             raise ValueError("Need at least 2 assets to create pairs")
 
@@ -62,26 +106,314 @@ class XAIClient:
             raise ValueError(f"Need at least 2 image assets, but only got {len(image_assets)}")
 
         logger.info(
-            f"Selecting image pairs from {len(image_assets)} images "
+            f"[TWO-STAGE] Selecting image pairs from {len(image_assets)} images "
             f"(filtered from {len(assets)} total assets)"
         )
 
-        # Build the prompt
+        # Detect if we should use two-stage room-based selection
+        # Use two-stage if: num_pairs == 7 (luxury property video) and we have room-tagged images
+        num_pairs = num_pairs or 7  # Default to 7
+        use_two_stage = num_pairs == 7
+
+        if not use_two_stage:
+            # Fall back to original single-stage selection
+            logger.info("[TWO-STAGE] Using single-stage selection (not a 7-pair property video)")
+            return self._single_stage_selection(image_assets, campaign_context, client_brand_guidelines, num_pairs)
+
+        # STAGE 1: Group assets by room type
+        room_groups = self._group_assets_by_room(image_assets)
+
+        if len(room_groups) < num_pairs:
+            logger.warning(
+                f"[TWO-STAGE] Only {len(room_groups)} room types available, "
+                f"but need {num_pairs} pairs. Falling back to single-stage selection."
+            )
+            return self._single_stage_selection(image_assets, campaign_context, client_brand_guidelines, num_pairs)
+
+        logger.info(f"[TWO-STAGE STAGE 1] Grouped {len(image_assets)} images into {len(room_groups)} room types")
+        for room_type, room_assets in room_groups.items():
+            logger.info(f"[TWO-STAGE STAGE 1]   {room_type}: {len(room_assets)} images")
+
+        # STAGE 1: Select which room types to use
+        try:
+            selected_room_types = self._select_room_types(room_groups, num_pairs, campaign_context)
+            logger.info(f"[TWO-STAGE STAGE 1] Selected {len(selected_room_types)} room types: {selected_room_types}")
+        except Exception as e:
+            logger.error(f"[TWO-STAGE STAGE 1] Room selection failed: {e}. Falling back to single-stage.")
+            return self._single_stage_selection(image_assets, campaign_context, client_brand_guidelines, num_pairs)
+
+        # STAGE 2: For each selected room, select best 2 images (parallel)
+        pairs = []
+        logger.info(f"[TWO-STAGE STAGE 2] Selecting image pairs for {len(selected_room_types)} rooms (parallel)")
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+            future_to_room = {
+                executor.submit(
+                    self._select_pair_from_room,
+                    room_type,
+                    room_groups[room_type],
+                    campaign_context
+                ): room_type
+                for room_type in selected_room_types
+                if room_type in room_groups
+            }
+
+            for future in concurrent.futures.as_completed(future_to_room):
+                room_type = future_to_room[future]
+                try:
+                    pair = future.result()
+                    if pair:
+                        pairs.append(pair)
+                        logger.info(f"[TWO-STAGE STAGE 2] ✓ {room_type}: Selected pair")
+                except Exception as e:
+                    logger.error(f"[TWO-STAGE STAGE 2] ✗ {room_type}: Failed - {e}")
+
+        if len(pairs) < num_pairs:
+            logger.warning(
+                f"[TWO-STAGE] Only got {len(pairs)} pairs from {num_pairs} rooms. "
+                f"Some room selections failed."
+            )
+
+        logger.info(f"[TWO-STAGE] Successfully selected {len(pairs)} pairs using two-stage approach")
+        return pairs
+
+    def _single_stage_selection(
+        self,
+        image_assets: List[Dict[str, Any]],
+        campaign_context: Optional[Dict[str, Any]],
+        brand_guidelines: Optional[Dict[str, Any]],
+        num_pairs: Optional[int],
+    ) -> List[Tuple[str, str, float, str]]:
+        """Original single-stage selection (fallback for non-property videos)."""
         prompt = self._build_selection_prompt(
-            image_assets, campaign_context, client_brand_guidelines, num_pairs
+            image_assets, campaign_context, brand_guidelines, num_pairs
         )
 
-        # Call Grok API
-        try:
-            response = self._call_grok_api(prompt, image_assets)
-            pairs = self._parse_pairs_response(response, image_assets)
+        logger.info(f"[SINGLE-STAGE] Prompt length: {len(prompt)} characters")
 
-            logger.info(f"Successfully selected {len(pairs)} image pairs")
-            return pairs
+        response = self._call_grok_api(prompt, image_assets)
+        pairs = self._parse_pairs_response(response, image_assets)
+
+        logger.info(f"[SINGLE-STAGE] Successfully selected {len(pairs)} pairs")
+        return pairs
+
+    def _select_room_types(
+        self,
+        room_groups: Dict[str, List[Dict[str, Any]]],
+        num_rooms: int,
+        campaign_context: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        """
+        Stage 1: Select which room types to feature in the video.
+
+        Args:
+            room_groups: Dict mapping room type to list of assets
+            num_rooms: Number of room types to select (e.g., 7 for property video)
+            campaign_context: Optional campaign info
+
+        Returns:
+            List of selected room type names
+        """
+        # Build room selection prompt
+        prompt = f"""You are an expert luxury real estate videographer planning a property showcase video.
+
+You need to select {num_rooms} room types to feature in a {num_rooms}-scene video (one scene per room type).
+
+AVAILABLE ROOM TYPES:
+"""
+
+        for room_type, assets in sorted(room_groups.items(), key=lambda x: -len(x[1])):
+            prompt += f"- {room_type}: {len(assets)} images available\n"
+
+        if campaign_context:
+            prompt += f"""
+CAMPAIGN CONTEXT:
+- Goal: {campaign_context.get('goal', 'Showcase premium property')}
+- Target Audience: {campaign_context.get('targetAudience', 'Luxury buyers')}
+"""
+
+        prompt += f"""
+SELECTION CRITERIA:
+1. Visual Appeal: Choose rooms with most compelling imagery potential
+2. Narrative Flow: Select rooms that create a cohesive property tour
+3. Diversity: Balance between public spaces (living, dining, kitchen) and private (bedroom, bathroom)
+4. Luxury Features: Prioritize rooms that showcase high-end finishes and unique features
+
+REQUIRED ROOM TYPES (must include if available):
+- At least 1 bedroom type (Bedroom, etc.)
+- At least 1 bathroom type (Bathroom, Ensuite Bathroom, etc.)
+- At least 1 exterior/outdoor type (Exterior, Pool, Patio, etc.)
+
+RESPONSE FORMAT (JSON):
+{{
+  "selected_rooms": ["Room Type 1", "Room Type 2", "Room Type 3", ...]
+}}
+
+Select exactly {num_rooms} room types that will create the most compelling property video.
+"""
+
+        # Call Grok for room selection
+        logger.info(f"[ROOM SELECTION] Asking Grok to select {num_rooms} rooms from {len(room_groups)} options")
+
+        response = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "messages": [{"role": "user", "content": prompt}],
+                "model": self.model,
+                "temperature": 0.3,
+            },
+            timeout=60,
+        )
+
+        if not response.ok:
+            raise RuntimeError(f"Grok API failed: {response.status_code} - {response.text}")
+
+        data = response.json()
+        content = data["choices"][0]["message"]["content"].strip()
+
+        # Parse JSON response
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+
+        result = json.loads(content)
+        selected_rooms = result.get("selected_rooms", [])
+
+        # Validate selected rooms exist
+        valid_rooms = [r for r in selected_rooms if r in room_groups]
+
+        if len(valid_rooms) < num_rooms:
+            logger.warning(
+                f"[ROOM SELECTION] Only {len(valid_rooms)} valid rooms selected, "
+                f"filling remainder from available rooms"
+            )
+            # Fill with remaining rooms sorted by image count
+            remaining = [r for r in sorted(room_groups.keys(), key=lambda x: -len(room_groups[x]))
+                        if r not in valid_rooms]
+            valid_rooms.extend(remaining[:num_rooms - len(valid_rooms)])
+
+        return valid_rooms[:num_rooms]
+
+    def _select_pair_from_room(
+        self,
+        room_type: str,
+        room_assets: List[Dict[str, Any]],
+        campaign_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Tuple[str, str, float, str]]:
+        """
+        Stage 2: Select best 2 images from a specific room to form a pair.
+
+        Args:
+            room_type: Name of the room type (e.g., "Bedroom", "Kitchen")
+            room_assets: List of assets for this room
+            campaign_context: Optional campaign info
+
+        Returns:
+            Tuple of (image1_id, image2_id, score, reasoning) or None if failed
+        """
+        if len(room_assets) < 2:
+            logger.warning(f"[PAIR SELECTION {room_type}] Only {len(room_assets)} images, need at least 2")
+            if len(room_assets) == 1:
+                # Use same image twice as fallback
+                asset = room_assets[0]
+                return (asset['id'], asset['id'], 0.5, f"Only 1 {room_type} image available (duplicated)")
+            return None
+
+        # Build pair selection prompt
+        prompt = f"""You are an expert luxury real estate cinematographer selecting images for video generation.
+
+Select the BEST 2 images from this {room_type} to create a smooth video transition.
+
+The video will interpolate between Image 1 (start frame) and Image 2 (end frame) to create motion.
+
+AVAILABLE {room_type.upper()} IMAGES ({len(room_assets)} total):
+"""
+
+        for i, asset in enumerate(room_assets, 1):
+            tags_str = ', '.join(asset.get('tags', []))
+            prompt += f"""
+{i}. ID: {asset['id']}
+   Name: {asset.get('name', 'Unnamed')}
+   Description: {asset.get('description', 'No description')}
+   Tags: {tags_str}
+"""
+
+        prompt += f"""
+SELECTION CRITERIA:
+1. Visual Continuity: Choose images with similar lighting, color palette, and composition
+2. Camera Movement Potential: Select images that suggest natural camera motion (e.g., wide to close-up)
+3. Feature Showcase: Highlight the best features of this {room_type}
+4. Transition Quality: Images should interpolate smoothly without jarring changes
+
+RESPONSE FORMAT (JSON):
+{{
+  "image1_id": "uuid-of-first-image",
+  "image2_id": "uuid-of-second-image",
+  "score": 0.95,
+  "reasoning": "Brief explanation of why this pair works well"
+}}
+
+Select the 2 images that will create the most compelling {room_type} scene.
+"""
+
+        # Call Grok
+        try:
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "messages": [{"role": "user", "content": prompt}],
+                    "model": self.model,
+                    "temperature": 0.3,
+                },
+                timeout=60,
+            )
+
+            if not response.ok:
+                raise RuntimeError(f"Grok API failed: {response.status_code}")
+
+            data = response.json()
+            content = data["choices"][0]["message"]["content"].strip()
+
+            # Parse JSON
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(content)
+
+            image1_id = result["image1_id"]
+            image2_id = result["image2_id"]
+            score = float(result.get("score", 0.8))
+            reasoning = result.get("reasoning", f"Selected pair for {room_type}")
+
+            # Validate IDs exist in room_assets
+            valid_ids = {a['id'] for a in room_assets}
+            if image1_id not in valid_ids or image2_id not in valid_ids:
+                raise ValueError(f"Selected image IDs not in {room_type} assets")
+
+            return (image1_id, image2_id, score, reasoning)
 
         except Exception as e:
-            logger.error(f"Failed to select image pairs: {e}", exc_info=True)
-            raise
+            logger.error(f"[PAIR SELECTION {room_type}] Failed: {e}")
+            # Fallback: use first 2 images
+            if len(room_assets) >= 2:
+                return (
+                    room_assets[0]['id'],
+                    room_assets[1]['id'],
+                    0.5,
+                    f"Fallback selection for {room_type} after error"
+                )
+            return None
 
     def _build_selection_prompt(
         self,
@@ -390,16 +722,31 @@ Alternative Selection:
 AVAILABLE IMAGES ({len(assets)} total photos from property):
 ═══════════════════════════════════════════════════════════════════════════════
 """
+        logger.info(f"[PROMPT BUILDER] Building image list for {len(assets)} assets")
+
         for i, asset in enumerate(assets, 1):
-            tags = ', '.join(asset.get('tags', [])) if asset.get('tags') else 'No tags'
+            tags = asset.get('tags', [])
+            if isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except:
+                    tags = []
+            tags_str = ', '.join(tags) if tags else 'No tags'
+
             description = asset.get('description', 'No description')
             name = asset.get('name', 'Unnamed')
+            asset_id = asset['id']
+
+            logger.info(
+                f"[PROMPT BUILDER] Image {i}: "
+                f"id={asset_id[:12]}... name='{name}' tags=[{tags_str}]"
+            )
 
             prompt += f"""
 Image {i}:
-  ID: {asset['id']}
+  ID: {asset_id}
   Name: {name}
-  Tags: {tags}
+  Tags: {tags_str}
   Description: {description}
 """
 
@@ -495,23 +842,56 @@ Begin your analysis and selection now.
 
         logger.debug(f"Calling Grok API with model {self.model}")
 
-        try:
-            response = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=60,
-            )
-            response.raise_for_status()
+        # Retry logic with exponential backoff
+        max_retries = 3
+        base_delay = 1.0  # seconds
 
-            result = response.json()
-            logger.debug(f"Grok API response: {result}")
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    logger.info(f"[GROK RETRY] Attempt {attempt + 1}/{max_retries} after {delay}s delay")
+                    time.sleep(delay)
 
-            return result
+                response = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=60,
+                )
+                response.raise_for_status()
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Grok API request failed: {e}")
-            raise RuntimeError(f"Failed to call Grok API: {e}")
+                # Try to parse JSON response
+                try:
+                    result = response.json()
+                    logger.debug(f"Grok API response: {result}")
+
+                    # Validate the response has the expected structure
+                    if not result.get("choices") or not result["choices"][0].get("message"):
+                        raise ValueError("Response missing expected structure")
+
+                    return result
+
+                except (json.JSONDecodeError, ValueError) as parse_error:
+                    logger.warning(
+                        f"[GROK RETRY] Attempt {attempt + 1}/{max_retries} failed to parse response: {parse_error}\n"
+                        f"Response text: {response.text[:500]}"
+                    )
+                    if attempt == max_retries - 1:
+                        raise RuntimeError(f"Failed to parse Grok API response after {max_retries} attempts: {parse_error}")
+                    continue
+
+            except requests.exceptions.RequestException as e:
+                logger.warning(
+                    f"[GROK RETRY] Attempt {attempt + 1}/{max_retries} failed with request error: {e}"
+                )
+                if attempt == max_retries - 1:
+                    logger.error(f"Grok API request failed after {max_retries} attempts: {e}")
+                    raise RuntimeError(f"Failed to call Grok API after {max_retries} attempts: {e}")
+                continue
+
+        # Should never reach here, but just in case
+        raise RuntimeError(f"Failed to call Grok API after {max_retries} attempts")
 
     def _parse_pairs_response(
         self, response: Dict[str, Any], assets: List[Dict[str, Any]]
@@ -528,15 +908,28 @@ Begin your analysis and selection now.
         """
         try:
             # Extract content from response
-            logger.error(f"[DEBUG XAI] Full API response: {json.dumps(response, indent=2)}")
+            logger.info(f"[GROK RAW RESPONSE] ===== FULL API RESPONSE START =====")
+            logger.info(json.dumps(response, indent=2))
+            logger.info(f"[GROK RAW RESPONSE] ===== FULL API RESPONSE END =====")
+
             content = response["choices"][0]["message"]["content"]
-            logger.error(f"[DEBUG XAI] Extracted content string: {content}")
-            logger.error(f"[DEBUG XAI] Content length: {len(content)}")
-            logger.error(f"[DEBUG XAI] Content type: {type(content)}")
+            logger.info(f"[GROK RAW RESPONSE] Content length: {len(content)} characters")
 
             # Parse JSON
             data = json.loads(content)
-            print(f"[DEBUG XAI] Full Grok response: {json.dumps(data, indent=2)}")
+            logger.info(f"[GROK PARSED JSON] ===== PARSED JSON START =====")
+            logger.info(json.dumps(data, indent=2))
+            logger.info(f"[GROK PARSED JSON] ===== PARSED JSON END =====")
+
+            # Write parsed response to debug file
+            debug_log_path = "/tmp/image_pairing_debug.log"
+            with open(debug_log_path, "a") as debug_file:
+                debug_file.write(f"\n{'='*80}\n")
+                debug_file.write(f"GROK RESPONSE\n")
+                debug_file.write(f"{'='*80}\n")
+                debug_file.write(json.dumps(data, indent=2))
+                debug_file.write(f"\n{'='*80}\n\n")
+
             pairs_data = data.get("pairs", [])
 
             if not pairs_data:
@@ -544,35 +937,64 @@ Begin your analysis and selection now.
 
             # Validate and convert to tuples
             asset_ids = {a["id"] for a in assets}
-            print(f"[DEBUG XAI] Available asset IDs ({len(asset_ids)}): {list(asset_ids)[:5]}...")
+            logger.info(f"[GROK VALIDATION] Available asset IDs: {len(asset_ids)} total")
+            logger.info(f"[GROK VALIDATION] Sample IDs: {list(asset_ids)[:3]}")
+
             pairs = []
 
-            for pair in pairs_data:
-                print(f"[DEBUG XAI] Processing pair: {pair}")
+            for i, pair in enumerate(pairs_data, 1):
+                logger.info(f"[GROK VALIDATION] Processing pair {i}/{len(pairs_data)}")
+                logger.info(f"[GROK VALIDATION] Pair data: {json.dumps(pair, indent=2)}")
+
                 image1_id = pair.get("image1_id")
                 image2_id = pair.get("image2_id")
                 score = pair.get("score", 0.5)
                 reasoning = pair.get("reasoning", "No reasoning provided")
+                scene_number = pair.get("scene_number")
+                scene_name = pair.get("scene_name")
 
-                print(f"[DEBUG XAI] Checking if {image1_id} in asset_ids: {image1_id in asset_ids}")
-                print(f"[DEBUG XAI] Checking if {image2_id} in asset_ids: {image2_id in asset_ids}")
+                logger.info(
+                    f"[GROK VALIDATION] Pair {i}: "
+                    f"scene={scene_number} ({scene_name}) "
+                    f"img1={image1_id[:12] if image1_id else 'None'}... "
+                    f"img2={image2_id[:12] if image2_id else 'None'}... "
+                    f"score={score}"
+                )
 
                 # Validate asset IDs exist
                 if image1_id not in asset_ids:
-                    print(f"[DEBUG XAI] Invalid image1_id: {image1_id}, skipping pair")
-                    logger.warning(f"Invalid image1_id: {image1_id}, skipping pair")
+                    logger.warning(
+                        f"[GROK VALIDATION] REJECTED Pair {i}: "
+                        f"Invalid image1_id: {image1_id}, not in asset list"
+                    )
                     continue
                 if image2_id not in asset_ids:
-                    print(f"[DEBUG XAI] Invalid image2_id: {image2_id}, skipping pair")
-                    logger.warning(f"Invalid image2_id: {image2_id}, skipping pair")
+                    logger.warning(
+                        f"[GROK VALIDATION] REJECTED Pair {i}: "
+                        f"Invalid image2_id: {image2_id}, not in asset list"
+                    )
                     continue
 
                 # Validate images are different
                 if image1_id == image2_id:
-                    logger.warning(f"Pair has same image twice: {image1_id}, skipping")
+                    logger.warning(
+                        f"[GROK VALIDATION] REJECTED Pair {i}: "
+                        f"Same image used twice: {image1_id}"
+                    )
                     continue
 
+                logger.info(f"[GROK VALIDATION] ACCEPTED Pair {i}")
                 pairs.append((image1_id, image2_id, float(score), reasoning))
+
+                # Write accepted pair to debug file
+                debug_log_path = "/tmp/image_pairing_debug.log"
+                with open(debug_log_path, "a") as debug_file:
+                    debug_file.write(f"ACCEPTED Pair {i}:\n")
+                    debug_file.write(f"  Scene: {scene_number} - {scene_name}\n")
+                    debug_file.write(f"  Image 1: {image1_id}\n")
+                    debug_file.write(f"  Image 2: {image2_id}\n")
+                    debug_file.write(f"  Score: {score}\n")
+                    debug_file.write(f"  Reasoning: {reasoning}\n\n")
 
             if not pairs:
                 raise ValueError("No valid pairs after validation")
