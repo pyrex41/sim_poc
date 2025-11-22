@@ -44,11 +44,10 @@ from .models import (
     Asset,
     UploadAssetInput,
     UnifiedAssetUploadInput,
-    PropertyVideoRequest,
-    PropertyPhoto,
-    PropertyInfo,
+    SceneAudioRequest,
 )
 from ...schemas.assets import UploadAssetFromUrlInput, BulkAssetFromUrlInput
+from ...services.scene_audio_generator import generate_scene_audio_track
 from ...database_helpers import (
     create_client,
     get_client_by_id,
@@ -841,6 +840,32 @@ async def upload_assets_from_urls(
     except Exception as e:
         logger.error(f"Bulk asset upload failed: {str(e)}", exc_info=True)
         return APIResponse.create_error(f"Failed to upload assets: {str(e)}")
+
+
+@router.post("/audio/generate-scenes", response_model=APIResponse, tags=["v3-audio"])
+async def generate_scene_audio(
+    request: SceneAudioRequest, current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Generate continuous audio track from scene prompts using MusicGen continuation"""
+    try:
+        logger.info(
+            f"Generating scene audio for user {current_user['id']}: {len(request.scenes)} scenes"
+        )
+
+        # Generate the audio track
+        result = await generate_scene_audio_track(
+            scenes=[scene.dict() for scene in request.scenes],
+            default_duration=request.default_duration,
+            model_id=request.model_id,
+        )
+
+        logger.info(f"Scene audio generation completed: {result}")
+
+        return APIResponse.success(data=result, meta=create_api_meta())
+
+    except Exception as e:
+        logger.error(f"Scene audio generation failed: {str(e)}", exc_info=True)
+        return APIResponse.create_error(f"Failed to generate scene audio: {str(e)}")
 
 
 @router.post("/assets/unified", response_model=APIResponse, tags=["v3-assets"])
@@ -1761,8 +1786,7 @@ async def create_job_from_property_photos(
         # Call Grok to select scene-based image pairs
         logger.info(f"Calling Grok to select scene pairs...")
         selection_result = selector.select_scene_image_pairs(
-            property_info=property_info_dict,
-            photos=photos_dict
+            property_info=property_info_dict, photos=photos_dict
         )
 
         logger.info(
@@ -1792,7 +1816,7 @@ async def create_job_from_property_photos(
                     "lighting": photo.lighting,
                     "property_name": request.propertyInfo.name,
                     "property_type": request.propertyInfo.propertyType,
-                }
+                },
             )
             photo_id_to_asset_id[photo.id] = asset_id
 
@@ -1814,7 +1838,12 @@ async def create_job_from_property_photos(
                 )
                 continue
 
-            score = scene_pair.get("transition_analysis", {}).get("interpolation_confidence", 8.0) / 10.0
+            score = (
+                scene_pair.get("transition_analysis", {}).get(
+                    "interpolation_confidence", 8.0
+                )
+                / 10.0
+            )
 
             reasoning = (
                 f"Scene {scene_pair['scene_number']}: {scene_pair['scene_type']}. "
@@ -1864,6 +1893,7 @@ async def create_job_from_property_photos(
 
         # Schedule orchestration in background
         import asyncio
+
         asyncio.create_task(run_orchestration())
 
         # Return job details with Grok's selection metadata
@@ -1882,8 +1912,9 @@ async def create_job_from_property_photos(
 
     except Exception as e:
         logger.error(f"Failed to create property video job: {e}", exc_info=True)
-        return APIResponse.create_error(f"Failed to create property video job: {str(e)}")
-
+        return APIResponse.create_error(
+            f"Failed to create property video job: {str(e)}"
+        )
 
 
 @router.get("/jobs/{job_id}/sub-jobs", response_model=APIResponse, tags=["v3-jobs"])

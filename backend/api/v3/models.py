@@ -311,6 +311,80 @@ class UnifiedAssetUploadInput(BaseModel):
 
 
 # ============================================================================
+# Audio Generation Models (Scene-based Music Generation)
+# ============================================================================
+
+
+class ScenePrompt(BaseModel):
+    """Individual scene prompt for audio generation"""
+
+    scene_number: int
+    prompt: str
+    duration: Optional[float] = None  # Override default duration
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "scene_number": 1,
+                "prompt": "Cinematic wide shot, low angle. Clear water or reflective surface gently rippling. Subtle, smooth camera push-in (dolly forward). Bright natural lighting with glistening highlights on the water/surface.",
+                "duration": 4.0,
+            }
+        }
+    }
+
+
+class SceneAudioRequest(BaseModel):
+    """Request model for generating audio from scene prompts"""
+
+    scenes: list[ScenePrompt]
+    default_duration: float = 4.0  # Default seconds per scene
+    model_id: str = "meta/musicgen"
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "scenes": [
+                    {
+                        "scene_number": 1,
+                        "prompt": "Cinematic wide shot, low angle. Clear water or reflective surface gently rippling. Subtle, smooth camera push-in (dolly forward). Bright natural lighting with glistening highlights on the water/surface.",
+                        "duration": 4.0,
+                    },
+                    {
+                        "scene_number": 2,
+                        "prompt": "Smooth sideways camera truck (left or right – choose direction that creates natural parallax). Luxurious bedroom with large windows or glass walls. Parallax effect: bed and foreground elements move slightly faster than the background view.",
+                        "duration": 4.0,
+                    },
+                ],
+                "default_duration": 4.0,
+                "model_id": "meta/musicgen",
+            }
+        }
+    }
+
+
+class SceneAudioResponse(BaseModel):
+    """Response model for scene audio generation"""
+
+    audio_id: int
+    audio_url: str
+    total_duration: float
+    scenes_processed: int
+    model_used: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "audio_id": 123,
+                "audio_url": "/api/audio/123/data",
+                "total_duration": 28.0,
+                "scenes_processed": 7,
+                "model_used": "meta/musicgen",
+            }
+        }
+    }
+
+
+# ============================================================================
 # Image Pair Selection & Video Generation Models (New Feature)
 # ============================================================================
 
@@ -394,18 +468,28 @@ class PropertyInfo(BaseModel):
 
     name: str = Field(..., description="Property name")
     location: str = Field(..., description="Property location")
-    propertyType: str = Field(..., description="Type of property (e.g., boutique hotel, resort)")
-    positioning: str = Field(..., description="Brand positioning (e.g., eco-luxury, modern minimalist)")
+    propertyType: str = Field(
+        ..., description="Type of property (e.g., boutique hotel, resort)"
+    )
+    positioning: str = Field(
+        ..., description="Brand positioning (e.g., eco-luxury, modern minimalist)"
+    )
 
 
 class PropertyVideoRequest(BaseModel):
     """Request to generate video from property photos."""
 
     propertyInfo: PropertyInfo = Field(..., description="Property information")
-    photos: List[PropertyPhoto] = Field(..., description="List of property photos", min_items=14)
+    photos: List[PropertyPhoto] = Field(
+        ..., description="List of property photos", min_items=14
+    )
     campaignId: str = Field(..., description="Campaign ID for this property")
-    clipDuration: Optional[float] = Field(6.0, description="Duration per scene in seconds")
-    videoModel: Optional[str] = Field("veo3", description="Video generation model (veo3 or hailuo-2.0)")
+    clipDuration: Optional[float] = Field(
+        6.0, description="Duration per scene in seconds"
+    )
+    videoModel: Optional[str] = Field(
+        "veo3", description="Video generation model (veo3 or hailuo-2.0)"
+    )
 
 
 class SceneImagePair(BaseModel):
