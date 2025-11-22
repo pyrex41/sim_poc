@@ -27,15 +27,10 @@ def check_ffmpeg_available() -> bool:
     Returns:
         True if ffmpeg is available, False otherwise
     """
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-version"],
-            capture_output=True,
-            timeout=5
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    import shutil
+    # Just check if ffmpeg binary exists in PATH
+    # Avoids potential timeout issues with running ffmpeg -version
+    return shutil.which("ffmpeg") is not None
 
 
 def combine_video_clips(
