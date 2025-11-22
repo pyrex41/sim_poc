@@ -32,6 +32,8 @@ POST /api/v3/assets/from-urls
 }
 ```
 
+**Note:** The Swagger UI may not display the array structure correctly. Use the raw JSON editor or tools like Postman/cURL for testing bulk uploads.
+
 ### Response Format
 ```json
 {
