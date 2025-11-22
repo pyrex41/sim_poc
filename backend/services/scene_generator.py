@@ -10,6 +10,7 @@ import json
 import os
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
+from langsmith import traceable
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ class SceneGenerationError(Exception):
     pass
 
 
+@traceable(name="generate_scenes", tags=["scene_generation", "openai"])
 def generate_scenes(
     ad_basics: Dict[str, Any],
     creative_direction: Dict[str, Any],
@@ -101,6 +103,7 @@ def generate_scenes(
         raise SceneGenerationError(f"Failed to generate scenes: {str(e)}")
 
 
+@traceable(name="regenerate_scene", tags=["scene_regeneration", "openai"])
 def regenerate_scene(
     scene_number: int,
     original_scene: Dict[str, Any],
@@ -288,6 +291,7 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no expla
     return prompt
 
 
+@traceable(name="openai_generate_scenes", tags=["openai_api", "llm_call"])
 def _generate_scenes_openai(prompt: str, num_scenes: int) -> List[Dict[str, Any]]:
     """Generate scenes using OpenAI API."""
     if not AI_API_KEY:
@@ -344,6 +348,7 @@ def _generate_scenes_openai(prompt: str, num_scenes: int) -> List[Dict[str, Any]
         raise SceneGenerationError(f"OpenAI API error: {str(e)}")
 
 
+@traceable(name="openai_regenerate_scene", tags=["openai_api", "llm_call"])
 def _regenerate_scene_openai(prompt: str, original_scene: Dict[str, Any]) -> Dict[str, Any]:
     """Regenerate a single scene using OpenAI API."""
     if not AI_API_KEY:

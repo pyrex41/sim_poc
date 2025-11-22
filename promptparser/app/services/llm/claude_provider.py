@@ -7,6 +7,7 @@ from typing import Any
 
 from anthropic import AsyncAnthropic
 import structlog
+from langsmith import traceable
 
 from app.core.config import get_settings
 from app.services.llm.base import LLMProvider
@@ -28,6 +29,7 @@ class ClaudeProvider(LLMProvider):
         self._available = True
         self._latency_ms = 4000
 
+    @traceable(name="claude_complete", tags=["anthropic", "prompt_parser", "llm_call"])
     async def complete(
         self,
         prompt: str,
@@ -52,6 +54,7 @@ class ClaudeProvider(LLMProvider):
             logger.warning("claude.complete_failed", error=str(exc))
             raise
 
+    @traceable(name="claude_analyze_image", tags=["anthropic", "vision", "image_analysis"])
     async def analyze_image(self, image_b64: str, question: str) -> dict[str, Any]:
         try:
             response = await self.client.messages.create(

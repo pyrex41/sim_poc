@@ -26,6 +26,8 @@ import requests
 import asyncio
 from dotenv import load_dotenv
 from pathlib import Path
+from langsmith import traceable
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Import Asset Pydantic models
 from .schemas.assets import (
@@ -333,6 +335,38 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# LangSmith tracing middleware
+class LangSmithMiddleware(BaseHTTPMiddleware):
+    """Middleware to trace HTTP requests with LangSmith"""
+
+    async def dispatch(self, request: Request, call_next):
+        # Get settings to check if tracing is enabled
+        settings = get_settings()
+
+        # Skip tracing if disabled or for static files/health checks
+        if not settings.LANGCHAIN_TRACING_V2 or request.url.path in ["/health", "/docs", "/openapi.json", "/redoc"] or request.url.path.startswith("/assets"):
+            return await call_next(request)
+
+        # Create traced function for the request
+        @traceable(
+            name=f"{request.method} {request.url.path}",
+            tags=["http_request", "backend", request.method.lower()],
+            metadata={
+                "method": request.method,
+                "path": request.url.path,
+                "query_params": dict(request.query_params),
+            }
+        )
+        async def process_request():
+            response = await call_next(request)
+            return response
+
+        return await process_request()
+
+
+app.add_middleware(LangSmithMiddleware)
 
 
 # Add rate limiting
