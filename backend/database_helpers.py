@@ -125,8 +125,8 @@ def get_client_by_id(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
                     "homepage": homepage,
                     "brandGuidelines": brand_guidelines,
                     "metadata": metadata,
-                    "created_at": row["created_at"],  # Try snake_case
-                    "updated_at": row["updated_at"],  # Try snake_case
+                    "createdAt": row["created_at"],
+                    "updatedAt": row["updated_at"],
                 }
             except Exception as e:
                 print(f"ERROR: Failed to process client {row['id']}: {e}")
@@ -195,8 +195,8 @@ def list_clients(
                     "homepage": homepage,
                     "brandGuidelines": brand_guidelines,
                     "metadata": metadata,
-                    "created_at": row["created_at"],  # Try snake_case
-                    "updated_at": row["updated_at"],  # Try snake_case
+                    "createdAt": row["created_at"],
+                    "updatedAt": row["updated_at"],
                 }
                 clients_data.append(client_data)
                 print(f"DEBUG: Processed client {row['id']}: {client_data}")
@@ -664,13 +664,20 @@ def get_campaign_by_id(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
 
         if row:
             # Safely handle optional columns (product_url, metadata)
-            product_url = row.get("product_url")
+            product_url = None
             metadata = None
-            if row.get("metadata"):
-                try:
+
+            try:
+                if "product_url" in row.keys() and row["product_url"]:
+                    product_url = row["product_url"]
+            except KeyError:
+                pass
+
+            try:
+                if "metadata" in row.keys() and row["metadata"]:
                     metadata = json.loads(row["metadata"])
-                except json.JSONDecodeError:
-                    pass
+            except (KeyError, json.JSONDecodeError):
+                pass
 
             return {
                 "id": row["id"],
@@ -716,13 +723,20 @@ def list_campaigns(
         campaigns = []
         for row in rows:
             # Safely handle optional columns (product_url, metadata)
-            product_url = row.get("product_url")
+            product_url = None
             metadata = None
-            if row.get("metadata"):
-                try:
+
+            try:
+                if "product_url" in row.keys() and row["product_url"]:
+                    product_url = row["product_url"]
+            except KeyError:
+                pass
+
+            try:
+                if "metadata" in row.keys() and row["metadata"]:
                     metadata = json.loads(row["metadata"])
-                except json.JSONDecodeError:
-                    pass
+            except (KeyError, json.JSONDecodeError):
+                pass
 
             campaigns.append({
                 "id": row["id"],
