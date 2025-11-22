@@ -4111,7 +4111,7 @@ async def api_get_audio_data(audio_id: int):
 
         # Determine media type from model or default to mp3
         media_type = "audio/mpeg"  # Default to MP3
-        model_id = row.get("model_id", "")
+        model_id = row["model_id"] if row["model_id"] else ""
 
         # Riffusion might output WAV, MusicGen outputs MP3
         if "riffusion" in model_id.lower():
