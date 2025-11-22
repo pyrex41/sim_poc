@@ -252,27 +252,10 @@ RESPONSE FORMAT (JSON):
 Select exactly {num_rooms} room types that will create the most compelling property video.
 """
 
-        # Call Grok for room selection
+        # Call Grok for room selection with retry logic
         logger.info(f"[ROOM SELECTION] Asking Grok to select {num_rooms} rooms from {len(room_groups)} options")
 
-        response = requests.post(
-            f"{self.base_url}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "messages": [{"role": "user", "content": prompt}],
-                "model": self.model,
-                "temperature": 0.3,
-            },
-            timeout=60,
-        )
-
-        if not response.ok:
-            raise RuntimeError(f"Grok API failed: {response.status_code} - {response.text}")
-
-        data = response.json()
+        data = self._call_grok_api(prompt, temperature=0.3)
         content = data["choices"][0]["message"]["content"].strip()
 
         # Parse JSON response
@@ -361,26 +344,9 @@ RESPONSE FORMAT (JSON):
 Select the 2 images that will create the most compelling {room_type} scene.
 """
 
-        # Call Grok
+        # Call Grok with retry logic
         try:
-            response = requests.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "messages": [{"role": "user", "content": prompt}],
-                    "model": self.model,
-                    "temperature": 0.3,
-                },
-                timeout=60,
-            )
-
-            if not response.ok:
-                raise RuntimeError(f"Grok API failed: {response.status_code}")
-
-            data = response.json()
+            data = self._call_grok_api(prompt, temperature=0.3)
             content = data["choices"][0]["message"]["content"].strip()
 
             # Parse JSON
