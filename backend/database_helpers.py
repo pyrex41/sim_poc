@@ -101,13 +101,30 @@ def get_client_by_id(client_id: str, user_id: int) -> Optional[Dict[str, Any]]:
                         )
                         brand_guidelines = None
 
+                # Safely check for homepage and metadata columns
+                # (they might not exist in older production databases)
+                homepage = None
+                metadata = None
+
+                try:
+                    if "homepage" in row.keys() and row["homepage"]:
+                        homepage = row["homepage"]
+                except KeyError:
+                    pass
+
+                try:
+                    if "metadata" in row.keys() and row["metadata"]:
+                        metadata = json.loads(row["metadata"])
+                except (KeyError, json.JSONDecodeError):
+                    metadata = None
+
                 return {
                     "id": row["id"],
                     "name": row["name"],
                     "description": row["description"],
-                    "homepage": None,  # Column doesn't exist in current DB
+                    "homepage": homepage,
                     "brandGuidelines": brand_guidelines,
-                    "metadata": None,  # Column doesn't exist in current DB
+                    "metadata": metadata,
                     "created_at": row["created_at"],  # Try snake_case
                     "updated_at": row["updated_at"],  # Try snake_case
                 }
@@ -148,26 +165,36 @@ def list_clients(
                         )
                         brand_guidelines = None
 
+                # Safely check for homepage and metadata columns
+                # (they might not exist in older production databases)
+                homepage = None
                 metadata = None
-                if row["metadata"]:
-                    try:
+
+                try:
+                    if "homepage" in row.keys() and row["homepage"]:
+                        homepage = row["homepage"]
+                except KeyError:
+                    pass
+
+                try:
+                    if "metadata" in row.keys() and row["metadata"]:
                         metadata = json.loads(row["metadata"])
                         print(
                             f"DEBUG: Parsed metadata for client {row['id']}: {metadata}"
                         )
-                    except json.JSONDecodeError as e:
-                        print(
-                            f"ERROR: Failed to parse metadata for client {row['id']}: {e}"
-                        )
-                        metadata = None
+                except (KeyError, json.JSONDecodeError) as e:
+                    print(
+                        f"DEBUG: Could not parse metadata for client {row['id']}: {e}"
+                    )
+                    metadata = None
 
                 client_data = {
                     "id": row["id"],
                     "name": row["name"],
                     "description": row["description"],
-                    "homepage": None,  # Column doesn't exist in current DB
+                    "homepage": homepage,
                     "brandGuidelines": brand_guidelines,
-                    "metadata": None,  # Column doesn't exist in current DB
+                    "metadata": metadata,
                     "created_at": row["created_at"],  # Try snake_case
                     "updated_at": row["updated_at"],  # Try snake_case
                 }
@@ -636,15 +663,24 @@ def get_campaign_by_id(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
         ).fetchone()
 
         if row:
+            # Safely handle optional columns (product_url, metadata)
+            product_url = row.get("product_url")
+            metadata = None
+            if row.get("metadata"):
+                try:
+                    metadata = json.loads(row["metadata"])
+                except json.JSONDecodeError:
+                    pass
+
             return {
                 "id": row["id"],
                 "clientId": row["client_id"],
                 "name": row["name"],
                 "goal": row["goal"],
                 "status": row["status"],
-                "productUrl": row["product_url"],
+                "productUrl": product_url,
                 "brief": json.loads(row["brief"]) if row["brief"] else None,
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                "metadata": metadata,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
             }
@@ -677,21 +713,31 @@ def list_campaigns(
                 (user_id, limit, offset),
             ).fetchall()
 
-        return [
-            {
+        campaigns = []
+        for row in rows:
+            # Safely handle optional columns (product_url, metadata)
+            product_url = row.get("product_url")
+            metadata = None
+            if row.get("metadata"):
+                try:
+                    metadata = json.loads(row["metadata"])
+                except json.JSONDecodeError:
+                    pass
+
+            campaigns.append({
                 "id": row["id"],
                 "clientId": row["client_id"],
                 "name": row["name"],
                 "goal": row["goal"],
                 "status": row["status"],
-                "productUrl": row["product_url"],
+                "productUrl": product_url,
                 "brief": json.loads(row["brief"]) if row["brief"] else None,
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                "metadata": metadata,
                 "createdAt": row["created_at"],
                 "updatedAt": row["updated_at"],
-            }
-            for row in rows
-        ]
+            })
+
+        return campaigns
 
 
 def update_campaign(
