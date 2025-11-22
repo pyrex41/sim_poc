@@ -29,6 +29,7 @@ import VideoToTextGallery
 import Auth
 import CreativeBriefEditor
 import BriefGallery
+import AIVideoGallery
 import Browser.Navigation as Nav
 
 
@@ -77,6 +78,7 @@ type alias Model =
     , pendingVideoFromImage : Maybe { modelId : String, imageUrl : String }
     , creativeBriefEditorModel : CreativeBriefEditor.Model
     , briefGalleryModel : BriefGallery.Model
+    , aiVideoGalleryModel : AIVideoGallery.Model
     }
 
 
@@ -185,6 +187,9 @@ init _ url key =
         ( briefGalleryModel, briefGalleryCmd ) =
             BriefGallery.init key
 
+        ( aiVideoGalleryModel, aiVideoGalleryCmd ) =
+            AIVideoGallery.init
+
         route =
             Route.fromUrl url
     in
@@ -214,6 +219,7 @@ init _ url key =
       , pendingVideoFromImage = Nothing
       , creativeBriefEditorModel = creativeBriefEditorModel
       , briefGalleryModel = briefGalleryModel
+      , aiVideoGalleryModel = aiVideoGalleryModel
       }
     , Cmd.batch
         [ Cmd.map VideoMsg videoCmd
@@ -227,6 +233,7 @@ init _ url key =
         , Cmd.map VideoToTextGalleryMsg videoToTextGalleryCmd
         , Cmd.map CreativeBriefEditorMsg creativeBriefEditorCmd
         , Cmd.map BriefGalleryMsg briefGalleryCmd
+        , Cmd.map AIVideoGalleryMsg aiVideoGalleryCmd
         , Cmd.map AuthMsg Auth.checkAuth
         ]
     )
@@ -277,6 +284,7 @@ type Msg
     | VideoToTextGalleryMsg VideoToTextGallery.Msg
     | AuthMsg Auth.Msg
     | CreativeBriefEditorMsg CreativeBriefEditor.Msg
+    | AIVideoGalleryMsg AIVideoGallery.Msg
     | BriefGalleryMsg BriefGallery.Msg
     | NavigateTo Route
 
@@ -978,6 +986,13 @@ update msg model =
             in
             ( { model | videoToTextGalleryModel = updatedVideoToTextGalleryModel }, Cmd.map VideoToTextGalleryMsg videoToTextGalleryCmd )
 
+        AIVideoGalleryMsg aiVideoGalleryMsg ->
+            let
+                ( updatedAIVideoGalleryModel, aiVideoGalleryCmd ) =
+                    AIVideoGallery.update aiVideoGalleryMsg model.aiVideoGalleryModel
+            in
+            ( { model | aiVideoGalleryModel = updatedAIVideoGalleryModel }, Cmd.map AIVideoGalleryMsg aiVideoGalleryCmd )
+
         AuthMsg authMsg ->
             let
                 ( updatedAuthModel, authCmd ) =
@@ -993,6 +1008,7 @@ update msg model =
                                 , Cmd.map ImageGalleryMsg (Task.perform (always ImageGallery.FetchImages) (Task.succeed ()))
                                 , Cmd.map AudioGalleryMsg (Task.perform (always AudioGallery.FetchAudio) (Task.succeed ()))
                                 , Cmd.map VideoToTextGalleryMsg (Task.perform (always VideoToTextGallery.FetchVideos) (Task.succeed ()))
+                                , Cmd.map AIVideoGalleryMsg (Task.perform (always AIVideoGallery.FetchVideos) (Task.succeed ()))
                                 ]
 
                         _ ->
@@ -1174,6 +1190,10 @@ viewMainContent model =
                 CreativeBriefEditor.view model.creativeBriefEditorModel
                     |> Html.map CreativeBriefEditorMsg
 
+            Just Route.AIVideoGallery ->
+                AIVideoGallery.view model.aiVideoGalleryModel
+                    |> Html.map AIVideoGalleryMsg
+
             Nothing ->
                 div [ class "app-container" ]
                     [ viewLeftPanel model
@@ -1227,6 +1247,11 @@ viewTabs model =
             , class (if model.route == Just Route.VideoToTextGallery then "active" else "")
             ]
             [ text "VTT Gallery" ]
+        , a
+            [ href "/ai-videos"
+            , class (if model.route == Just Route.AIVideoGallery then "active" else "")
+            ]
+            [ text "AI Videos" ]
         , a
             [ href "/simulations"
             , class (if model.route == Just Route.SimulationGallery then "active" else "")
@@ -1539,6 +1564,14 @@ subscriptions model =
                 _ ->
                     Sub.none
 
+        aiVideoGallerySub =
+            case model.route of
+                Just Route.AIVideoGallery ->
+                    Sub.map AIVideoGalleryMsg (AIVideoGallery.subscriptions model.aiVideoGalleryModel)
+
+                _ ->
+                    Sub.none
+
         creativeBriefEditorSub =
             case model.route of
                 Just Route.CreativeBriefEditor ->
@@ -1569,6 +1602,7 @@ subscriptions model =
         , audioGallerySub
         , audioDetailSub
         , videoToTextGallerySub
+        , aiVideoGallerySub
         , creativeBriefEditorSub
         , briefGallerySub
         ]

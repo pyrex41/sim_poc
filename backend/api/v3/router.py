@@ -45,6 +45,8 @@ from .models import (
     UploadAssetInput,
     UnifiedAssetUploadInput,
     SceneAudioRequest,
+    ScenePrompt,
+    BulkAssetFromUrlInput,
 )
 from ...schemas.assets import UploadAssetFromUrlInput, BulkAssetFromUrlInput
 from ...services.scene_audio_generator import generate_scene_audio_track
@@ -1960,3 +1962,104 @@ async def get_job_sub_jobs(
     except Exception as e:
         logger.error(f"Failed to get sub-jobs for job {job_id}: {e}")
         return APIResponse.create_error(f"Failed to get sub-jobs: {str(e)}")
+
+
+@router.get("/ai-videos", response_model=APIResponse, tags=["v3-jobs"])
+async def list_ai_generated_videos(
+    limit: int = 20,
+    offset: int = 0,
+    status: str = "completed",
+    current_user: Dict = Depends(verify_auth),
+) -> APIResponse:
+    """
+    List AI-generated videos from the image pair selection pipeline.
+
+    Query parameters:
+    - limit: Number of videos to return (default: 20, max: 100)
+    - offset: Pagination offset (default: 0)
+    - status: Filter by status (default: "completed", options: "all", "completed", "processing", "failed")
+
+    Returns:
+    {
+        "data": {
+            "videos": [...],  // Array of video records
+            "total": 42       // Total count matching filter
+        }
+    }
+    """
+    from ...database import get_database_connection
+
+    try:
+        # Validate and limit pagination
+        limit = min(limit, 100)
+        offset = max(offset, 0)
+
+        conn = get_database_connection()
+        cursor = conn.cursor()
+
+        # Build query based on status filter
+        where_clause = "WHERE status = ?" if status != "all" else ""
+        params = [status] if status != "all" else []
+
+        # Get total count
+        count_query = f"""
+            SELECT COUNT(*) FROM video_sub_jobs {where_clause}
+        """
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()[0]
+
+        # Get videos with pagination
+        query = f"""
+            SELECT
+                id,
+                job_id,
+                sub_job_number,
+                model_id,
+                video_url,
+                status,
+                duration_seconds,
+                progress,
+                error_message,
+                created_at,
+                completed_at,
+                input_parameters
+            FROM video_sub_jobs
+            {where_clause}
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        params.extend([limit, offset])
+        cursor.execute(query, params)
+
+        videos = []
+        for row in cursor.fetchall():
+            import json
+
+            input_params = json.loads(row[11]) if row[11] else {}
+
+            video_record = {
+                "id": row[0],
+                "jobId": row[1],
+                "subJobNumber": row[2],
+                "modelId": row[3],
+                "videoUrl": row[4] or "",
+                "status": row[5],
+                "durationSeconds": row[6],
+                "progress": row[7],
+                "errorMessage": row[8],
+                "createdAt": row[9],
+                "completedAt": row[10],
+                "prompt": input_params.get("prompt", f"Job {row[1]} - Clip {row[2]}"),
+                "thumbnailUrl": row[4] or "",  # Use video URL as thumbnail for now
+            }
+            videos.append(video_record)
+
+        conn.close()
+
+        return APIResponse.success(
+            data={"videos": videos, "total": total}, meta=create_api_meta()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to list AI-generated videos: {e}", exc_info=True)
+        return APIResponse.create_error(f"Failed to list AI-generated videos: {str(e)}")

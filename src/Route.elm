@@ -21,6 +21,7 @@ type Route
     | Auth
     | BriefGallery
     | CreativeBriefEditor
+    | AIVideoGallery
 
 
 parser : Parser (Route -> a) a
@@ -43,6 +44,7 @@ parser =
         , Parser.map Auth (s "auth")
         , Parser.map BriefGallery (s "briefs")
         , Parser.map CreativeBriefEditor (s "creative")
+        , Parser.map AIVideoGallery (s "ai-videos")
         ]
 
 
@@ -106,3 +108,6 @@ toHref route =
 
         CreativeBriefEditor ->
             "/creative"
+
+        AIVideoGallery ->
+            "/ai-videos"
