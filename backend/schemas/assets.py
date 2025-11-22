@@ -333,6 +333,57 @@ class UploadAssetFromUrlInput(BaseModel):
         }
     }
 
+
+class AssetFromUrlItem(BaseModel):
+    """Individual asset item for bulk upload from URLs"""
+
+    name: str
+    type: AssetType
+    url: str  # URL to download asset from
+    tags: Optional[list[str]] = None  # Per-asset tags
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "product-image-1",
+                "type": "image",
+                "url": "https://example.com/images/product1.jpg",
+                "tags": ["product", "hero"],
+            }
+        }
+    }
+
+
+class BulkAssetFromUrlInput(BaseModel):
+    """Input model for bulk asset upload from URLs"""
+
+    assets: list[AssetFromUrlItem]  # Array of assets to upload
+    clientId: Optional[str] = None  # Shared client ID for all assets
+    campaignId: Optional[str] = None  # Shared campaign ID for all assets
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "assets": [
+                    {
+                        "name": "product-image-1",
+                        "type": "image",
+                        "url": "https://example.com/images/product1.jpg",
+                        "tags": ["product", "hero"],
+                    },
+                    {
+                        "name": "product-image-2",
+                        "type": "image",
+                        "url": "https://example.com/images/product2.jpg",
+                        "tags": ["product", "secondary"],
+                    },
+                ],
+                "clientId": "client-uuid",
+                "campaignId": "campaign-uuid",
+            }
+        }
+    }
+
     model_config = {
         "json_schema_extra": {
             "example": {

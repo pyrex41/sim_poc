@@ -20,6 +20,8 @@ import logging
 import json
 import uuid
 import mimetypes
+import asyncio
+from asyncio import Semaphore
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -43,7 +45,7 @@ from .models import (
     UploadAssetInput,
     UnifiedAssetUploadInput,
 )
-from ...schemas.assets import UploadAssetFromUrlInput
+from ...schemas.assets import UploadAssetFromUrlInput, BulkAssetFromUrlInput
 from ...database_helpers import (
     create_client,
     get_client_by_id,
@@ -703,6 +705,139 @@ async def upload_asset_from_url(
         return APIResponse.create_error(f"Failed to download asset: {str(e)}")
     except Exception as e:
         return APIResponse.create_error(f"Failed to upload asset from URL: {str(e)}")
+
+
+@router.post("/assets/from-urls", response_model=APIResponse, tags=["v3-assets"])
+async def upload_assets_from_urls(
+    request: BulkAssetFromUrlInput, current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """Upload multiple assets by downloading them from URLs"""
+
+    async def process_single_asset(asset_item, semaphore):
+        """Process a single asset upload"""
+        async with semaphore:
+            try:
+                # Download asset from URL
+                asset_data, content_type, metadata = download_asset_from_url(
+                    url=asset_item.url, asset_type=asset_item.type
+                )
+
+                # Store as blob in database
+                blob_id = store_blob(asset_data, content_type)
+
+                # Generate thumbnail if applicable
+                thumbnail_blob_id = None
+                if asset_item.type in ["image", "video"]:
+                    from ...services.asset_downloader import (
+                        generate_and_store_thumbnail,
+                    )
+
+                    thumbnail_blob_id = generate_and_store_thumbnail(
+                        asset_data, content_type, asset_item.type
+                    )
+
+                # Generate asset ID
+                asset_id = str(uuid.uuid4())
+
+                # Construct V3 serving URL
+                asset_url = f"/api/v3/assets/{asset_id}/data"
+
+                # Create asset record with blob reference
+                create_asset(
+                    asset_id=asset_id,
+                    name=asset_item.name,
+                    asset_type=asset_item.type,
+                    url=asset_url,
+                    format=metadata.get("format", "unknown"),
+                    size=metadata.get("size", len(asset_data)),
+                    user_id=current_user["id"],
+                    client_id=request.clientId,
+                    campaign_id=request.campaignId,
+                    tags=asset_item.tags,
+                    blob_id=blob_id,
+                    source_url=asset_item.url,
+                    thumbnail_blob_id=thumbnail_blob_id,
+                    width=metadata.get("width"),
+                    height=metadata.get("height"),
+                    duration=metadata.get("duration"),
+                )
+
+                # Fetch the created asset
+                asset = get_asset_by_id(asset_id)
+                return {"asset": asset, "success": True, "error": None}
+
+            except AssetDownloadError as e:
+                logger.warning(
+                    f"Failed to download asset from {asset_item.url}: {str(e)}"
+                )
+                return {
+                    "asset": None,
+                    "success": False,
+                    "error": f"Failed to download: {str(e)}",
+                }
+            except Exception as e:
+                logger.error(f"Failed to process asset {asset_item.name}: {str(e)}")
+                return {
+                    "asset": None,
+                    "success": False,
+                    "error": f"Processing failed: {str(e)}",
+                }
+
+    try:
+        if not request.assets:
+            return APIResponse.create_error("No assets provided")
+
+        if len(request.assets) > 20:  # Limit bulk uploads to prevent abuse
+            return APIResponse.create_error("Maximum 20 assets allowed per bulk upload")
+
+        logger.info(
+            f"Bulk uploading {len(request.assets)} assets for user {current_user['id']}"
+        )
+
+        # Create semaphore to limit concurrent downloads (max 5 simultaneous)
+        semaphore = Semaphore(5)
+
+        # Process all assets concurrently
+        tasks = [
+            process_single_asset(asset_item, semaphore) for asset_item in request.assets
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results and handle exceptions
+        processed_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"Exception in asset {i}: {str(result)}")
+                processed_results.append(
+                    {
+                        "asset": None,
+                        "success": False,
+                        "error": f"Unexpected error: {str(result)}",
+                    }
+                )
+            else:
+                processed_results.append(result)
+
+        # Calculate summary
+        successful = sum(1 for r in processed_results if r["success"])
+        failed = len(processed_results) - successful
+
+        logger.info(f"Bulk upload completed: {successful} successful, {failed} failed")
+
+        response_data = {
+            "results": processed_results,
+            "summary": {
+                "total": len(processed_results),
+                "successful": successful,
+                "failed": failed,
+            },
+        }
+
+        return APIResponse.success(data=response_data, meta=create_api_meta())
+
+    except Exception as e:
+        logger.error(f"Bulk asset upload failed: {str(e)}", exc_info=True)
+        return APIResponse.create_error(f"Failed to upload assets: {str(e)}")
 
 
 @router.post("/assets/unified", response_model=APIResponse, tags=["v3-assets"])
@@ -1457,9 +1592,7 @@ async def create_job_from_image_pairs(
                 f"Need at least 2 image assets, but campaign has {len(assets)}"
             )
 
-        logger.info(
-            f"Found {len(assets)} image assets for campaign {campaign_id}"
-        )
+        logger.info(f"Found {len(assets)} image assets for campaign {campaign_id}")
 
         # Get campaign context for AI selection
         campaign = get_campaign_by_id(campaign_id, current_user["id"])
@@ -1524,9 +1657,14 @@ async def create_job_from_image_pairs(
 
         # Store selected pairs in job parameters
         from ...database import get_job, update_job_progress
+
         job = get_job(job_id)
         if job:
-            params = json.loads(job["parameters"]) if isinstance(job["parameters"], str) else job["parameters"]
+            params = (
+                json.loads(job["parameters"])
+                if isinstance(job["parameters"], str)
+                else job["parameters"]
+            )
             params["selected_pairs"] = [
                 {
                     "image1_id": pair[0],
@@ -1543,15 +1681,14 @@ async def create_job_from_image_pairs(
         # Launch parallel video generation in background
         async def run_orchestration():
             try:
-                await process_image_pairs_to_videos(
-                    job_id, image_pairs, clip_duration
-                )
+                await process_image_pairs_to_videos(job_id, image_pairs, clip_duration)
             except Exception as e:
                 logger.error(f"Orchestration failed for job {job_id}: {e}")
                 update_video_status(job_id, "failed", metadata={"error": str(e)})
 
         # Schedule orchestration in background
         import asyncio
+
         asyncio.create_task(run_orchestration())
 
         # Return job ID immediately for polling
@@ -1560,7 +1697,7 @@ async def create_job_from_image_pairs(
                 "jobId": str(job_id),
                 "status": "image_pair_selection",
                 "totalPairs": len(image_pairs),
-                "message": f"Job created with {len(image_pairs)} image pairs. Video generation started."
+                "message": f"Job created with {len(image_pairs)} image pairs. Video generation started.",
             },
             meta=create_api_meta(),
         )
