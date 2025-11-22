@@ -179,17 +179,9 @@ async def get_current_user_from_token(
 
     return user
 
-# Dependency for API key authentication
-async def get_current_user_from_api_key(
-    api_key: Optional[str] = Security(api_key_header)
-) -> Optional[Dict[str, Any]]:
-    """Get current user from API key (optional)."""
-    if not api_key:
-        return None
-
-    # Try to find API key in database
-    # We need to check all API keys and verify the hash
-    # This is a simple implementation - for production, consider caching
+# Internal function for API key authentication
+def _verify_api_key_and_get_user(api_key: str) -> Optional[Dict[str, Any]]:
+    """Internal function to verify API key and get user (synchronous)."""
     from .database import get_db
 
     with get_db() as conn:
@@ -226,6 +218,16 @@ async def get_current_user_from_api_key(
                 }
 
     return None
+
+# Dependency for API key authentication
+async def get_current_user_from_api_key(
+    api_key: Optional[str] = Security(api_key_header)
+) -> Optional[Dict[str, Any]]:
+    """Get current user from API key (optional)."""
+    if not api_key:
+        return None
+
+    return _verify_api_key_and_get_user(api_key)
 
 # Combined authentication dependency (accepts either JWT or API key)
 async def get_current_user(
@@ -293,7 +295,7 @@ async def verify_auth(
 
     # Try API key
     if api_key:
-        user = await get_current_user_from_api_key(api_key)
+        user = _verify_api_key_and_get_user(api_key)
         if user:
             return user
 
