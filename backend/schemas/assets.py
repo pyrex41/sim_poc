@@ -384,18 +384,6 @@ class BulkAssetFromUrlInput(BaseModel):
         }
     }
 
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "name": "product-image",
-                "type": "image",
-                "clientId": "client-uuid",  # Required
-                "campaignId": "campaign-uuid",  # Optional
-                "tags": ["brand_logo", "product_shot"],
-            }
-        }
-    }
-
 
 # Database model (internal use only - includes blob_data)
 class AssetDB(BaseModel):

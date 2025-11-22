@@ -38,7 +38,7 @@ def run_migration(db_path: str = None):
             CREATE TABLE IF NOT EXISTS assets (
                 id TEXT PRIMARY KEY,
                 user_id INTEGER,
-                client_id TEXT,
+                client_id TEXT NOT NULL,
                 campaign_id TEXT,
                 name TEXT NOT NULL,
                 asset_type TEXT NOT NULL,

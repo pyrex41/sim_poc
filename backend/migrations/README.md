@@ -114,7 +114,8 @@ if __name__ == "__main__":
 |------|-------------|--------------|
 | `add_video_job_fields.py` | Added workflow tracking fields to videos table | 2024-11-16 |
 | `add_clients_campaigns.py` | Created clients and campaigns tables | 2024-11-16 |
-| `consolidate_assets_table.py` | Consolidated asset tables into single schema | 2024-11-16 |
+| `consolidate_assets_table.py` | Consolidated asset tables into single schema with client_id NOT NULL | 2024-11-16 |
+| ~~`enforce_client_id_required.py`~~ | (Removed - made obsolete by consolidate_assets_table.py) | N/A |
 
 ## Troubleshooting
 
