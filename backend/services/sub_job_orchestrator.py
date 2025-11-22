@@ -530,7 +530,7 @@ async def _add_music_to_video(
 
 async def _store_final_video(job_id: int, video_path: str) -> str:
     """
-    Store the final combined video and return its URL.
+    Store the final combined video in database as blob and return its URL.
 
     Args:
         job_id: Job ID
@@ -539,19 +539,27 @@ async def _store_final_video(job_id: int, video_path: str) -> str:
     Returns:
         URL to the stored video
     """
-    import shutil
+    from ..database import get_db
 
-    base_path = Path(settings.VIDEO_STORAGE_PATH) / str(job_id)
-    base_path.mkdir(parents=True, exist_ok=True)
+    # Read the video file into memory
+    with open(video_path, 'rb') as f:
+        video_data = f.read()
 
-    combined_dest = base_path / "combined.mp4"
-
-    # Copy the final video
-    await asyncio.to_thread(shutil.copy2, video_path, combined_dest)
+    # Store video blob in database
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE generated_videos
+            SET video_data = ?
+            WHERE id = ?
+            """,
+            (video_data, job_id)
+        )
+        conn.commit()
 
     combined_url = f"/api/v3/videos/{job_id}/combined"
 
-    logger.info(f"Stored final video at {combined_dest}")
+    logger.info(f"Stored final video in database (job_id={job_id}, size={len(video_data)} bytes)")
 
     return combined_url
 

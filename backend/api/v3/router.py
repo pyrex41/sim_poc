@@ -2238,24 +2238,38 @@ async def get_video_clip(job_id: str, clip_filename: str):
 
 @router.get("/videos/{job_id}/combined", tags=["v3-videos"])
 async def get_combined_video(job_id: str):
-    """Serve combined video from storage"""
-    from fastapi.responses import FileResponse
-    from pathlib import Path
+    """Serve combined video from database blob storage"""
+    from fastapi.responses import Response
+    from ...database import get_db
 
     try:
-        video_path = Path(settings.VIDEO_STORAGE_PATH) / job_id / "combined.mp4"
+        # Get video blob from database
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT video_data
+                FROM generated_videos
+                WHERE id = ?
+                """,
+                (job_id,),
+            ).fetchone()
 
-        if not video_path.exists():
-            raise HTTPException(status_code=404, detail="Combined video not found")
+            if not row or not row["video_data"]:
+                raise HTTPException(status_code=404, detail="Combined video not found")
 
-        return FileResponse(
-            path=str(video_path),
+            video_data = row["video_data"]
+
+        return Response(
+            content=video_data,
             media_type="video/mp4",
             headers={
                 "Accept-Ranges": "bytes",
                 "Cache-Control": "public, max-age=31536000",
+                "Content-Length": str(len(video_data)),
             },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to serve combined video for job {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to serve video: {str(e)}")
