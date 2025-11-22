@@ -234,10 +234,15 @@ Important:
         """
         try:
             # Extract content from response
+            logger.error(f"[DEBUG XAI] Full API response: {json.dumps(response, indent=2)}")
             content = response["choices"][0]["message"]["content"]
+            logger.error(f"[DEBUG XAI] Extracted content string: {content}")
+            logger.error(f"[DEBUG XAI] Content length: {len(content)}")
+            logger.error(f"[DEBUG XAI] Content type: {type(content)}")
 
             # Parse JSON
             data = json.loads(content)
+            print(f"[DEBUG XAI] Full Grok response: {json.dumps(data, indent=2)}")
             pairs_data = data.get("pairs", [])
 
             if not pairs_data:
@@ -245,19 +250,26 @@ Important:
 
             # Validate and convert to tuples
             asset_ids = {a["id"] for a in assets}
+            print(f"[DEBUG XAI] Available asset IDs ({len(asset_ids)}): {list(asset_ids)[:5]}...")
             pairs = []
 
             for pair in pairs_data:
+                print(f"[DEBUG XAI] Processing pair: {pair}")
                 image1_id = pair.get("image1_id")
                 image2_id = pair.get("image2_id")
                 score = pair.get("score", 0.5)
                 reasoning = pair.get("reasoning", "No reasoning provided")
 
+                print(f"[DEBUG XAI] Checking if {image1_id} in asset_ids: {image1_id in asset_ids}")
+                print(f"[DEBUG XAI] Checking if {image2_id} in asset_ids: {image2_id in asset_ids}")
+
                 # Validate asset IDs exist
                 if image1_id not in asset_ids:
+                    print(f"[DEBUG XAI] Invalid image1_id: {image1_id}, skipping pair")
                     logger.warning(f"Invalid image1_id: {image1_id}, skipping pair")
                     continue
                 if image2_id not in asset_ids:
+                    print(f"[DEBUG XAI] Invalid image2_id: {image2_id}, skipping pair")
                     logger.warning(f"Invalid image2_id: {image2_id}, skipping pair")
                     continue
 

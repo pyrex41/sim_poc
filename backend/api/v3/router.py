@@ -2217,41 +2217,41 @@ async def list_ai_generated_videos(
             params.extend([limit, offset])
             cursor = conn.execute(query, params)
 
-        videos = []
-        for row in cursor.fetchall():
-            try:
-                input_params = json.loads(row[11]) if row[11] else {}
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON in input_parameters for sub-job {row[0]}")
-                input_params = {}
-            
-            # Handle potential None values
-            safe_row = [r if r is not None else "" for r in row]
-            
-            video_record = {
-                "id": str(safe_row[0]),
-                "jobId": safe_row[1],
-                "subJobNumber": safe_row[2],
-                "modelId": safe_row[3] or "unknown",
-                "videoUrl": safe_row[4] or "",
-                "status": safe_row[5] or "unknown",
-                "durationSeconds": safe_row[6] or 0.0,
-                "progress": safe_row[7] or 0.0,
-                "errorMessage": safe_row[8],
-                "createdAt": safe_row[9] or "",
-                "completedAt": safe_row[10] or "",
-                "prompt": input_params.get("prompt", f"Job {safe_row[1]} - Clip {safe_row[2]}"),
-                "thumbnailUrl": safe_row[4] or "",  # Use video URL as thumbnail for now
-                "assetIds": input_params.get("asset_ids", []),  # Include source assets
-            }
-            
-            # Add audio info if available in parameters
-            if "audio_info" in input_params:
-                video_record["audioInfo"] = input_params["audio_info"]
-            
-            videos.append(video_record)
-        
-        logger.info(f"Retrieved {len(videos)} AI videos for offset {offset}, limit {limit}")
+            videos = []
+            for row in cursor.fetchall():
+                try:
+                    input_params = json.loads(row[11]) if row[11] else {}
+                except json.JSONDecodeError:
+                    logger.warning(f"Invalid JSON in input_parameters for sub-job {row[0]}")
+                    input_params = {}
+
+                # Handle potential None values
+                safe_row = [r if r is not None else "" for r in row]
+
+                video_record = {
+                    "id": str(safe_row[0]),
+                    "jobId": safe_row[1],
+                    "subJobNumber": safe_row[2],
+                    "modelId": safe_row[3] or "unknown",
+                    "videoUrl": safe_row[4] or "",
+                    "status": safe_row[5] or "unknown",
+                    "durationSeconds": safe_row[6] or 0.0,
+                    "progress": safe_row[7] or 0.0,
+                    "errorMessage": safe_row[8],
+                    "createdAt": safe_row[9] or "",
+                    "completedAt": safe_row[10] or "",
+                    "prompt": input_params.get("prompt", f"Job {safe_row[1]} - Clip {safe_row[2]}"),
+                    "thumbnailUrl": safe_row[4] or "",  # Use video URL as thumbnail for now
+                    "assetIds": input_params.get("asset_ids", []),  # Include source assets
+                }
+
+                # Add audio info if available in parameters
+                if "audio_info" in input_params:
+                    video_record["audioInfo"] = input_params["audio_info"]
+
+                videos.append(video_record)
+
+            logger.info(f"Retrieved {len(videos)} AI videos for offset {offset}, limit {limit}")
 
             return APIResponse.success(
                 data={"videos": videos, "total": total}, meta=create_api_meta()

@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from pathlib import Path
 import os
 from datetime import datetime
+import logging
 
 # Import Pydantic asset models
 from .schemas.assets import (
@@ -453,6 +454,8 @@ def list_assets(
     Returns:
         List of Asset Pydantic models (ImageAsset | VideoAsset | AudioAsset | DocumentAsset)
     """
+    print(f"[DEBUG] list_assets called with: user_id={user_id}, client_id={client_id}, campaign_id={campaign_id}, asset_type={asset_type}")
+
     with get_db() as conn:
         # Build dynamic query
         where_clauses = []
@@ -488,7 +491,10 @@ def list_assets(
             LIMIT ? OFFSET ?
         """
 
+        print(f"[DEBUG] Executing query: {query}")
+        print(f"[DEBUG] With values: {values}")
         rows = conn.execute(query, values).fetchall()
+        print(f"[DEBUG] Query returned {len(rows)} rows")
         return [_row_to_asset_model(row) for row in rows]
 
 

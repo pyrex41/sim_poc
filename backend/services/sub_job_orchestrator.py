@@ -268,10 +268,20 @@ async def _process_single_sub_job(
         if not image1 or not image2:
             raise ValueError(f"Assets not found for sub-job {sub_job_id}")
 
-        # Construct full asset URLs
-        base_url = settings.BASE_URL
-        image1_url = f"{base_url}{image1.url}" if not image1.url.startswith('http') else image1.url
-        image2_url = f"{base_url}{image2.url}" if not image2.url.startswith('http') else image2.url
+        # Construct full asset URLs - use NGROK_URL for external services like Replicate
+        current_settings = get_settings()
+        # Use NGROK_URL if available, otherwise fall back to BASE_URL
+        external_url = current_settings.NGROK_URL or current_settings.BASE_URL
+        image1_url = f"{external_url}{image1.url}" if not image1.url.startswith('http') else image1.url
+        image2_url = f"{external_url}{image2.url}" if not image2.url.startswith('http') else image2.url
+
+        # Debug: Log URLs being sent to Replicate
+        logger.error(f"[DEBUG ORCHESTRATOR] NGROK_URL: {current_settings.NGROK_URL}")
+        logger.error(f"[DEBUG ORCHESTRATOR] BASE_URL: {current_settings.BASE_URL}")
+        logger.error(f"[DEBUG ORCHESTRATOR] Using external_url: {external_url}")
+        logger.error(f"[DEBUG ORCHESTRATOR] Image1 URL: {image1_url}")
+        logger.error(f"[DEBUG ORCHESTRATOR] Image2 URL: {image2_url}")
+        logger.error(f"[DEBUG ORCHESTRATOR] Model: {sub_job['modelId']}, Duration: {clip_duration}")
 
         # Update status to processing
         update_sub_job_status(sub_job_id, "processing")

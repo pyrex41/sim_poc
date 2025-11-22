@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["development", "staging", "production"] = "development"
     HOST: str = "0.0.0.0"
     PORT: int = Field(8000, ge=1, le=65535)
-    BASE_URL: str = "http://localhost:8000"  # Set to ngrok URL for local dev, or deployed URL for production
+    BASE_URL: str = "https://mds.ngrok.dev"  # Set to ngrok URL for local dev, or deployed URL for production
     NGROK_URL: Optional[str] = None  # Public URL for external services (Replicate, webhooks)
 
     # AI/ML settings
@@ -67,7 +67,18 @@ class Settings(BaseSettings):
         return value
 
 
-@lru_cache
 def get_settings() -> Settings:
-    """Return cached settings instance."""
-    return Settings()
+    """Return settings instance."""
+    import os
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Debug: Check environment variables
+    base_url_env = os.environ.get("BASE_URL", "NOT_SET")
+    logger.error(f"[CONFIG DEBUG] BASE_URL environment variable: {base_url_env}")
+
+    settings = Settings()
+    logger.error(f"[CONFIG DEBUG] Settings.BASE_URL after init: {settings.BASE_URL}")
+    logger.error(f"[CONFIG DEBUG] Settings dict: {settings.model_dump()}")
+
+    return settings

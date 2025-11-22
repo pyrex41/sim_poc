@@ -573,6 +573,9 @@ class ReplicateClient:
                 "prompt": prompt or "Smooth transition between images",  # Required by Veo3
             }
 
+            logger.error(f"[VEO3 DEBUG] Image1 URL: {image1_url}")
+            logger.error(f"[VEO3 DEBUG] Image2 URL: {image2_url}")
+            logger.error(f"[VEO3 DEBUG] Duration: {valid_duration}s (requested={requested_duration}s)")
             logger.info(f"Creating Veo3 prediction with rounded duration={valid_duration}s (requested={requested_duration}s)")
 
             # Create prediction
