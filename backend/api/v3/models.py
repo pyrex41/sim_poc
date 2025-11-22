@@ -308,3 +308,62 @@ class UnifiedAssetUploadInput(BaseModel):
 
 
 # Note: Asset models are extended in schemas/assets.py to include thumbnailBlobId and sourceUrl
+
+
+# ============================================================================
+# Image Pair Selection & Video Generation Models (New Feature)
+# ============================================================================
+
+
+class ImagePairJobCreateRequest(BaseModel):
+    """Request model for creating a job from image pairs."""
+
+    campaignId: str
+    clientId: Optional[str] = None
+    clipDuration: Optional[float] = None  # Duration for each clip in seconds
+    numPairs: Optional[int] = None  # Optional target number of pairs to select
+
+
+class SubJobStatus(str, Enum):
+    """Sub-job status enum."""
+
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class SubJob(BaseModel):
+    """Sub-job model for individual image pair to video conversion."""
+
+    id: str
+    jobId: int
+    subJobNumber: int
+    image1AssetId: str
+    image2AssetId: str
+    replicatePredictionId: Optional[str] = None
+    modelId: str
+    inputParameters: Optional[Dict[str, Any]] = None
+    status: SubJobStatus
+    progress: float = 0.0
+    videoUrl: Optional[str] = None
+    videoBlobId: Optional[str] = None
+    durationSeconds: Optional[float] = None
+    estimatedCost: Optional[float] = None
+    actualCost: Optional[float] = None
+    errorMessage: Optional[str] = None
+    retryCount: int = 0
+    startedAt: Optional[str] = None
+    completedAt: Optional[str] = None
+    createdAt: str
+    updatedAt: str
+
+
+class SubJobSummary(BaseModel):
+    """Summary of sub-job progress."""
+
+    total: int
+    pending: int
+    processing: int
+    completed: int
+    failed: int

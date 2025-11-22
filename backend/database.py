@@ -2,10 +2,13 @@
 import sqlite3
 import json
 import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 
 # Get data directory from environment variable, default to ./DATA
 DATA_DIR = Path(os.getenv("DATA", "./DATA"))
@@ -2107,6 +2110,294 @@ def get_generated_videos_by_campaign(campaign_id: str, status: Optional[str] = N
     except Exception as e:
         print(f"Error getting videos for campaign {campaign_id}: {e}")
         return []
+
+
+# ============================================================================
+# VIDEO SUB-JOB MANAGEMENT (for parallel image-pair to video generation)
+# ============================================================================
+
+def create_sub_job(
+    job_id: int,
+    sub_job_number: int,
+    image1_asset_id: str,
+    image2_asset_id: str,
+    model_id: str,
+    input_parameters: Optional[dict] = None,
+) -> str:
+    """
+    Create a new video sub-job for image pair processing.
+
+    Args:
+        job_id: Parent job ID (from generated_videos table)
+        sub_job_number: Sequential number of this sub-job (1, 2, 3, etc.)
+        image1_asset_id: ID of first image asset
+        image2_asset_id: ID of second image asset
+        model_id: Video generation model (veo3, hailuo-2.0, etc.)
+        input_parameters: Optional dict of model-specific parameters
+
+    Returns:
+        str: ID of the created sub-job
+    """
+    import uuid
+
+    sub_job_id = str(uuid.uuid4())
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO video_sub_jobs (
+                id, job_id, sub_job_number, image1_asset_id, image2_asset_id,
+                model_id, input_parameters, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+            """,
+            (
+                sub_job_id,
+                job_id,
+                sub_job_number,
+                image1_asset_id,
+                image2_asset_id,
+                model_id,
+                json.dumps(input_parameters) if input_parameters else None,
+            ),
+        )
+        conn.commit()
+
+    logger.info(f"Created sub-job {sub_job_id} for job {job_id}")
+    return sub_job_id
+
+
+def update_sub_job_status(
+    sub_job_id: str,
+    status: str,
+    replicate_prediction_id: Optional[str] = None,
+    video_url: Optional[str] = None,
+    video_blob_id: Optional[str] = None,
+    duration_seconds: Optional[float] = None,
+    error_message: Optional[str] = None,
+    actual_cost: Optional[float] = None,
+    progress: Optional[float] = None,
+) -> bool:
+    """
+    Update a sub-job's status and related fields.
+
+    Args:
+        sub_job_id: Sub-job ID to update
+        status: New status ('pending', 'processing', 'completed', 'failed')
+        replicate_prediction_id: Optional Replicate prediction ID
+        video_url: Optional generated video URL
+        video_blob_id: Optional blob ID if video stored in database
+        duration_seconds: Optional video duration
+        error_message: Optional error message if failed
+        actual_cost: Optional actual cost of generation
+        progress: Optional progress (0.0 to 1.0)
+
+    Returns:
+        bool: True if update was successful
+    """
+    updates = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
+    params = [status]
+
+    if replicate_prediction_id is not None:
+        updates.append("replicate_prediction_id = ?")
+        params.append(replicate_prediction_id)
+
+    if video_url is not None:
+        updates.append("video_url = ?")
+        params.append(video_url)
+
+    if video_blob_id is not None:
+        updates.append("video_blob_id = ?")
+        params.append(video_blob_id)
+
+    if duration_seconds is not None:
+        updates.append("duration_seconds = ?")
+        params.append(duration_seconds)
+
+    if error_message is not None:
+        updates.append("error_message = ?")
+        params.append(error_message)
+
+    if actual_cost is not None:
+        updates.append("actual_cost = ?")
+        params.append(actual_cost)
+
+    if progress is not None:
+        updates.append("progress = ?")
+        params.append(progress)
+
+    # Set timestamps based on status
+    if status == "processing" and "started_at" not in updates:
+        updates.append("started_at = CURRENT_TIMESTAMP")
+    elif status in ["completed", "failed"] and "completed_at" not in updates:
+        updates.append("completed_at = CURRENT_TIMESTAMP")
+
+    params.append(sub_job_id)
+
+    with get_db() as conn:
+        cursor = conn.execute(
+            f"UPDATE video_sub_jobs SET {', '.join(updates)} WHERE id = ?", params
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_sub_jobs_by_job(job_id: int) -> List[Dict[str, Any]]:
+    """
+    Get all sub-jobs for a parent job.
+
+    Args:
+        job_id: Parent job ID
+
+    Returns:
+        List of sub-job dictionaries
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM video_sub_jobs
+            WHERE job_id = ?
+            ORDER BY sub_job_number ASC
+            """,
+            (job_id,),
+        ).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "jobId": row["job_id"],
+                "subJobNumber": row["sub_job_number"],
+                "image1AssetId": row["image1_asset_id"],
+                "image2AssetId": row["image2_asset_id"],
+                "replicatePredictionId": row["replicate_prediction_id"],
+                "modelId": row["model_id"],
+                "inputParameters": json.loads(row["input_parameters"])
+                if row["input_parameters"]
+                else None,
+                "status": row["status"],
+                "progress": row["progress"],
+                "videoUrl": row["video_url"],
+                "videoBlobId": row["video_blob_id"],
+                "durationSeconds": row["duration_seconds"],
+                "estimatedCost": row["estimated_cost"],
+                "actualCost": row["actual_cost"],
+                "errorMessage": row["error_message"],
+                "retryCount": row["retry_count"],
+                "startedAt": row["started_at"],
+                "completedAt": row["completed_at"],
+                "createdAt": row["created_at"],
+                "updatedAt": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+
+def get_sub_job_by_id(sub_job_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a specific sub-job by ID.
+
+    Args:
+        sub_job_id: Sub-job ID
+
+    Returns:
+        Sub-job dict or None if not found
+    """
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM video_sub_jobs WHERE id = ?", (sub_job_id,)
+        ).fetchone()
+
+        if not row:
+            return None
+
+        return {
+            "id": row["id"],
+            "jobId": row["job_id"],
+            "subJobNumber": row["sub_job_number"],
+            "image1AssetId": row["image1_asset_id"],
+            "image2AssetId": row["image2_asset_id"],
+            "replicatePredictionId": row["replicate_prediction_id"],
+            "modelId": row["model_id"],
+            "inputParameters": json.loads(row["input_parameters"])
+            if row["input_parameters"]
+            else None,
+            "status": row["status"],
+            "progress": row["progress"],
+            "videoUrl": row["video_url"],
+            "videoBlobId": row["video_blob_id"],
+            "durationSeconds": row["duration_seconds"],
+            "estimatedCost": row["estimated_cost"],
+            "actualCost": row["actual_cost"],
+            "errorMessage": row["error_message"],
+            "retryCount": row["retry_count"],
+            "startedAt": row["started_at"],
+            "completedAt": row["completed_at"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+
+def get_sub_job_progress_summary(job_id: int) -> Dict[str, int]:
+    """
+    Get a summary of sub-job progress for a parent job.
+
+    Args:
+        job_id: Parent job ID
+
+    Returns:
+        Dict with counts: {total, pending, processing, completed, failed}
+    """
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT status, COUNT(*) as count
+            FROM video_sub_jobs
+            WHERE job_id = ?
+            GROUP BY status
+            """,
+            (job_id,),
+        ).fetchall()
+
+        summary = {"total": 0, "pending": 0, "processing": 0, "completed": 0, "failed": 0}
+
+        for row in rows:
+            status = row["status"]
+            count = row["count"]
+            summary[status] = count
+            summary["total"] += count
+
+        return summary
+
+
+def increment_sub_job_retry_count(sub_job_id: str) -> int:
+    """
+    Increment the retry count for a sub-job.
+
+    Args:
+        sub_job_id: Sub-job ID
+
+    Returns:
+        int: New retry count
+    """
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE video_sub_jobs
+            SET retry_count = retry_count + 1,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (sub_job_id,),
+        )
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT retry_count FROM video_sub_jobs WHERE id = ?", (sub_job_id,)
+        ).fetchone()
+
+        return row["retry_count"] if row else 0
+
 
 # Initialize database on import
 init_db()

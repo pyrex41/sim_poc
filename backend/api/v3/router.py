@@ -1399,3 +1399,217 @@ async def delete_scene(
     except Exception as e:
         logger.error(f"Failed to delete scene: {e}")
         return APIResponse.create_error(f"Failed to delete scene: {str(e)}")
+
+
+# ============================================================================
+# IMAGE PAIR SELECTION & VIDEO GENERATION ENDPOINTS (New Feature)
+# ============================================================================
+
+
+@router.post("/jobs/from-image-pairs", response_model=APIResponse, tags=["v3-jobs"])
+async def create_job_from_image_pairs(
+    request: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(verify_auth),
+) -> APIResponse:
+    """
+    Create a new job that selects image pairs from campaign assets and generates videos.
+
+    Workflow:
+    1. Fetch campaign assets (images only)
+    2. Use xAI Grok to select optimal image pairs
+    3. Create main job with status "image_pair_selection"
+    4. Store selected pairs in job parameters
+    5. Trigger parallel video generation for all pairs
+    6. Return job ID for polling
+
+    Request body:
+    {
+        "campaignId": "campaign-uuid",
+        "clientId": "client-uuid" (optional),
+        "clipDuration": 5.0 (optional, seconds per clip),
+        "numPairs": 10 (optional, target number of pairs)
+    }
+    """
+    from ...services.xai_client import XAIClient
+    from ...services.sub_job_orchestrator import process_image_pairs_to_videos
+    from ...database_helpers import list_assets, get_campaign_by_id, get_client_by_id
+
+    try:
+        campaign_id = request.get("campaignId")
+        client_id = request.get("clientId")
+        clip_duration = request.get("clipDuration")
+        num_pairs = request.get("numPairs")
+
+        if not campaign_id:
+            return APIResponse.create_error("campaignId is required")
+
+        # Fetch campaign assets (images only)
+        assets = list_assets(
+            user_id=current_user["id"],
+            campaign_id=campaign_id,
+            asset_type="image",
+            limit=1000,
+        )
+
+        if len(assets) < 2:
+            return APIResponse.create_error(
+                f"Need at least 2 image assets, but campaign has {len(assets)}"
+            )
+
+        logger.info(
+            f"Found {len(assets)} image assets for campaign {campaign_id}"
+        )
+
+        # Get campaign context for AI selection
+        campaign = get_campaign_by_id(campaign_id, current_user["id"])
+        campaign_context = None
+        if campaign:
+            campaign_context = {
+                "goal": campaign.get("goal"),
+                "name": campaign.get("name"),
+            }
+
+        # Get client brand guidelines if available
+        brand_guidelines = None
+        if client_id:
+            client = get_client_by_id(client_id, current_user["id"])
+            if client and client.get("brandGuidelines"):
+                brand_guidelines = client["brandGuidelines"]
+
+        # Update job status
+        job_id = create_video_job(
+            prompt=f"Image pair selection and video generation for campaign {campaign_id}",
+            model_id="image-pair-workflow",
+            parameters={
+                "campaign_id": campaign_id,
+                "client_id": client_id,
+                "clip_duration": clip_duration,
+                "num_pairs": num_pairs,
+            },
+            estimated_cost=0.0,  # Will be calculated during generation
+            client_id=client_id,
+            status="image_pair_selection",
+        )
+
+        logger.info(f"Created job {job_id} for image pair workflow")
+
+        # Use xAI Grok to select image pairs
+        xai_client = XAIClient()
+
+        # Prepare asset data for Grok
+        asset_data = [
+            {
+                "id": asset.id,
+                "name": getattr(asset, "name", ""),
+                "description": getattr(asset, "name", ""),  # Use name as description
+                "tags": getattr(asset, "tags", []),
+                "type": "image",
+                "url": getattr(asset, "url", ""),
+            }
+            for asset in assets
+        ]
+
+        try:
+            image_pairs = xai_client.select_image_pairs(
+                assets=asset_data,
+                campaign_context=campaign_context,
+                client_brand_guidelines=brand_guidelines,
+                num_pairs=num_pairs,
+            )
+        except Exception as e:
+            logger.error(f"Image pair selection failed: {e}")
+            update_video_status(job_id, "failed", metadata={"error": str(e)})
+            return APIResponse.create_error(f"Image pair selection failed: {str(e)}")
+
+        # Store selected pairs in job parameters
+        from ...database import get_job, update_job_progress
+        job = get_job(job_id)
+        if job:
+            params = json.loads(job["parameters"]) if isinstance(job["parameters"], str) else job["parameters"]
+            params["selected_pairs"] = [
+                {
+                    "image1_id": pair[0],
+                    "image2_id": pair[1],
+                    "score": pair[2],
+                    "reasoning": pair[3],
+                }
+                for pair in image_pairs
+            ]
+            update_job_progress(job_id, {"selected_pairs": len(image_pairs)})
+
+        logger.info(f"Selected {len(image_pairs)} image pairs for job {job_id}")
+
+        # Launch parallel video generation in background
+        async def run_orchestration():
+            try:
+                await process_image_pairs_to_videos(
+                    job_id, image_pairs, clip_duration
+                )
+            except Exception as e:
+                logger.error(f"Orchestration failed for job {job_id}: {e}")
+                update_video_status(job_id, "failed", metadata={"error": str(e)})
+
+        # Schedule orchestration in background
+        import asyncio
+        asyncio.create_task(run_orchestration())
+
+        # Return job ID immediately for polling
+        return APIResponse.success(
+            data={
+                "jobId": str(job_id),
+                "status": "image_pair_selection",
+                "totalPairs": len(image_pairs),
+                "message": f"Job created with {len(image_pairs)} image pairs. Video generation started."
+            },
+            meta=create_api_meta(),
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to create job from image pairs: {e}", exc_info=True)
+        return APIResponse.create_error(f"Failed to create job: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/sub-jobs", response_model=APIResponse, tags=["v3-jobs"])
+async def get_job_sub_jobs(
+    job_id: str, current_user: Dict = Depends(verify_auth)
+) -> APIResponse:
+    """
+    Get all sub-jobs for a job with their individual status.
+
+    This endpoint provides detailed progress tracking for parallel video generation.
+
+    Returns:
+    {
+        "data": {
+            "subJobs": [...],  // Array of SubJob objects
+            "summary": {
+                "total": 10,
+                "pending": 2,
+                "processing": 3,
+                "completed": 4,
+                "failed": 1
+            }
+        }
+    }
+    """
+    from ...database import get_sub_jobs_by_job, get_sub_job_progress_summary
+
+    try:
+        job_id_int = int(job_id)
+
+        # Get all sub-jobs
+        sub_jobs = get_sub_jobs_by_job(job_id_int)
+
+        # Get summary
+        summary = get_sub_job_progress_summary(job_id_int)
+
+        return APIResponse.success(
+            data={"subJobs": sub_jobs, "summary": summary}, meta=create_api_meta()
+        )
+
+    except ValueError:
+        return APIResponse.create_error("Invalid job ID format")
+    except Exception as e:
+        logger.error(f"Failed to get sub-jobs for job {job_id}: {e}")
+        return APIResponse.create_error(f"Failed to get sub-jobs: {str(e)}")

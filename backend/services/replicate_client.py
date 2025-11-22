@@ -40,11 +40,17 @@ class ReplicateClient:
     FLUX_SCHNELL_PRICE_PER_IMAGE = 0.003
     SKYREELS2_PRICE_PER_SECOND = 0.10
     UPSCALER_PRICE_PER_IMAGE = 0.016  # Reference pricing for clarity-upscaler
+    VEO3_PRICE_PER_SECOND = 0.15  # Estimated, update when official pricing available
+    HAILUO2_PRICE_PER_GENERATION = 0.20  # Estimated, update when official pricing available
 
     # Default models
     DEFAULT_IMAGE_MODEL = "black-forest-labs/flux-schnell"
     DEFAULT_VIDEO_MODEL = "fofr/skyreels-2"
     DEFAULT_UPSCALER_MODEL = "philz1337x/clarity-upscaler"  # Configurable via settings
+
+    # Image-to-video models (for pair generation)
+    VEO3_MODEL = "google/veo-3.1"
+    HAILUO2_MODEL = "minimax/hailuo-02"
 
     # Polling configuration
     DEFAULT_POLL_INTERVAL = 5  # seconds
@@ -476,6 +482,251 @@ class ReplicateClient:
         )
 
         return total_cost
+
+    def generate_video_from_pair(
+        self,
+        image1_url: str,
+        image2_url: str,
+        model: str = "veo3",
+        duration: Optional[float] = None,
+        prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a video from a pair of images (first frame and last frame).
+
+        Supports Veo 3.1 and Hailuo-02 models for image-to-video generation.
+
+        Args:
+            image1_url: URL of the first/starting image
+            image2_url: URL of the second/ending image
+            model: Model to use ('veo3' or 'hailuo-2.0')
+            duration: Optional video duration in seconds (model-specific defaults apply)
+            prompt: Optional text prompt to guide the generation
+
+        Returns:
+            dict: Response containing:
+                - success (bool): Whether the request was successful
+                - video_url (str): URL of the generated video (if successful)
+                - error (str): Error message (if failed)
+                - prediction_id (str): Replicate prediction ID for polling
+                - duration_seconds (float): Duration of the generated video
+
+        Example:
+            >>> client = ReplicateClient()
+            >>> result = client.generate_video_from_pair(
+            ...     "https://example.com/img1.jpg",
+            ...     "https://example.com/img2.jpg",
+            ...     model="veo3",
+            ...     duration=5.0
+            ... )
+            >>> if result['success']:
+            ...     print(f"Video URL: {result['video_url']}")
+        """
+        logger.info(f"Generating video from image pair using {model}")
+
+        # Determine which model to use
+        if model.lower() in ["veo3", "veo-3", "veo-3.1"]:
+            return self._generate_with_veo3(image1_url, image2_url, duration, prompt)
+        elif model.lower() in ["hailuo-2.0", "hailuo2", "hailuo-02"]:
+            return self._generate_with_hailuo2(image1_url, image2_url, duration, prompt)
+        else:
+            logger.error(f"Unsupported model: {model}")
+            return {
+                "success": False,
+                "video_url": None,
+                "error": f"Unsupported model: {model}. Use 'veo3' or 'hailuo-2.0'",
+                "prediction_id": None,
+                "duration_seconds": 0.0,
+            }
+
+    def _generate_with_veo3(
+        self,
+        image1_url: str,
+        image2_url: str,
+        duration: Optional[float],
+        prompt: Optional[str],
+    ) -> Dict[str, Any]:
+        """Generate video using Veo 3.1 model with first and last frame."""
+        try:
+            # Veo3 only accepts duration of 4, 6, or 8 seconds
+            requested_duration = duration or 8
+            if requested_duration <= 5:
+                valid_duration = 4
+            elif requested_duration <= 7:
+                valid_duration = 6
+            else:
+                valid_duration = 8
+
+            # Build input parameters for Veo 3.1
+            input_params = {
+                "image": image1_url,  # First frame
+                "last_frame": image2_url,  # Last frame
+                "duration": valid_duration,  # Must be 4, 6, or 8
+                "resolution": "1080p",  # Default to high quality
+                "aspect_ratio": "16:9",  # Default aspect ratio
+                "generate_audio": False,  # No audio for now
+                "prompt": prompt or "Smooth transition between images",  # Required by Veo3
+            }
+
+            logger.info(f"Creating Veo3 prediction with params: {input_params}")
+
+            # Create prediction
+            response = self.session.post(
+                f"{self.base_url}/predictions",
+                json={
+                    "version": self._get_model_version(self.VEO3_MODEL),
+                    "input": input_params,
+                },
+                timeout=30,
+            )
+            if response.status_code != 201:
+                logger.error(f"Veo3 API error ({response.status_code}): {response.text}")
+            response.raise_for_status()
+
+            prediction_data = response.json()
+            prediction_id = prediction_data.get("id")
+
+            if not prediction_id:
+                logger.error("No prediction ID returned from Veo3 API")
+                return {
+                    "success": False,
+                    "video_url": None,
+                    "error": "No prediction ID returned from API",
+                    "prediction_id": None,
+                    "duration_seconds": 0.0,
+                }
+
+            logger.info(f"Veo3 video generation started, prediction ID: {prediction_id}")
+
+            # Poll for completion (videos take longer, use 20min timeout)
+            poll_result = self.poll_prediction(prediction_id, timeout=1200)
+
+            if poll_result["status"] == "succeeded":
+                # Extract video URL from output
+                output = poll_result.get("output")
+                video_url = output if isinstance(output, str) else output[0]
+
+                logger.info(f"Veo3 video generation succeeded: {video_url}")
+                return {
+                    "success": True,
+                    "video_url": video_url,
+                    "error": None,
+                    "prediction_id": prediction_id,
+                    "duration_seconds": duration or 8,
+                }
+            else:
+                error_msg = poll_result.get(
+                    "error", f"Generation failed with status: {poll_result['status']}"
+                )
+                logger.error(f"Veo3 video generation failed: {error_msg}")
+                return {
+                    "success": False,
+                    "video_url": None,
+                    "error": error_msg,
+                    "prediction_id": prediction_id,
+                    "duration_seconds": 0.0,
+                }
+
+        except Exception as e:
+            logger.error(f"Error generating video with Veo3: {e}", exc_info=True)
+            return {
+                "success": False,
+                "video_url": None,
+                "error": f"Veo3 generation error: {str(e)}",
+                "prediction_id": None,
+                "duration_seconds": 0.0,
+            }
+
+    def _generate_with_hailuo2(
+        self,
+        image1_url: str,
+        image2_url: str,
+        duration: Optional[float],
+        prompt: Optional[str],
+    ) -> Dict[str, Any]:
+        """Generate video using Hailuo-02 model with first and last frame."""
+        try:
+            # Build input parameters for Hailuo-02
+            input_params = {
+                "first_frame_image": image1_url,
+                "last_frame_image": image2_url,
+                "duration": int(duration) if duration else 6,  # 6 or 10 seconds
+                "resolution": "1080p",  # "512p", "768p", or "1080p"
+                "prompt_optimizer": True,
+            }
+
+            if prompt:
+                input_params["prompt"] = prompt
+            else:
+                # Default prompt for smooth transition
+                input_params["prompt"] = "smooth cinematic transition between images"
+
+            logger.info(f"Creating Hailuo-02 prediction with params: {input_params}")
+
+            # Create prediction
+            response = self.session.post(
+                f"{self.base_url}/predictions",
+                json={
+                    "version": self._get_model_version(self.HAILUO2_MODEL),
+                    "input": input_params,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+
+            prediction_data = response.json()
+            prediction_id = prediction_data.get("id")
+
+            if not prediction_id:
+                logger.error("No prediction ID returned from Hailuo-02 API")
+                return {
+                    "success": False,
+                    "video_url": None,
+                    "error": "No prediction ID returned from API",
+                    "prediction_id": None,
+                    "duration_seconds": 0.0,
+                }
+
+            logger.info(f"Hailuo-02 video generation started, prediction ID: {prediction_id}")
+
+            # Poll for completion (videos take longer, use 20min timeout)
+            poll_result = self.poll_prediction(prediction_id, timeout=1200)
+
+            if poll_result["status"] == "succeeded":
+                # Extract video URL from output
+                output = poll_result.get("output")
+                video_url = output if isinstance(output, str) else output[0]
+
+                logger.info(f"Hailuo-02 video generation succeeded: {video_url}")
+                return {
+                    "success": True,
+                    "video_url": video_url,
+                    "error": None,
+                    "prediction_id": prediction_id,
+                    "duration_seconds": input_params["duration"],
+                }
+            else:
+                error_msg = poll_result.get(
+                    "error", f"Generation failed with status: {poll_result['status']}"
+                )
+                logger.error(f"Hailuo-02 video generation failed: {error_msg}")
+                return {
+                    "success": False,
+                    "video_url": None,
+                    "error": error_msg,
+                    "prediction_id": prediction_id,
+                    "duration_seconds": 0.0,
+                }
+
+        except Exception as e:
+            logger.error(f"Error generating video with Hailuo-02: {e}", exc_info=True)
+            return {
+                "success": False,
+                "video_url": None,
+                "error": f"Hailuo-02 generation error: {str(e)}",
+                "prediction_id": None,
+                "duration_seconds": 0.0,
+            }
 
     def _get_model_version(self, model: str) -> str:
         """

@@ -93,6 +93,13 @@ def run_migrations():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Add thumbnail_blob_id to assets if missing (for V3 thumbnail storage)
+        try:
+            conn.execute("ALTER TABLE assets ADD COLUMN thumbnail_blob_id TEXT")
+            print("  ✓ Added thumbnail_blob_id to assets")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         conn.commit()
         print("✓ Pre-migration column additions complete")
 

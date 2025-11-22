@@ -101,6 +101,7 @@ CREATE TABLE IF NOT EXISTS assets (
     blob_data BLOB,
     blob_id TEXT,
     source_url TEXT,
+    thumbnail_blob_id TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
     FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
@@ -265,6 +266,57 @@ CREATE TABLE IF NOT EXISTS job_scenes (
 
 CREATE INDEX IF NOT EXISTS idx_job_scenes_job_id ON job_scenes(job_id);
 CREATE INDEX IF NOT EXISTS idx_job_scenes_scene_number ON job_scenes(scene_number);
+
+-- ============================================================================
+-- VIDEO SUB-JOBS (for parallel image-pair to video generation)
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS video_sub_jobs (
+    id TEXT PRIMARY KEY,
+    job_id INTEGER NOT NULL,
+    sub_job_number INTEGER NOT NULL,
+
+    -- Input images
+    image1_asset_id TEXT NOT NULL,
+    image2_asset_id TEXT NOT NULL,
+
+    -- Replicate tracking
+    replicate_prediction_id TEXT,
+    model_id TEXT NOT NULL,
+    input_parameters TEXT,  -- JSON
+
+    -- Status
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    progress REAL DEFAULT 0.0,  -- 0.0 to 1.0
+
+    -- Output
+    video_url TEXT,
+    video_blob_id TEXT,
+    duration_seconds REAL,
+
+    -- Cost tracking
+    estimated_cost REAL DEFAULT 0.0,
+    actual_cost REAL DEFAULT 0.0,
+
+    -- Error handling
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
+
+    -- Timestamps
+    started_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (job_id) REFERENCES generated_videos(id) ON DELETE CASCADE,
+    FOREIGN KEY (image1_asset_id) REFERENCES assets(id),
+    FOREIGN KEY (image2_asset_id) REFERENCES assets(id),
+    UNIQUE(job_id, sub_job_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sub_jobs_job_id ON video_sub_jobs(job_id);
+CREATE INDEX IF NOT EXISTS idx_sub_jobs_status ON video_sub_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_sub_jobs_prediction_id ON video_sub_jobs(replicate_prediction_id);
 
 CREATE TABLE IF NOT EXISTS generated_audio (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

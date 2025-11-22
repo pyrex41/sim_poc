@@ -20,12 +20,16 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
+    XAI_API_KEY: Optional[str] = None  # For Grok models
 
     # Storage settings
     VIDEO_STORAGE_PATH: str = "./DATA/videos"
 
     # Upscaler settings
     UPSCALER_MODEL: str = "philz1337x/clarity-upscaler"  # Configurable Replicate upscaler model
+
+    # Video generation settings (for image-pair to video workflow)
+    VIDEO_GENERATION_MODEL: Literal["veo3", "hailuo-2.0"] = "veo3"  # Default model for image-to-video generation
 
     # Prompt parser settings (from prompt_parser_service)
     APP_ENV: Literal["development", "staging", "production"] = "development"
