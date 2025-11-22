@@ -367,3 +367,72 @@ class SubJobSummary(BaseModel):
     processing: int
     completed: int
     failed: int
+
+
+# ============================================================================
+# Property Video Generation Models
+# ============================================================================
+
+
+class PropertyPhoto(BaseModel):
+    """Photo from crawled property website with metadata."""
+
+    id: str = Field(..., description="Unique photo identifier")
+    filename: Optional[str] = Field(None, description="Photo filename")
+    url: str = Field(..., description="URL to photo")
+    tags: Optional[List[str]] = Field(None, description="Photo tags")
+    dominantColors: Optional[List[str]] = Field(None, description="Dominant colors")
+    detectedObjects: Optional[List[str]] = Field(None, description="Detected objects")
+    composition: Optional[str] = Field(None, description="Composition style")
+    lighting: Optional[str] = Field(None, description="Lighting conditions")
+    resolution: Optional[str] = Field(None, description="Image resolution")
+    aspectRatio: Optional[str] = Field(None, description="Aspect ratio")
+
+
+class PropertyInfo(BaseModel):
+    """Information about luxury lodging property."""
+
+    name: str = Field(..., description="Property name")
+    location: str = Field(..., description="Property location")
+    propertyType: str = Field(..., description="Type of property (e.g., boutique hotel, resort)")
+    positioning: str = Field(..., description="Brand positioning (e.g., eco-luxury, modern minimalist)")
+
+
+class PropertyVideoRequest(BaseModel):
+    """Request to generate video from property photos."""
+
+    propertyInfo: PropertyInfo = Field(..., description="Property information")
+    photos: List[PropertyPhoto] = Field(..., description="List of property photos", min_items=14)
+    campaignId: str = Field(..., description="Campaign ID for this property")
+    clipDuration: Optional[float] = Field(6.0, description="Duration per scene in seconds")
+    videoModel: Optional[str] = Field("veo3", description="Video generation model (veo3 or hailuo-2.0)")
+
+
+class SceneImagePair(BaseModel):
+    """Image pair selection for a scene."""
+
+    sceneNumber: int
+    sceneType: str
+    firstImage: Dict[str, Any]
+    lastImage: Dict[str, Any]
+    transitionAnalysis: Dict[str, Any]
+
+
+class PropertySelectionResult(BaseModel):
+    """Result of Grok's property photo selection."""
+
+    propertyName: str
+    selectionMetadata: Dict[str, Any]
+    scenePairs: List[SceneImagePair]
+    recommendations: Optional[Dict[str, Any]] = None
+
+
+class PropertyVideoJobResponse(BaseModel):
+    """Response after creating property video job."""
+
+    jobId: int
+    status: str
+    propertyName: str
+    totalScenes: int
+    selectionMetadata: Dict[str, Any]
+    scenePairs: List[SceneImagePair]

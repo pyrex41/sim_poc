@@ -279,3 +279,266 @@ Important:
         except (KeyError, json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to parse Grok response: {e}", exc_info=True)
             raise ValueError(f"Invalid response format from Grok: {e}")
+
+    def select_property_scene_pairs(
+        self,
+        property_info: Dict[str, Any],
+        photos: List[Dict[str, Any]],
+        scene_types: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Select optimal image pairs for luxury lodging property scenes using Grok.
+
+        Args:
+            property_info: Dict with name, location, property_type, positioning
+            photos: List of photo dicts with id, filename, url, tags, metadata
+            scene_types: List of 7 scene type definitions
+
+        Returns:
+            Dict with scene_pairs, selection_metadata, recommendations
+        """
+        if len(scene_types) != 7:
+            raise ValueError(f"Expected 7 scene types, got {len(scene_types)}")
+
+        logger.info(
+            f"Selecting scene pairs for '{property_info.get('name')}' "
+            f"from {len(photos)} photos"
+        )
+
+        # Build comprehensive prompt
+        prompt = self._build_property_selection_prompt(
+            property_info, photos, scene_types
+        )
+
+        # Call Grok API
+        try:
+            response = self._call_grok_api(prompt, [])
+            result = self._parse_property_scene_response(response, photos, scene_types)
+
+            logger.info(f"Successfully selected {len(result['scene_pairs'])} scene pairs")
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to select property scene pairs: {e}", exc_info=True)
+            raise
+
+    def _build_property_selection_prompt(
+        self,
+        property_info: Dict[str, Any],
+        photos: List[Dict[str, Any]],
+        scene_types: List[Dict[str, Any]]
+    ) -> str:
+        """Build the comprehensive Grok prompt for property photo selection."""
+
+        prompt = f"""# Luxury Lodging Video Scene Image Selection
+
+You are an expert creative director specializing in luxury hospitality marketing. Your task is to select the optimal image pairs for a 7-scene promotional video showcasing a luxury lodging property.
+
+## Property Information
+**Property Name:** {property_info.get('name', 'Unknown')}
+**Location:** {property_info.get('location', 'Not specified')}
+**Property Type:** {property_info.get('property_type', 'Luxury lodging')}
+**Brand Positioning:** {property_info.get('positioning', 'High-end hospitality')}
+
+## Available Photos
+You have access to {len(photos)} photos crawled from the property website.
+
+"""
+
+        # Add photo catalog
+        prompt += "### Photo Catalog\n```json\n{\n  \"photos\": [\n"
+        for i, photo in enumerate(photos):
+            photo_entry = {
+                "id": photo.get("id"),
+                "filename": photo.get("filename", ""),
+                "tags": photo.get("tags", []),
+                "dominant_colors": photo.get("dominant_colors", []),
+                "detected_objects": photo.get("detected_objects", []),
+                "composition": photo.get("composition", "unknown"),
+                "lighting": photo.get("lighting", "unknown")
+            }
+            prompt += "    " + json.dumps(photo_entry)
+            if i < len(photos) - 1:
+                prompt += ","
+            prompt += "\n"
+        prompt += "  ]\n}\n```\n\n"
+
+        # Add scene type requirements
+        prompt += "## Scene Types & Requirements\n\n"
+        prompt += "You must select exactly **2 images per scene** (first frame + last frame) for smooth video interpolation.\n\n"
+
+        for scene in scene_types:
+            prompt += f"""### Scene {scene['scene_number']}: {scene['scene_type']} ({scene['duration']} seconds)
+**Purpose:** {scene['purpose']}
+**Visual Priority:** {scene['visual_priority']}
+**Mood:** {scene['mood']}
+**Ideal Tags:** {', '.join(scene['ideal_tags'])}
+**First Image:** {scene['first_image_guidance']}
+**Last Image:** {scene['last_image_guidance']}
+**Transition Goal:** {scene['transition_goal']}
+
+"""
+
+        # Add selection criteria
+        prompt += """## Selection Criteria
+
+For each scene type, evaluate images based on:
+
+### 1. Visual Quality (30%)
+- High resolution and sharpness
+- Professional composition (rule of thirds, leading lines, symmetry)
+- Optimal lighting (natural light preferred, golden hour highly valued)
+- Color harmony and aesthetic appeal
+
+### 2. Tag Alignment (25%)
+- Strong match with scene type's ideal tags
+- Relevant detected objects for scene narrative
+- Appropriate setting and context
+
+### 3. Transition Potential (25%)
+- **Critical for AI video generation success**
+- Similar lighting conditions between first/last image
+- Compatible color palettes (smooth gradient possible)
+- Compositional flow (wide → medium, or establishing → detail)
+- Avoid jarring jumps in perspective or subject matter
+
+### 4. Brand Consistency (20%)
+- Aligns with property positioning and target market
+- Represents property's unique character
+- Appeals to luxury hospitality audience
+- Authentic representation (not generic stock-photo feel)
+
+## Output Format
+
+Return your selections as JSON with the following structure:
+
+```json
+{
+  "property_name": "{property_info.get('name', 'Unknown')}",
+  "selection_metadata": {
+    "total_photos_evaluated": {len(photos)},
+    "selection_confidence": "high|medium|low",
+    "overall_visual_quality_score": 8.5,
+    "brand_coherence_score": 9.2
+  },
+  "scene_pairs": [
+    {
+      "scene_number": 1,
+      "scene_type": "Grand Arrival",
+      "first_image": {
+        "id": "photo_id",
+        "filename": "filename.jpg",
+        "reasoning": "Why this image works as first frame",
+        "quality_score": 9.1,
+        "tag_match_score": 9.5
+      },
+      "last_image": {
+        "id": "photo_id",
+        "filename": "filename.jpg",
+        "reasoning": "Why this image works as last frame",
+        "quality_score": 8.8,
+        "tag_match_score": 9.0
+      },
+      "transition_analysis": {
+        "color_compatibility": "excellent|good|fair|poor",
+        "lighting_consistency": "description",
+        "compositional_flow": "description",
+        "interpolation_confidence": 9.2
+      }
+    }
+  ],
+  "recommendations": {
+    "missing_content_gaps": [],
+    "photo_crawl_improvements": []
+  }
+}
+```
+
+## Critical Constraints
+
+1. **Exactly 2 images per scene** (14 images total across 7 scenes)
+2. **No image reuse** - each of the 14 images must be unique
+3. **Transition smoothness is paramount** - prioritize interpolation success
+4. **Scene progression** - consider narrative flow across all 7 scenes
+5. **Color story** - maintain visual cohesion across the full 35-second video
+6. **Authentic representation** - select real property photos only
+
+Analyze all {len(photos)} photos carefully and select the optimal pairs for each scene type.
+"""
+
+        return prompt
+
+    def _parse_property_scene_response(
+        self,
+        response: Dict[str, Any],
+        photos: List[Dict[str, Any]],
+        scene_types: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Parse Grok's property scene selection response.
+
+        Args:
+            response: Raw API response from Grok
+            photos: Original photo list for validation
+            scene_types: Scene type definitions
+
+        Returns:
+            Parsed and validated result dict
+        """
+        try:
+            # Extract content from response
+            content = response["choices"][0]["message"]["content"]
+
+            # Parse JSON
+            data = json.loads(content)
+
+            if not data.get("scene_pairs"):
+                raise ValueError("No scene_pairs in Grok response")
+
+            # Validate photo IDs exist
+            photo_ids = {p["id"] for p in photos}
+
+            validated_pairs = []
+            for pair in data["scene_pairs"]:
+                scene_num = pair.get("scene_number")
+                if not scene_num or scene_num < 1 or scene_num > 7:
+                    logger.warning(f"Invalid scene_number: {scene_num}, skipping")
+                    continue
+
+                first_img = pair.get("first_image", {})
+                last_img = pair.get("last_image", {})
+
+                first_id = first_img.get("id")
+                last_id = last_img.get("id")
+
+                # Validate IDs exist
+                if first_id not in photo_ids:
+                    logger.warning(f"Invalid first_image id: {first_id}, skipping scene {scene_num}")
+                    continue
+                if last_id not in photo_ids:
+                    logger.warning(f"Invalid last_image id: {last_id}, skipping scene {scene_num}")
+                    continue
+
+                # Validate images are different
+                if first_id == last_id:
+                    logger.warning(f"Scene {scene_num} has same image twice, skipping")
+                    continue
+
+                validated_pairs.append(pair)
+
+            if not validated_pairs:
+                raise ValueError("No valid scene pairs after validation")
+
+            # Sort by scene number
+            validated_pairs.sort(key=lambda x: x["scene_number"])
+
+            return {
+                "property_name": data.get("property_name", "Unknown"),
+                "selection_metadata": data.get("selection_metadata", {}),
+                "scene_pairs": validated_pairs,
+                "recommendations": data.get("recommendations", {})
+            }
+
+        except (KeyError, json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse property scene response: {e}", exc_info=True)
+            raise ValueError(f"Invalid response format from Grok: {e}")

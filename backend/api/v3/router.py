@@ -44,6 +44,9 @@ from .models import (
     Asset,
     UploadAssetInput,
     UnifiedAssetUploadInput,
+    PropertyVideoRequest,
+    PropertyPhoto,
+    PropertyInfo,
 )
 from ...schemas.assets import UploadAssetFromUrlInput, BulkAssetFromUrlInput
 from ...database_helpers import (
@@ -1705,6 +1708,182 @@ async def create_job_from_image_pairs(
     except Exception as e:
         logger.error(f"Failed to create job from image pairs: {e}", exc_info=True)
         return APIResponse.create_error(f"Failed to create job: {str(e)}")
+
+
+@router.post("/jobs/from-property-photos", response_model=APIResponse, tags=["v3-jobs"])
+async def create_job_from_property_photos(
+    request: PropertyVideoRequest,
+    current_user: Dict = Depends(verify_auth),
+) -> APIResponse:
+    """
+    Create video generation job from luxury lodging property photos.
+
+    This endpoint uses AI (Grok) to intelligently select 7 image pairs
+    from crawled property photos based on predefined scene types for
+    luxury hospitality marketing videos (35 seconds total, 5s per scene).
+
+    Workflow:
+    1. Call Grok to analyze all photos and select optimal pairs per scene type
+    2. Store photos as assets in the campaign
+    3. Create video job with 7 sub-jobs (one per scene)
+    4. Launch parallel video generation
+    5. Return job ID for progress tracking
+
+    Args:
+        request: PropertyVideoRequest with property info and photos
+        current_user: Authenticated user from API key
+
+    Returns:
+        APIResponse with job details and Grok's selection metadata
+    """
+    from ..services.property_photo_selector import PropertyPhotoSelector
+    from ..services.sub_job_orchestrator import process_image_pairs_to_videos
+    from ..database_helpers import create_asset, get_campaign_by_id, get_client_by_id
+
+    try:
+        logger.info(
+            f"Creating property video job for '{request.propertyInfo.name}' "
+            f"with {len(request.photos)} photos"
+        )
+
+        # Validate campaign exists
+        campaign = get_campaign_by_id(request.campaignId, current_user["id"])
+        if not campaign:
+            return APIResponse.create_error(f"Campaign not found: {request.campaignId}")
+
+        # Initialize property photo selector
+        selector = PropertyPhotoSelector()
+
+        # Convert Pydantic models to dicts for selector
+        property_info_dict = request.propertyInfo.model_dump()
+        photos_dict = [photo.model_dump() for photo in request.photos]
+
+        # Call Grok to select scene-based image pairs
+        logger.info(f"Calling Grok to select scene pairs...")
+        selection_result = selector.select_scene_image_pairs(
+            property_info=property_info_dict,
+            photos=photos_dict
+        )
+
+        logger.info(
+            f"Grok selected {len(selection_result['scene_pairs'])} scene pairs "
+            f"with confidence {selection_result.get('selection_metadata', {}).get('selection_confidence', 'unknown')}"
+        )
+
+        # Store photos as assets in the database
+        logger.info(f"Storing {len(request.photos)} photos as assets...")
+        photo_id_to_asset_id = {}
+
+        for photo in request.photos:
+            # Create asset record (photo URL will be used for video generation)
+            asset_id = create_asset(
+                user_id=current_user["id"],
+                name=photo.filename or f"{request.propertyInfo.name}_{photo.id}",
+                asset_type="image",
+                url=photo.url,
+                format="jpg",  # Default, can be enhanced
+                client_id=campaign.get("clientId"),
+                campaign_id=request.campaignId,
+                tags=photo.tags or [],
+                metadata={
+                    "dominant_colors": photo.dominantColors or [],
+                    "detected_objects": photo.detectedObjects or [],
+                    "composition": photo.composition,
+                    "lighting": photo.lighting,
+                    "property_name": request.propertyInfo.name,
+                    "property_type": request.propertyInfo.propertyType,
+                }
+            )
+            photo_id_to_asset_id[photo.id] = asset_id
+
+        logger.info(f"Created {len(photo_id_to_asset_id)} asset records")
+
+        # Convert selection result to video generation format
+        # Map photo IDs to asset IDs
+        image_pairs = []
+        for scene_pair in selection_result["scene_pairs"]:
+            first_photo_id = scene_pair["first_image"]["id"]
+            last_photo_id = scene_pair["last_image"]["id"]
+
+            first_asset_id = photo_id_to_asset_id.get(first_photo_id)
+            last_asset_id = photo_id_to_asset_id.get(last_photo_id)
+
+            if not first_asset_id or not last_asset_id:
+                logger.warning(
+                    f"Scene {scene_pair['scene_number']}: Could not map photo IDs to assets, skipping"
+                )
+                continue
+
+            score = scene_pair.get("transition_analysis", {}).get("interpolation_confidence", 8.0) / 10.0
+
+            reasoning = (
+                f"Scene {scene_pair['scene_number']}: {scene_pair['scene_type']}. "
+                f"{scene_pair['first_image'].get('reasoning', '')} → "
+                f"{scene_pair['last_image'].get('reasoning', '')}"
+            )
+
+            image_pairs.append((first_asset_id, last_asset_id, score, reasoning))
+
+        if len(image_pairs) != 7:
+            logger.warning(
+                f"Expected 7 image pairs, got {len(image_pairs)}. "
+                "Video may be shorter than expected."
+            )
+
+        # Create video job
+        from ...database import create_video_job, update_video_status
+
+        job_id = create_video_job(
+            user_id=current_user["id"],
+            prompt=f"Luxury lodging video for {request.propertyInfo.name}",
+            duration=35.0,  # 7 scenes * 5 seconds
+            parameters={
+                "property_info": property_info_dict,
+                "campaign_id": request.campaignId,
+                "video_model": request.videoModel,
+                "clip_duration": request.clipDuration,
+                "selection_metadata": selection_result.get("selection_metadata", {}),
+                "scene_pairs": selection_result["scene_pairs"],
+            },
+        )
+
+        logger.info(f"Created job {job_id} for property '{request.propertyInfo.name}'")
+
+        # Update status to indicate AI selection complete
+        update_video_status(job_id, "image_pair_selection")
+
+        # Launch parallel video generation in background
+        async def run_orchestration():
+            try:
+                await process_image_pairs_to_videos(
+                    job_id, image_pairs, request.clipDuration
+                )
+            except Exception as e:
+                logger.error(f"Orchestration failed for job {job_id}: {e}")
+                update_video_status(job_id, "failed", metadata={"error": str(e)})
+
+        # Schedule orchestration in background
+        import asyncio
+        asyncio.create_task(run_orchestration())
+
+        # Return job details with Grok's selection metadata
+        return APIResponse.success(
+            data={
+                "jobId": job_id,
+                "status": "image_pair_selection",
+                "propertyName": request.propertyInfo.name,
+                "totalScenes": len(image_pairs),
+                "selectionMetadata": selection_result.get("selection_metadata", {}),
+                "scenePairs": selection_result["scene_pairs"],
+                "message": f"Job created with {len(image_pairs)} scene pairs. Video generation started.",
+            },
+            meta=create_api_meta(),
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to create property video job: {e}", exc_info=True)
+        return APIResponse.create_error(f"Failed to create property video job: {str(e)}")
+
 
 
 @router.get("/jobs/{job_id}/sub-jobs", response_model=APIResponse, tags=["v3-jobs"])
