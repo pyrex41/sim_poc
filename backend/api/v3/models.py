@@ -216,6 +216,9 @@ class JobCreateRequest(BaseModel):
     adBasics: AdBasics
     creative: Creative
     advanced: Optional[AdvancedSettings] = None
+    generateAudio: bool = Field(
+        default=False, description="Enable audio generation for the job"
+    )
 
 
 class Job(BaseModel):
