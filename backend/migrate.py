@@ -100,6 +100,34 @@ def run_migrations():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
+        # Add homepage to clients if missing (for V3 client management)
+        try:
+            conn.execute("ALTER TABLE clients ADD COLUMN homepage TEXT")
+            print("  ✓ Added homepage to clients")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Add metadata to clients if missing (for V3 client management)
+        try:
+            conn.execute("ALTER TABLE clients ADD COLUMN metadata TEXT")
+            print("  ✓ Added metadata to clients")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Add product_url to campaigns if missing (for V3 campaign management)
+        try:
+            conn.execute("ALTER TABLE campaigns ADD COLUMN product_url TEXT")
+            print("  ✓ Added product_url to campaigns")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        # Add metadata to campaigns if missing (for V3 campaign management)
+        try:
+            conn.execute("ALTER TABLE campaigns ADD COLUMN metadata TEXT")
+            print("  ✓ Added metadata to campaigns")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
         conn.commit()
         print("✓ Pre-migration column additions complete")
 
