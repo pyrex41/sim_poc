@@ -41,6 +41,26 @@ class SubJobOrchestratorError(Exception):
     pass
 
 
+def _round_duration_for_veo3(duration: Optional[float]) -> int:
+    """
+    Round duration to valid Veo3 value (4, 6, or 8 seconds).
+
+    Args:
+        duration: Requested duration in seconds
+
+    Returns:
+        Valid duration (4, 6, or 8)
+    """
+    requested = float(duration) if duration else 8.0
+
+    if requested <= 5.0:
+        return 4
+    elif requested <= 7.0:
+        return 6
+    else:
+        return 8
+
+
 async def process_image_pairs_to_videos(
     job_id: int,
     image_pairs: List[Tuple[str, str, float, str]],
@@ -80,7 +100,12 @@ async def process_image_pairs_to_videos(
     video_model = settings.VIDEO_GENERATION_MODEL
 
     try:
-        # Step 1: Create all sub-jobs in database
+        # Round duration to valid Veo3 value
+        rounded_duration = _round_duration_for_veo3(clip_duration)
+        if clip_duration and clip_duration != rounded_duration:
+            logger.info(f"Rounded clip duration from {clip_duration}s to {rounded_duration}s for Veo3 compatibility")
+
+        # Step 1: Create all sub-jobs in database with rounded duration
         sub_job_ids = []
         for i, (image1_id, image2_id, score, reasoning) in enumerate(image_pairs, 1):
             sub_job_id = create_sub_job(
@@ -90,7 +115,7 @@ async def process_image_pairs_to_videos(
                 image2_asset_id=image2_id,
                 model_id=video_model,
                 input_parameters={
-                    "duration": clip_duration,
+                    "duration": rounded_duration,
                     "score": score,
                     "reasoning": reasoning,
                 },
@@ -99,8 +124,8 @@ async def process_image_pairs_to_videos(
 
         logger.info(f"Created {len(sub_job_ids)} sub-jobs for job {job_id}")
 
-        # Step 2: Launch ALL video generations in parallel
-        results = await _launch_all_sub_jobs(job_id, sub_job_ids, clip_duration)
+        # Step 2: Launch ALL video generations in parallel with rounded duration
+        results = await _launch_all_sub_jobs(job_id, sub_job_ids, rounded_duration)
 
         # Step 3: Analyze results
         successful_clips = [r for r in results if r["success"]]

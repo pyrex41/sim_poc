@@ -549,26 +549,31 @@ class ReplicateClient:
         """Generate video using Veo 3.1 model with first and last frame."""
         try:
             # Veo3 only accepts duration of 4, 6, or 8 seconds
-            requested_duration = duration or 8
-            if requested_duration <= 5:
+            requested_duration = float(duration) if duration else 8.0
+
+            # Round to nearest valid duration
+            if requested_duration <= 5.0:
                 valid_duration = 4
-            elif requested_duration <= 7:
+            elif requested_duration <= 7.0:
                 valid_duration = 6
             else:
                 valid_duration = 8
+
+            if requested_duration != valid_duration:
+                logger.info(f"Rounded duration from {requested_duration}s to {valid_duration}s for Veo3 compatibility")
 
             # Build input parameters for Veo 3.1
             input_params = {
                 "image": image1_url,  # First frame
                 "last_frame": image2_url,  # Last frame
-                "duration": valid_duration,  # Must be 4, 6, or 8
+                "duration": valid_duration,  # Must be 4, 6, or 8 (int)
                 "resolution": "1080p",  # Default to high quality
                 "aspect_ratio": "16:9",  # Default aspect ratio
                 "generate_audio": False,  # No audio for now
                 "prompt": prompt or "Smooth transition between images",  # Required by Veo3
             }
 
-            logger.info(f"Creating Veo3 prediction with params: {input_params}")
+            logger.info(f"Creating Veo3 prediction with rounded duration={valid_duration}s (requested={requested_duration}s)")
 
             # Create prediction
             response = self.session.post(
