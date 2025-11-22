@@ -1,4 +1,5 @@
 """Database models and operations for storing generated scenes."""
+
 import sqlite3
 import json
 import os
@@ -16,6 +17,7 @@ DATA_DIR.mkdir(exist_ok=True)
 
 DB_PATH = DATA_DIR / "scenes.db"
 
+
 def init_db():
     """Initialize the database with required tables.
 
@@ -28,6 +30,7 @@ def init_db():
         from migrate import run_migrations
     run_migrations()
 
+
 @contextmanager
 def get_db():
     """Context manager for database connections."""
@@ -38,12 +41,13 @@ def get_db():
     finally:
         conn.close()
 
+
 def save_generated_scene(
     prompt: str,
     scene_data: dict,
     model: str,
     metadata: Optional[dict] = None,
-    brief_id: Optional[str] = None
+    brief_id: Optional[str] = None,
 ) -> int:
     """Save a generated scene to the database."""
     with get_db() as conn:
@@ -57,18 +61,18 @@ def save_generated_scene(
                 json.dumps(scene_data),
                 model,
                 json.dumps(metadata) if metadata else None,
-                brief_id
-            )
+                brief_id,
+            ),
         )
         conn.commit()
         return cursor.lastrowid or 0
+
 
 def get_scene_by_id(scene_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve a specific scene by ID."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM generated_scenes WHERE id = ?",
-            (scene_id,)
+            "SELECT * FROM generated_scenes WHERE id = ?", (scene_id,)
         ).fetchone()
 
         if row:
@@ -78,14 +82,13 @@ def get_scene_by_id(scene_id: int) -> Optional[Dict[str, Any]]:
                 "scene_data": json.loads(row["scene_data"]),
                 "model": row["model"],
                 "created_at": row["created_at"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
             }
     return None
 
+
 def list_scenes(
-    limit: int = 50,
-    offset: int = 0,
-    model: Optional[str] = None
+    limit: int = 50, offset: int = 0, model: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """List generated scenes with pagination and optional model filter."""
     query = "SELECT * FROM generated_scenes"
@@ -108,10 +111,11 @@ def list_scenes(
                 "scene_data": json.loads(row["scene_data"]),
                 "model": row["model"],
                 "created_at": row["created_at"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
             }
             for row in rows
         ]
+
 
 def get_scene_count(model: Optional[str] = None) -> int:
     """Get total count of scenes, optionally filtered by model."""
@@ -126,6 +130,7 @@ def get_scene_count(model: Optional[str] = None) -> int:
         row = conn.execute(query, params).fetchone()
         return row["count"]
 
+
 def get_models_list() -> List[str]:
     """Get list of unique models that have generated scenes."""
     with get_db() as conn:
@@ -134,15 +139,14 @@ def get_models_list() -> List[str]:
         ).fetchall()
         return [row["model"] for row in rows]
 
+
 def delete_scene(scene_id: int) -> bool:
     """Delete a scene by ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            "DELETE FROM generated_scenes WHERE id = ?",
-            (scene_id,)
-        )
+        cursor = conn.execute("DELETE FROM generated_scenes WHERE id = ?", (scene_id,))
         conn.commit()
         return cursor.rowcount > 0
+
 
 def save_generated_video(
     prompt: str,
@@ -154,7 +158,7 @@ def save_generated_video(
     status: str = "completed",
     brief_id: Optional[str] = None,
     client_id: Optional[str] = None,
-    campaign_id: Optional[str] = None
+    campaign_id: Optional[str] = None,
 ) -> int:
     """Save a generated video to the database."""
     with get_db() as conn:
@@ -173,17 +177,35 @@ def save_generated_video(
                 status,
                 brief_id,
                 client_id,
-                campaign_id
-            )
+                campaign_id,
+            ),
         )
         conn.commit()
         return cursor.lastrowid or 0
+
+
+def update_job_parameters(job_id: int, parameters: Dict[str, Any]) -> bool:
+    """Update job parameters JSON field"""
+    try:
+        with get_db() as conn:
+            # Ensure parameters is JSON serializable
+            parameters_json = json.dumps(parameters)
+
+            conn.execute(
+                "UPDATE jobs SET parameters = ? WHERE id = ?", (parameters_json, job_id)
+            )
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Failed to update job parameters for job {job_id}: {e}")
+        return False
+
 
 def update_video_status(
     video_id: int,
     status: str,
     video_url: Optional[str] = None,
-    metadata: Optional[dict] = None
+    metadata: Optional[dict] = None,
 ) -> None:
     """Update the status and optionally the video_url and metadata of a video."""
     with get_db() as conn:
@@ -194,26 +216,41 @@ def update_video_status(
                 SET status = ?, video_url = ?, metadata = ?
                 WHERE id = ?
                 """,
-                (status, video_url, json.dumps(metadata) if metadata else None, video_id)
+                (
+                    status,
+                    video_url,
+                    json.dumps(metadata) if metadata else None,
+                    video_id,
+                ),
             )
         else:
-            conn.execute(
-                """
-                UPDATE generated_videos
-                SET status = ?
-                WHERE id = ?
-                """,
-                (status, video_id)
-            )
+            if metadata is not None:
+                conn.execute(
+                    """
+                    UPDATE generated_videos
+                    SET status = ?, metadata = ?
+                    WHERE id = ?
+                    """,
+                    (status, json.dumps(metadata), video_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE generated_videos
+                    SET status = ?
+                    WHERE id = ?
+                    """,
+                    (status, video_id),
+                )
         conn.commit()
+
 
 def mark_download_attempted(video_id: int) -> bool:
     """Mark that a download has been attempted for a video. Returns False if already attempted."""
     with get_db() as conn:
         # Check if already attempted
         row = conn.execute(
-            "SELECT download_attempted FROM generated_videos WHERE id = ?",
-            (video_id,)
+            "SELECT download_attempted FROM generated_videos WHERE id = ?", (video_id,)
         ).fetchone()
 
         if row and row["download_attempted"]:
@@ -222,26 +259,27 @@ def mark_download_attempted(video_id: int) -> bool:
         # Mark as attempted
         conn.execute(
             "UPDATE generated_videos SET download_attempted = 1 WHERE id = ?",
-            (video_id,)
+            (video_id,),
         )
         conn.commit()
         return True
+
 
 def increment_download_retries(video_id: int) -> int:
     """Increment the download retry counter and return the new count."""
     with get_db() as conn:
         conn.execute(
             "UPDATE generated_videos SET download_retries = download_retries + 1 WHERE id = ?",
-            (video_id,)
+            (video_id,),
         )
         conn.commit()
 
         row = conn.execute(
-            "SELECT download_retries FROM generated_videos WHERE id = ?",
-            (video_id,)
+            "SELECT download_retries FROM generated_videos WHERE id = ?", (video_id,)
         ).fetchone()
 
         return row["download_retries"] if row else 0
+
 
 def mark_download_failed(video_id: int, error: str) -> None:
     """Mark a video download as permanently failed."""
@@ -252,16 +290,16 @@ def mark_download_failed(video_id: int, error: str) -> None:
             SET status = 'failed', download_error = ?
             WHERE id = ?
             """,
-            (error, video_id)
+            (error, video_id),
         )
         conn.commit()
+
 
 def get_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve a specific video by ID."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM generated_videos WHERE id = ?",
-            (video_id,)
+            "SELECT * FROM generated_videos WHERE id = ?", (video_id,)
         ).fetchone()
 
         if row:
@@ -275,16 +313,17 @@ def get_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
                 "created_at": row["created_at"],
                 "collection": row["collection"],
                 "brief_id": row["brief_id"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
             }
     return None
+
 
 def list_videos(
     limit: int = 50,
     offset: int = 0,
     model_id: Optional[str] = None,
     collection: Optional[str] = None,
-    brief_id: Optional[str] = None
+    brief_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """List generated videos with pagination and optional filters."""
     # Include thumbnail_data for single-query optimization
@@ -309,35 +348,41 @@ def list_videos(
         rows = conn.execute(query, params).fetchall()
 
         import base64
+
         results = []
         for row in rows:
             # Use data URI for thumbnails if cached, otherwise fallback to endpoint
             thumbnail_url = f"/api/videos/{row['id']}/thumbnail"
             if row["thumbnail_data"]:
                 # Encode as base64 data URI for immediate display without additional HTTP requests
-                thumbnail_b64 = base64.b64encode(row["thumbnail_data"]).decode('utf-8')
+                thumbnail_b64 = base64.b64encode(row["thumbnail_data"]).decode("utf-8")
                 thumbnail_url = f"data:image/jpeg;base64,{thumbnail_b64}"
 
-            results.append({
-                "id": row["id"],
-                "prompt": row["prompt"],
-                "video_url": row["video_url"],
-                "thumbnail_url": thumbnail_url,
-                "model_id": row["model_id"],
-                "parameters": json.loads(row["parameters"]),
-                "status": row["status"],
-                "created_at": row["created_at"],
-                "collection": row["collection"],
-                "brief_id": row["brief_id"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
-            })
+            results.append(
+                {
+                    "id": row["id"],
+                    "prompt": row["prompt"],
+                    "video_url": row["video_url"],
+                    "thumbnail_url": thumbnail_url,
+                    "model_id": row["model_id"],
+                    "parameters": json.loads(row["parameters"]),
+                    "status": row["status"],
+                    "created_at": row["created_at"],
+                    "collection": row["collection"],
+                    "brief_id": row["brief_id"],
+                    "metadata": json.loads(row["metadata"])
+                    if row["metadata"]
+                    else None,
+                }
+            )
 
         return results
+
 
 def count_videos(
     model_id: Optional[str] = None,
     collection: Optional[str] = None,
-    brief_id: Optional[str] = None
+    brief_id: Optional[str] = None,
 ) -> int:
     """Count total number of videos with optional filters."""
     query = """SELECT COUNT(*) as total FROM generated_videos WHERE 1=1"""
@@ -363,12 +408,10 @@ def count_videos(
 def delete_video(video_id: int) -> bool:
     """Delete a video by ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            "DELETE FROM generated_videos WHERE id = ?",
-            (video_id,)
-        )
+        cursor = conn.execute("DELETE FROM generated_videos WHERE id = ?", (video_id,))
         conn.commit()
         return cursor.rowcount > 0
+
 
 def save_genesis_video(
     scene_data: dict,
@@ -379,7 +422,7 @@ def save_genesis_video(
     resolution: tuple = (1920, 1080),
     scene_context: Optional[str] = None,
     object_descriptions: Optional[dict] = None,
-    metadata: Optional[dict] = None
+    metadata: Optional[dict] = None,
 ) -> int:
     """Save a Genesis-rendered video to the database."""
     with get_db() as conn:
@@ -398,18 +441,18 @@ def save_genesis_video(
                 f"{resolution[0]}x{resolution[1]}",
                 scene_context,
                 json.dumps(object_descriptions) if object_descriptions else None,
-                json.dumps(metadata) if metadata else None
-            )
+                json.dumps(metadata) if metadata else None,
+            ),
         )
         conn.commit()
         return cursor.lastrowid
+
 
 def get_genesis_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve a specific Genesis video by ID."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM genesis_videos WHERE id = ?",
-            (video_id,)
+            "SELECT * FROM genesis_videos WHERE id = ?", (video_id,)
         ).fetchone()
 
         if row:
@@ -422,17 +465,18 @@ def get_genesis_video_by_id(video_id: int) -> Optional[Dict[str, Any]]:
                 "fps": row["fps"],
                 "resolution": row["resolution"],
                 "scene_context": row["scene_context"],
-                "object_descriptions": json.loads(row["object_descriptions"]) if row["object_descriptions"] else None,
+                "object_descriptions": json.loads(row["object_descriptions"])
+                if row["object_descriptions"]
+                else None,
                 "status": row["status"],
                 "created_at": row["created_at"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
             }
     return None
 
+
 def list_genesis_videos(
-    limit: int = 50,
-    offset: int = 0,
-    quality: Optional[str] = None
+    limit: int = 50, offset: int = 0, quality: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """List Genesis videos with pagination and optional quality filter."""
     query = "SELECT * FROM genesis_videos WHERE 1=1"
@@ -458,23 +502,24 @@ def list_genesis_videos(
                 "fps": row["fps"],
                 "resolution": row["resolution"],
                 "scene_context": row["scene_context"],
-                "object_descriptions": json.loads(row["object_descriptions"]) if row["object_descriptions"] else None,
+                "object_descriptions": json.loads(row["object_descriptions"])
+                if row["object_descriptions"]
+                else None,
                 "status": row["status"],
                 "created_at": row["created_at"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
             }
             for row in rows
         ]
 
+
 def delete_genesis_video(video_id: int) -> bool:
     """Delete a Genesis video by ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            "DELETE FROM genesis_videos WHERE id = ?",
-            (video_id,)
-        )
+        cursor = conn.execute("DELETE FROM genesis_videos WHERE id = ?", (video_id,))
         conn.commit()
         return cursor.rowcount > 0
+
 
 def get_genesis_video_count(quality: Optional[str] = None) -> int:
     """Get total count of Genesis videos, optionally filtered by quality."""
@@ -489,6 +534,7 @@ def get_genesis_video_count(quality: Optional[str] = None) -> int:
         row = conn.execute(query, params).fetchone()
         return row["count"]
 
+
 # Image generation functions
 def save_generated_image(
     prompt: str,
@@ -500,7 +546,7 @@ def save_generated_image(
     status: str = "completed",
     brief_id: Optional[str] = None,
     client_id: Optional[str] = None,
-    campaign_id: Optional[str] = None
+    campaign_id: Optional[str] = None,
 ) -> int:
     """Save a generated image to the database."""
     with get_db() as conn:
@@ -519,17 +565,18 @@ def save_generated_image(
                 status,
                 brief_id,
                 client_id,
-                campaign_id
-            )
+                campaign_id,
+            ),
         )
         conn.commit()
         return cursor.lastrowid or 0
+
 
 def update_image_status(
     image_id: int,
     status: str,
     image_url: Optional[str] = None,
-    metadata: Optional[dict] = None
+    metadata: Optional[dict] = None,
 ) -> None:
     """Update the status and optionally the image_url and metadata of an image."""
     with get_db() as conn:
@@ -540,7 +587,12 @@ def update_image_status(
                 SET status = ?, image_url = ?, metadata = ?
                 WHERE id = ?
                 """,
-                (status, image_url, json.dumps(metadata) if metadata else None, image_id)
+                (
+                    status,
+                    image_url,
+                    json.dumps(metadata) if metadata else None,
+                    image_id,
+                ),
             )
         else:
             if metadata is not None:
@@ -550,7 +602,7 @@ def update_image_status(
                     SET status = ?, metadata = ?
                     WHERE id = ?
                     """,
-                    (status, json.dumps(metadata), image_id)
+                    (status, json.dumps(metadata), image_id),
                 )
             else:
                 conn.execute(
@@ -559,17 +611,17 @@ def update_image_status(
                     SET status = ?
                     WHERE id = ?
                     """,
-                    (status, image_id)
+                    (status, image_id),
                 )
         conn.commit()
+
 
 def mark_image_download_attempted(image_id: int) -> bool:
     """Mark that a download has been attempted for an image. Returns False if already attempted."""
     with get_db() as conn:
         # Check if already attempted
         row = conn.execute(
-            "SELECT download_attempted FROM generated_images WHERE id = ?",
-            (image_id,)
+            "SELECT download_attempted FROM generated_images WHERE id = ?", (image_id,)
         ).fetchone()
 
         if row and row["download_attempted"]:
@@ -578,26 +630,27 @@ def mark_image_download_attempted(image_id: int) -> bool:
         # Mark as attempted
         conn.execute(
             "UPDATE generated_images SET download_attempted = 1 WHERE id = ?",
-            (image_id,)
+            (image_id,),
         )
         conn.commit()
         return True
+
 
 def increment_image_download_retries(image_id: int) -> int:
     """Increment the download retry counter for an image and return the new count."""
     with get_db() as conn:
         conn.execute(
             "UPDATE generated_images SET download_retries = download_retries + 1 WHERE id = ?",
-            (image_id,)
+            (image_id,),
         )
         conn.commit()
 
         row = conn.execute(
-            "SELECT download_retries FROM generated_images WHERE id = ?",
-            (image_id,)
+            "SELECT download_retries FROM generated_images WHERE id = ?", (image_id,)
         ).fetchone()
 
         return row["download_retries"] if row else 0
+
 
 def mark_image_download_failed(image_id: int, error: str) -> None:
     """Mark an image download as permanently failed."""
@@ -608,20 +661,21 @@ def mark_image_download_failed(image_id: int, error: str) -> None:
             SET status = 'failed', download_error = ?
             WHERE id = ?
             """,
-            (error, image_id)
+            (error, image_id),
         )
         conn.commit()
+
 
 def get_image_by_id(image_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve a specific image by ID."""
     import os
+
     # Get base URL for full URLs
     base_url = os.getenv("BASE_URL", "").strip()
 
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM generated_images WHERE id = ?",
-            (image_id,)
+            "SELECT * FROM generated_images WHERE id = ?", (image_id,)
         ).fetchone()
 
         if row:
@@ -629,26 +683,30 @@ def get_image_by_id(image_id: int) -> Optional[Dict[str, Any]]:
                 "id": row["id"],
                 "prompt": row["prompt"],
                 "image_url": _convert_to_full_url(row["image_url"], base_url),
-                "thumbnail_url": _convert_to_full_url(f"/api/images/{row['id']}/thumbnail", base_url),
+                "thumbnail_url": _convert_to_full_url(
+                    f"/api/images/{row['id']}/thumbnail", base_url
+                ),
                 "model_id": row["model_id"],
                 "parameters": json.loads(row["parameters"]),
                 "status": row["status"],
                 "created_at": row["created_at"],
                 "collection": row["collection"],
                 "brief_id": row["brief_id"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
             }
     return None
+
 
 def list_images(
     limit: int = 50,
     offset: int = 0,
     model_id: Optional[str] = None,
     collection: Optional[str] = None,
-    brief_id: Optional[str] = None
+    brief_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """List generated images with pagination and optional filters."""
     import os
+
     query = "SELECT * FROM generated_images WHERE 1=1"
     params = []
 
@@ -674,17 +732,20 @@ def list_images(
                 "id": row["id"],
                 "prompt": row["prompt"],
                 "image_url": _convert_to_full_url(row["image_url"], base_url),
-                "thumbnail_url": _convert_to_full_url(f"/api/images/{row['id']}/thumbnail", base_url),
+                "thumbnail_url": _convert_to_full_url(
+                    f"/api/images/{row['id']}/thumbnail", base_url
+                ),
                 "model_id": row["model_id"],
                 "parameters": json.loads(row["parameters"]),
                 "status": row["status"],
                 "created_at": row["created_at"],
                 "collection": row["collection"],
                 "brief_id": row["brief_id"],
-                "metadata": json.loads(row["metadata"]) if row["metadata"] else None
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
             }
             for row in rows
         ]
+
 
 def _convert_to_full_url(url: str, base_url: str) -> str:
     """Convert relative URL to full URL using BASE_URL if available."""
@@ -696,15 +757,14 @@ def _convert_to_full_url(url: str, base_url: str) -> str:
         return f"{base_url}{url}"
     return url  # Return relative URL
 
+
 def delete_image(image_id: int) -> bool:
     """Delete an image by ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            "DELETE FROM generated_images WHERE id = ?",
-            (image_id,)
-        )
+        cursor = conn.execute("DELETE FROM generated_images WHERE id = ?", (image_id,))
         conn.commit()
         return cursor.rowcount > 0
+
 
 # Audio generation helper functions
 def save_generated_audio(
@@ -718,7 +778,7 @@ def save_generated_audio(
     brief_id: Optional[str] = None,
     client_id: Optional[str] = None,
     campaign_id: Optional[str] = None,
-    duration: Optional[float] = None
+    duration: Optional[float] = None,
 ) -> int:
     """Save a generated audio to the database."""
     with get_db() as conn:
@@ -738,17 +798,18 @@ def save_generated_audio(
                 brief_id,
                 client_id,
                 campaign_id,
-                duration
-            )
+                duration,
+            ),
         )
         conn.commit()
         return cursor.lastrowid or 0
+
 
 def update_audio_status(
     audio_id: int,
     status: str,
     audio_url: Optional[str] = None,
-    metadata: Optional[dict] = None
+    metadata: Optional[dict] = None,
 ) -> None:
     """Update the status and optionally the audio_url and metadata of an audio."""
     with get_db() as conn:
@@ -759,7 +820,12 @@ def update_audio_status(
                 SET status = ?, audio_url = ?, metadata = ?
                 WHERE id = ?
                 """,
-                (status, audio_url, json.dumps(metadata) if metadata else None, audio_id)
+                (
+                    status,
+                    audio_url,
+                    json.dumps(metadata) if metadata else None,
+                    audio_id,
+                ),
             )
         else:
             if metadata is not None:
@@ -769,7 +835,7 @@ def update_audio_status(
                     SET status = ?, metadata = ?
                     WHERE id = ?
                     """,
-                    (status, json.dumps(metadata), audio_id)
+                    (status, json.dumps(metadata), audio_id),
                 )
             else:
                 conn.execute(
@@ -778,19 +844,20 @@ def update_audio_status(
                     SET status = ?
                     WHERE id = ?
                     """,
-                    (status, audio_id)
+                    (status, audio_id),
                 )
         conn.commit()
+
 
 def get_audio_by_id(audio_id: int) -> Optional[Dict[str, Any]]:
     """Retrieve a specific audio by ID."""
     import os
+
     base_url = os.getenv("BASE_URL", "").strip()
 
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM generated_audio WHERE id = ?",
-            (audio_id,)
+            "SELECT * FROM generated_audio WHERE id = ?", (audio_id,)
         ).fetchone()
 
         if row:
@@ -799,7 +866,9 @@ def get_audio_by_id(audio_id: int) -> Optional[Dict[str, Any]]:
                 "prompt": row["prompt"],
                 "audio_url": _convert_to_full_url(row["audio_url"], base_url),
                 "model_id": row["model_id"],
-                "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                "parameters": json.loads(row["parameters"])
+                if row["parameters"]
+                else {},
                 "collection": row["collection"],
                 "status": row["status"],
                 "created_at": row["created_at"],
@@ -807,9 +876,10 @@ def get_audio_by_id(audio_id: int) -> Optional[Dict[str, Any]]:
                 "duration": row["duration"],
                 "brief_id": row["brief_id"],
                 "client_id": row["client_id"],
-                "campaign_id": row["campaign_id"]
+                "campaign_id": row["campaign_id"],
             }
     return None
+
 
 def list_audio(
     limit: int = 50,
@@ -817,10 +887,11 @@ def list_audio(
     collection: Optional[str] = None,
     status: Optional[str] = None,
     client_id: Optional[str] = None,
-    campaign_id: Optional[str] = None
+    campaign_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """List generated audio with optional filters."""
     import os
+
     base_url = os.getenv("BASE_URL", "").strip()
 
     with get_db() as conn:
@@ -851,7 +922,9 @@ def list_audio(
                 "prompt": row["prompt"],
                 "audio_url": _convert_to_full_url(row["audio_url"], base_url),
                 "model_id": row["model_id"],
-                "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                "parameters": json.loads(row["parameters"])
+                if row["parameters"]
+                else {},
                 "collection": row["collection"],
                 "status": row["status"],
                 "created_at": row["created_at"],
@@ -859,28 +932,26 @@ def list_audio(
                 "duration": row["duration"],
                 "brief_id": row["brief_id"],
                 "client_id": row["client_id"],
-                "campaign_id": row["campaign_id"]
+                "campaign_id": row["campaign_id"],
             }
             for row in rows
         ]
 
+
 def delete_audio(audio_id: int) -> bool:
     """Delete an audio by ID."""
     with get_db() as conn:
-        cursor = conn.execute(
-            "DELETE FROM generated_audio WHERE id = ?",
-            (audio_id,)
-        )
+        cursor = conn.execute("DELETE FROM generated_audio WHERE id = ?", (audio_id,))
         conn.commit()
         return cursor.rowcount > 0
+
 
 def mark_audio_download_attempted(audio_id: int) -> bool:
     """Mark that a download has been attempted for an audio. Returns False if already attempted."""
     with get_db() as conn:
         # Check if already attempted
         row = conn.execute(
-            "SELECT download_attempted FROM generated_audio WHERE id = ?",
-            (audio_id,)
+            "SELECT download_attempted FROM generated_audio WHERE id = ?", (audio_id,)
         ).fetchone()
 
         if row and row["download_attempted"]:
@@ -889,26 +960,27 @@ def mark_audio_download_attempted(audio_id: int) -> bool:
         # Mark as attempted
         conn.execute(
             "UPDATE generated_audio SET download_attempted = 1 WHERE id = ?",
-            (audio_id,)
+            (audio_id,),
         )
         conn.commit()
         return True
+
 
 def increment_audio_download_retries(audio_id: int) -> int:
     """Increment the download retry counter for an audio and return the new count."""
     with get_db() as conn:
         conn.execute(
             "UPDATE generated_audio SET download_retries = download_retries + 1 WHERE id = ?",
-            (audio_id,)
+            (audio_id,),
         )
         conn.commit()
 
         row = conn.execute(
-            "SELECT download_retries FROM generated_audio WHERE id = ?",
-            (audio_id,)
+            "SELECT download_retries FROM generated_audio WHERE id = ?", (audio_id,)
         ).fetchone()
 
         return row["download_retries"] if row else 0
+
 
 def mark_audio_download_failed(audio_id: int, error: str) -> None:
     """Mark an audio download as permanently failed."""
@@ -919,12 +991,15 @@ def mark_audio_download_failed(audio_id: int, error: str) -> None:
             SET status = 'failed', download_error = ?
             WHERE id = ?
             """,
-            (error, audio_id)
+            (error, audio_id),
         )
         conn.commit()
 
+
 # Authentication helper functions
-def create_user(username: str, email: str, hashed_password: str, is_admin: bool = False) -> int:
+def create_user(
+    username: str, email: str, hashed_password: str, is_admin: bool = False
+) -> int:
     """Create a new user."""
     with get_db() as conn:
         cursor = conn.execute(
@@ -932,17 +1007,17 @@ def create_user(username: str, email: str, hashed_password: str, is_admin: bool 
             INSERT INTO users (username, email, hashed_password, is_admin)
             VALUES (?, ?, ?, ?)
             """,
-            (username, email, hashed_password, is_admin)
+            (username, email, hashed_password, is_admin),
         )
         conn.commit()
         return cursor.lastrowid
+
 
 def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     """Get user by username."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM users WHERE username = ?",
-            (username,)
+            "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
 
         if row:
@@ -954,20 +1029,23 @@ def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
                 "is_active": bool(row["is_active"]),
                 "is_admin": bool(row["is_admin"]),
                 "created_at": row["created_at"],
-                "last_login": row["last_login"]
+                "last_login": row["last_login"],
             }
     return None
+
 
 def update_user_last_login(user_id: int) -> None:
     """Update user's last login timestamp."""
     with get_db() as conn:
         conn.execute(
-            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?",
-            (user_id,)
+            "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?", (user_id,)
         )
         conn.commit()
 
-def create_api_key(key_hash: str, name: str, user_id: int, expires_at: Optional[str] = None) -> int:
+
+def create_api_key(
+    key_hash: str, name: str, user_id: int, expires_at: Optional[str] = None
+) -> int:
     """Create a new API key."""
     with get_db() as conn:
         cursor = conn.execute(
@@ -975,10 +1053,11 @@ def create_api_key(key_hash: str, name: str, user_id: int, expires_at: Optional[
             INSERT INTO api_keys (key_hash, name, user_id, expires_at)
             VALUES (?, ?, ?, ?)
             """,
-            (key_hash, name, user_id, expires_at)
+            (key_hash, name, user_id, expires_at),
         )
         conn.commit()
         return cursor.lastrowid
+
 
 def get_api_key_by_hash(key_hash: str) -> Optional[Dict[str, Any]]:
     """Get API key by hash."""
@@ -990,7 +1069,7 @@ def get_api_key_by_hash(key_hash: str) -> Optional[Dict[str, Any]]:
             JOIN users u ON ak.user_id = u.id
             WHERE ak.key_hash = ?
             """,
-            (key_hash,)
+            (key_hash,),
         ).fetchone()
 
         if row:
@@ -1004,18 +1083,20 @@ def get_api_key_by_hash(key_hash: str) -> Optional[Dict[str, Any]]:
                 "user_is_active": bool(row["user_is_active"]),
                 "created_at": row["created_at"],
                 "last_used": row["last_used"],
-                "expires_at": row["expires_at"]
+                "expires_at": row["expires_at"],
             }
     return None
+
 
 def update_api_key_last_used(key_hash: str) -> None:
     """Update API key's last used timestamp."""
     with get_db() as conn:
         conn.execute(
             "UPDATE api_keys SET last_used = CURRENT_TIMESTAMP WHERE key_hash = ?",
-            (key_hash,)
+            (key_hash,),
         )
         conn.commit()
+
 
 def list_api_keys(user_id: int) -> List[Dict[str, Any]]:
     """List all API keys for a user."""
@@ -1027,7 +1108,7 @@ def list_api_keys(user_id: int) -> List[Dict[str, Any]]:
             WHERE user_id = ?
             ORDER BY created_at DESC
             """,
-            (user_id,)
+            (user_id,),
         ).fetchall()
 
         return [
@@ -1037,20 +1118,22 @@ def list_api_keys(user_id: int) -> List[Dict[str, Any]]:
                 "is_active": bool(row["is_active"]),
                 "created_at": row["created_at"],
                 "last_used": row["last_used"],
-                "expires_at": row["expires_at"]
+                "expires_at": row["expires_at"],
             }
             for row in rows
         ]
+
 
 def revoke_api_key(key_id: int, user_id: int) -> bool:
     """Revoke an API key."""
     with get_db() as conn:
         cursor = conn.execute(
             "UPDATE api_keys SET is_active = 0 WHERE id = ? AND user_id = ?",
-            (key_id, user_id)
+            (key_id, user_id),
         )
         conn.commit()
         return cursor.rowcount > 0
+
 
 # Creative Briefs CRUD functions
 def save_creative_brief(
@@ -1063,7 +1146,7 @@ def save_creative_brief(
     video_data: Optional[bytes] = None,
     creative_direction: Optional[Dict[str, Any]] = None,
     scenes: Optional[List[Dict[str, Any]]] = None,
-    confidence_score: Optional[float] = None
+    confidence_score: Optional[float] = None,
 ) -> str:
     """Save a creative brief to the database."""
     # Serialize dict/list data to JSON strings
@@ -1077,10 +1160,22 @@ def save_creative_brief(
             (id, user_id, prompt_text, image_url, video_url, image_data, video_data, creative_direction, scenes, confidence_score, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
-            (brief_id, user_id, prompt_text, image_url, video_url, image_data, video_data, cd_json, scenes_json, confidence_score)
+            (
+                brief_id,
+                user_id,
+                prompt_text,
+                image_url,
+                video_url,
+                image_data,
+                video_data,
+                cd_json,
+                scenes_json,
+                confidence_score,
+            ),
         )
         conn.commit()
         return brief_id
+
 
 def get_creative_brief(brief_id: str, user_id: int) -> Optional[Dict[str, Any]]:
     """Get a specific creative brief by ID for a user."""
@@ -1093,7 +1188,7 @@ def get_creative_brief(brief_id: str, user_id: int) -> Optional[Dict[str, Any]]:
             FROM creative_briefs
             WHERE id = ? AND user_id = ?
             """,
-            (brief_id, user_id)
+            (brief_id, user_id),
         ).fetchone()
 
         if row:
@@ -1105,18 +1200,19 @@ def get_creative_brief(brief_id: str, user_id: int) -> Optional[Dict[str, Any]]:
                 "video_url": row["video_url"],
                 "image_data": row["image_data"],
                 "video_data": row["video_data"],
-                "creative_direction": json.loads(row["creative_direction"]) if row["creative_direction"] else None,
+                "creative_direction": json.loads(row["creative_direction"])
+                if row["creative_direction"]
+                else None,
                 "scenes": json.loads(row["scenes"]) if row["scenes"] else None,
                 "confidence_score": row["confidence_score"],
                 "created_at": row["created_at"],
-                "updated_at": row["updated_at"]
+                "updated_at": row["updated_at"],
             }
     return None
 
+
 def get_user_briefs(
-    user_id: int,
-    limit: int = 50,
-    offset: int = 0
+    user_id: int, limit: int = 50, offset: int = 0
 ) -> List[Dict[str, Any]]:
     """Get all creative briefs for a user with pagination."""
     with get_db() as conn:
@@ -1130,7 +1226,7 @@ def get_user_briefs(
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
             """,
-            (user_id, limit, offset)
+            (user_id, limit, offset),
         ).fetchall()
 
         return [
@@ -1142,14 +1238,17 @@ def get_user_briefs(
                 "video_url": row["video_url"],
                 "image_data": row["image_data"],
                 "video_data": row["video_data"],
-                "creative_direction": json.loads(row["creative_direction"]) if row["creative_direction"] else None,
+                "creative_direction": json.loads(row["creative_direction"])
+                if row["creative_direction"]
+                else None,
                 "scenes": json.loads(row["scenes"]) if row["scenes"] else None,
                 "confidence_score": row["confidence_score"],
                 "created_at": row["created_at"],
-                "updated_at": row["updated_at"]
+                "updated_at": row["updated_at"],
             }
             for row in rows
         ]
+
 
 def update_brief(
     brief_id: str,
@@ -1161,7 +1260,7 @@ def update_brief(
     video_data: Optional[bytes] = None,
     creative_direction: Optional[Dict[str, Any]] = None,
     scenes: Optional[List[Dict[str, Any]]] = None,
-    confidence_score: Optional[float] = None
+    confidence_score: Optional[float] = None,
 ) -> bool:
     """Update a creative brief."""
     with get_db() as conn:
@@ -1202,7 +1301,7 @@ def update_brief(
 
         query = f"""
             UPDATE creative_briefs
-            SET {', '.join(update_fields)}
+            SET {", ".join(update_fields)}
             WHERE id = ? AND user_id = ?
         """
 
@@ -1210,24 +1309,27 @@ def update_brief(
         conn.commit()
         return cursor.rowcount > 0
 
+
 def delete_brief(brief_id: str, user_id: int) -> bool:
     """Delete a creative brief."""
     with get_db() as conn:
         cursor = conn.execute(
             "DELETE FROM creative_briefs WHERE id = ? AND user_id = ?",
-            (brief_id, user_id)
+            (brief_id, user_id),
         )
         conn.commit()
         return cursor.rowcount > 0
+
 
 def get_brief_count(user_id: int) -> int:
     """Get the total count of briefs for a user."""
     with get_db() as conn:
         row = conn.execute(
             "SELECT COUNT(*) as count FROM creative_briefs WHERE user_id = ?",
-            (user_id,)
+            (user_id,),
         ).fetchone()
         return row["count"] if row else 0
+
 
 # Video generation job helper functions (for v2 API)
 def update_job_progress(job_id: int, progress: dict) -> bool:
@@ -1246,13 +1348,14 @@ def update_job_progress(job_id: int, progress: dict) -> bool:
         with get_db() as conn:
             cursor = conn.execute(
                 "UPDATE generated_videos SET progress = ? WHERE id = ?",
-                (json.dumps(progress), job_id)
+                (json.dumps(progress), job_id),
             )
             conn.commit()
             return cursor.rowcount > 0
     except Exception as e:
         print(f"Error updating job progress for job {job_id}: {e}")
         return False
+
 
 def get_job(job_id: int) -> Optional[Dict[str, Any]]:
     """
@@ -1267,8 +1370,7 @@ def get_job(job_id: int) -> Optional[Dict[str, Any]]:
     try:
         with get_db() as conn:
             row = conn.execute(
-                "SELECT * FROM generated_videos WHERE id = ?",
-                (job_id,)
+                "SELECT * FROM generated_videos WHERE id = ?", (job_id,)
             ).fetchone()
 
             if row:
@@ -1284,29 +1386,39 @@ def get_job(job_id: int) -> Optional[Dict[str, Any]]:
                     "prompt": row["prompt"],
                     "video_url": row["video_url"],
                     "model_id": row["model_id"],
-                    "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
+                    "parameters": json.loads(row["parameters"])
+                    if row["parameters"]
+                    else {},
                     "status": row["status"],
                     "created_at": row["created_at"],
                     "collection": row["collection"],
                     "brief_id": safe_get("brief_id"),
-                    "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                    "metadata": json.loads(row["metadata"])
+                    if row["metadata"]
+                    else None,
                     "download_attempted": bool(safe_get("download_attempted", 0)),
                     "download_retries": safe_get("download_retries", 0),
                     "download_error": safe_get("download_error"),
-                    "progress": json.loads(safe_get("progress")) if safe_get("progress") else {},
-                    "storyboard_data": json.loads(safe_get("storyboard_data")) if safe_get("storyboard_data") else None,
+                    "progress": json.loads(safe_get("progress"))
+                    if safe_get("progress")
+                    else {},
+                    "storyboard_data": json.loads(safe_get("storyboard_data"))
+                    if safe_get("storyboard_data")
+                    else None,
                     "approved": bool(safe_get("approved", 0)),
                     "approved_at": safe_get("approved_at"),
                     "estimated_cost": safe_get("estimated_cost", 0.0),
                     "actual_cost": safe_get("actual_cost", 0.0),
                     "error_message": safe_get("error_message"),
-                    "updated_at": safe_get("updated_at")
+                    "updated_at": safe_get("updated_at"),
                 }
     except Exception as e:
         print(f"Error retrieving job {job_id}: {e}")
         import traceback
+
         traceback.print_exc()
     return None
+
 
 def increment_retry_count(job_id: int) -> int:
     """
@@ -1322,19 +1434,19 @@ def increment_retry_count(job_id: int) -> int:
         with get_db() as conn:
             conn.execute(
                 "UPDATE generated_videos SET download_retries = download_retries + 1 WHERE id = ?",
-                (job_id,)
+                (job_id,),
             )
             conn.commit()
 
             row = conn.execute(
-                "SELECT download_retries FROM generated_videos WHERE id = ?",
-                (job_id,)
+                "SELECT download_retries FROM generated_videos WHERE id = ?", (job_id,)
             ).fetchone()
 
             return row["download_retries"] if row else 0
     except Exception as e:
         print(f"Error incrementing retry count for job {job_id}: {e}")
         return 0
+
 
 def mark_job_failed(job_id: int, error_message: str) -> bool:
     """
@@ -1356,13 +1468,14 @@ def mark_job_failed(job_id: int, error_message: str) -> bool:
                 SET status = 'failed', error_message = ?
                 WHERE id = ?
                 """,
-                (error_message, job_id)
+                (error_message, job_id),
             )
             conn.commit()
             return cursor.rowcount > 0
     except Exception as e:
         print(f"Error marking job {job_id} as failed: {e}")
         return False
+
 
 def get_jobs_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
     """
@@ -1384,7 +1497,7 @@ def get_jobs_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
                 ORDER BY updated_at DESC
                 LIMIT ?
                 """,
-                (status, limit)
+                (status, limit),
             ).fetchall()
 
             result = []
@@ -1396,35 +1509,47 @@ def get_jobs_by_status(status: str, limit: int = 50) -> List[Dict[str, Any]]:
                     except (KeyError, IndexError):
                         return default
 
-                result.append({
-                    "id": row["id"],
-                    "prompt": row["prompt"],
-                    "video_url": row["video_url"],
-                    "model_id": row["model_id"],
-                    "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
-                    "status": row["status"],
-                    "created_at": row["created_at"],
-                    "collection": row["collection"],
-                    "brief_id": safe_get("brief_id"),
-                    "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
-                    "download_attempted": bool(safe_get("download_attempted", 0)),
-                    "download_retries": safe_get("download_retries", 0),
-                    "download_error": safe_get("download_error"),
-                    "progress": json.loads(safe_get("progress")) if safe_get("progress") else {},
-                    "storyboard_data": json.loads(safe_get("storyboard_data")) if safe_get("storyboard_data") else None,
-                    "approved": bool(safe_get("approved", 0)),
-                    "approved_at": safe_get("approved_at"),
-                    "estimated_cost": safe_get("estimated_cost", 0.0),
-                    "actual_cost": safe_get("actual_cost", 0.0),
-                    "error_message": safe_get("error_message"),
-                    "updated_at": safe_get("updated_at")
-                })
+                result.append(
+                    {
+                        "id": row["id"],
+                        "prompt": row["prompt"],
+                        "video_url": row["video_url"],
+                        "model_id": row["model_id"],
+                        "parameters": json.loads(row["parameters"])
+                        if row["parameters"]
+                        else {},
+                        "status": row["status"],
+                        "created_at": row["created_at"],
+                        "collection": row["collection"],
+                        "brief_id": safe_get("brief_id"),
+                        "metadata": json.loads(row["metadata"])
+                        if row["metadata"]
+                        else None,
+                        "download_attempted": bool(safe_get("download_attempted", 0)),
+                        "download_retries": safe_get("download_retries", 0),
+                        "download_error": safe_get("download_error"),
+                        "progress": json.loads(safe_get("progress"))
+                        if safe_get("progress")
+                        else {},
+                        "storyboard_data": json.loads(safe_get("storyboard_data"))
+                        if safe_get("storyboard_data")
+                        else None,
+                        "approved": bool(safe_get("approved", 0)),
+                        "approved_at": safe_get("approved_at"),
+                        "estimated_cost": safe_get("estimated_cost", 0.0),
+                        "actual_cost": safe_get("actual_cost", 0.0),
+                        "error_message": safe_get("error_message"),
+                        "updated_at": safe_get("updated_at"),
+                    }
+                )
             return result
     except Exception as e:
         print(f"Error retrieving jobs by status '{status}': {e}")
         import traceback
+
         traceback.print_exc()
         return []
+
 
 def approve_storyboard(job_id: int) -> bool:
     """
@@ -1445,7 +1570,7 @@ def approve_storyboard(job_id: int) -> bool:
                 SET approved = 1, approved_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (job_id,)
+                (job_id,),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -1453,13 +1578,14 @@ def approve_storyboard(job_id: int) -> bool:
         print(f"Error approving storyboard for job {job_id}: {e}")
         return False
 
+
 def create_video_job(
     prompt: str,
     model_id: str,
     parameters: dict,
     estimated_cost: float,
     client_id: Optional[str] = None,
-    status: str = "pending"
+    status: str = "pending",
 ) -> int:
     """
     Create a new video generation job for the v2 workflow.
@@ -1478,14 +1604,16 @@ def create_video_job(
     try:
         with get_db() as conn:
             # Initialize progress as empty dict
-            progress = json.dumps({
-                "current_stage": status,
-                "scenes_total": 0,
-                "scenes_completed": 0,
-                "current_scene": None,
-                "estimated_completion_seconds": None,
-                "message": "Job created, waiting to start"
-            })
+            progress = json.dumps(
+                {
+                    "current_stage": status,
+                    "scenes_total": 0,
+                    "scenes_completed": 0,
+                    "current_scene": None,
+                    "estimated_completion_seconds": None,
+                    "message": "Job created, waiting to start",
+                }
+            )
 
             cursor = conn.execute(
                 """
@@ -1500,16 +1628,18 @@ def create_video_job(
                     status,
                     estimated_cost,
                     progress,
-                    client_id
-                )
+                    client_id,
+                ),
             )
             conn.commit()
             return cursor.lastrowid or 0
     except Exception as e:
         print(f"Error creating video job: {e}")
         import traceback
+
         traceback.print_exc()
         return 0
+
 
 def update_storyboard_data(job_id: int, storyboard_data: List[Dict[str, Any]]) -> bool:
     """
@@ -1526,7 +1656,7 @@ def update_storyboard_data(job_id: int, storyboard_data: List[Dict[str, Any]]) -
         with get_db() as conn:
             cursor = conn.execute(
                 "UPDATE generated_videos SET storyboard_data = ?, status = 'storyboard_ready' WHERE id = ?",
-                (json.dumps(storyboard_data), job_id)
+                (json.dumps(storyboard_data), job_id),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -1534,7 +1664,10 @@ def update_storyboard_data(job_id: int, storyboard_data: List[Dict[str, Any]]) -
         print(f"Error updating storyboard data for job {job_id}: {e}")
         return False
 
-def get_jobs_by_client(client_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+
+def get_jobs_by_client(
+    client_id: str, status: Optional[str] = None, limit: int = 50
+) -> List[Dict[str, Any]]:
     """
     Get jobs for a specific client, optionally filtered by status.
 
@@ -1569,36 +1702,47 @@ def get_jobs_by_client(client_id: str, status: Optional[str] = None, limit: int 
 
             result = []
             for row in rows:
+
                 def safe_get(key, default=None):
                     try:
                         return row[key]
                     except (KeyError, IndexError):
                         return default
 
-                result.append({
-                    "id": row["id"],
-                    "prompt": row["prompt"],
-                    "video_url": row["video_url"],
-                    "model_id": row["model_id"],
-                    "parameters": json.loads(row["parameters"]) if row["parameters"] else {},
-                    "status": row["status"],
-                    "created_at": row["created_at"],
-                    "client_id": safe_get("client_id"),
-                    "progress": json.loads(safe_get("progress")) if safe_get("progress") else {},
-                    "storyboard_data": json.loads(safe_get("storyboard_data")) if safe_get("storyboard_data") else None,
-                    "approved": bool(safe_get("approved", 0)),
-                    "approved_at": safe_get("approved_at"),
-                    "estimated_cost": safe_get("estimated_cost", 0.0),
-                    "actual_cost": safe_get("actual_cost", 0.0),
-                    "error_message": safe_get("error_message"),
-                    "updated_at": safe_get("updated_at")
-                })
+                result.append(
+                    {
+                        "id": row["id"],
+                        "prompt": row["prompt"],
+                        "video_url": row["video_url"],
+                        "model_id": row["model_id"],
+                        "parameters": json.loads(row["parameters"])
+                        if row["parameters"]
+                        else {},
+                        "status": row["status"],
+                        "created_at": row["created_at"],
+                        "client_id": safe_get("client_id"),
+                        "progress": json.loads(safe_get("progress"))
+                        if safe_get("progress")
+                        else {},
+                        "storyboard_data": json.loads(safe_get("storyboard_data"))
+                        if safe_get("storyboard_data")
+                        else None,
+                        "approved": bool(safe_get("approved", 0)),
+                        "approved_at": safe_get("approved_at"),
+                        "estimated_cost": safe_get("estimated_cost", 0.0),
+                        "actual_cost": safe_get("actual_cost", 0.0),
+                        "error_message": safe_get("error_message"),
+                        "updated_at": safe_get("updated_at"),
+                    }
+                )
             return result
     except Exception as e:
         print(f"Error retrieving jobs for client {client_id}: {e}")
         import traceback
+
         traceback.print_exc()
         return []
+
 
 # Asset management functions
 def save_uploaded_asset(
@@ -1607,7 +1751,7 @@ def save_uploaded_asset(
     filename: str,
     file_path: str,
     file_type: str,
-    size_bytes: int
+    size_bytes: int,
 ) -> str:
     """Save an uploaded asset to the database."""
     with get_db() as conn:
@@ -1616,17 +1760,17 @@ def save_uploaded_asset(
             INSERT INTO uploaded_assets (asset_id, user_id, filename, file_path, file_type, size_bytes)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (asset_id, user_id, filename, file_path, file_type, size_bytes)
+            (asset_id, user_id, filename, file_path, file_type, size_bytes),
         )
         conn.commit()
         return asset_id
+
 
 def get_asset_by_id(asset_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve a specific asset by ID."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM uploaded_assets WHERE asset_id = ?",
-            (asset_id,)
+            "SELECT * FROM uploaded_assets WHERE asset_id = ?", (asset_id,)
         ).fetchone()
 
         if row:
@@ -1637,11 +1781,14 @@ def get_asset_by_id(asset_id: str) -> Optional[Dict[str, Any]]:
                 "file_path": row["file_path"],
                 "file_type": row["file_type"],
                 "size_bytes": row["size_bytes"],
-                "uploaded_at": row["uploaded_at"]
+                "uploaded_at": row["uploaded_at"],
             }
     return None
 
-def list_user_assets(user_id: int, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+
+def list_user_assets(
+    user_id: int, limit: int = 50, offset: int = 0
+) -> List[Dict[str, Any]]:
     """List all assets for a user with pagination."""
     with get_db() as conn:
         rows = conn.execute(
@@ -1651,7 +1798,7 @@ def list_user_assets(user_id: int, limit: int = 50, offset: int = 0) -> List[Dic
             ORDER BY uploaded_at DESC
             LIMIT ? OFFSET ?
             """,
-            (user_id, limit, offset)
+            (user_id, limit, offset),
         ).fetchall()
 
         return [
@@ -1660,20 +1807,22 @@ def list_user_assets(user_id: int, limit: int = 50, offset: int = 0) -> List[Dic
                 "filename": row["filename"],
                 "file_type": row["file_type"],
                 "size_bytes": row["size_bytes"],
-                "uploaded_at": row["uploaded_at"]
+                "uploaded_at": row["uploaded_at"],
             }
             for row in rows
         ]
+
 
 def delete_asset(asset_id: str, user_id: int) -> bool:
     """Delete an asset by ID (only if it belongs to the user)."""
     with get_db() as conn:
         cursor = conn.execute(
             "DELETE FROM uploaded_assets WHERE asset_id = ? AND user_id = ?",
-            (asset_id, user_id)
+            (asset_id, user_id),
         )
         conn.commit()
         return cursor.rowcount > 0
+
 
 # Video Export and Refinement functions
 def increment_download_count(job_id: int) -> bool:
@@ -1690,13 +1839,14 @@ def increment_download_count(job_id: int) -> bool:
         with get_db() as conn:
             cursor = conn.execute(
                 "UPDATE generated_videos SET download_count = COALESCE(download_count, 0) + 1 WHERE id = ?",
-                (job_id,)
+                (job_id,),
             )
             conn.commit()
             return cursor.rowcount > 0
     except Exception as e:
         print(f"Error incrementing download count for job {job_id}: {e}")
         return False
+
 
 def get_download_count(job_id: int) -> int:
     """
@@ -1712,19 +1862,20 @@ def get_download_count(job_id: int) -> int:
         with get_db() as conn:
             row = conn.execute(
                 "SELECT COALESCE(download_count, 0) as count FROM generated_videos WHERE id = ?",
-                (job_id,)
+                (job_id,),
             ).fetchone()
             return row["count"] if row else 0
     except Exception as e:
         print(f"Error getting download count for job {job_id}: {e}")
         return 0
 
+
 def refine_scene_in_storyboard(
     job_id: int,
     scene_number: int,
     new_image_url: Optional[str] = None,
     new_description: Optional[str] = None,
-    new_image_prompt: Optional[str] = None
+    new_image_prompt: Optional[str] = None,
 ) -> bool:
     """
     Refine a specific scene in the storyboard by updating its data.
@@ -1785,7 +1936,7 @@ def refine_scene_in_storyboard(
                     refinement_count = COALESCE(refinement_count, 0) + 1
                 WHERE id = ?
                 """,
-                (json.dumps(storyboard_data), job_id)
+                (json.dumps(storyboard_data), job_id),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -1793,8 +1944,10 @@ def refine_scene_in_storyboard(
     except Exception as e:
         print(f"Error refining scene {scene_number} in job {job_id}: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 def reorder_storyboard_scenes(job_id: int, scene_order: List[int]) -> bool:
     """
@@ -1819,7 +1972,9 @@ def reorder_storyboard_scenes(job_id: int, scene_order: List[int]) -> bool:
             return False
 
         # Validate scene_order
-        current_scene_numbers = [entry.get("scene", {}).get("scene_number") for entry in storyboard_data]
+        current_scene_numbers = [
+            entry.get("scene", {}).get("scene_number") for entry in storyboard_data
+        ]
         if sorted(scene_order) != sorted(current_scene_numbers):
             print(f"Invalid scene order: {scene_order} vs {current_scene_numbers}")
             return False
@@ -1848,7 +2003,7 @@ def reorder_storyboard_scenes(job_id: int, scene_order: List[int]) -> bool:
                     approved_at = NULL
                 WHERE id = ?
                 """,
-                (json.dumps(reordered_storyboard), job_id)
+                (json.dumps(reordered_storyboard), job_id),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -1856,8 +2011,10 @@ def reorder_storyboard_scenes(job_id: int, scene_order: List[int]) -> bool:
     except Exception as e:
         print(f"Error reordering scenes in job {job_id}: {e}")
         import traceback
+
         traceback.print_exc()
         return False
+
 
 def get_refinement_count(job_id: int) -> int:
     """
@@ -1873,12 +2030,13 @@ def get_refinement_count(job_id: int) -> int:
         with get_db() as conn:
             row = conn.execute(
                 "SELECT COALESCE(refinement_count, 0) as count FROM generated_videos WHERE id = ?",
-                (job_id,)
+                (job_id,),
             ).fetchone()
             return row["count"] if row else 0
     except Exception as e:
         print(f"Error getting refinement count for job {job_id}: {e}")
         return 0
+
 
 def increment_estimated_cost(job_id: int, additional_cost: float) -> bool:
     """
@@ -1899,7 +2057,7 @@ def increment_estimated_cost(job_id: int, additional_cost: float) -> bool:
                 SET estimated_cost = COALESCE(estimated_cost, 0.0) + ?
                 WHERE id = ?
                 """,
-                (additional_cost, job_id)
+                (additional_cost, job_id),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -1907,7 +2065,10 @@ def increment_estimated_cost(job_id: int, additional_cost: float) -> bool:
         print(f"Error incrementing estimated cost for job {job_id}: {e}")
         return False
 
-def get_generated_images_by_client(client_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+
+def get_generated_images_by_client(
+    client_id: str, status: Optional[str] = None, limit: int = 50
+) -> List[Dict[str, Any]]:
     """
     Get generated images for a specific client, optionally filtered by status.
 
@@ -1955,7 +2116,10 @@ def get_generated_images_by_client(client_id: str, status: Optional[str] = None,
         print(f"Error getting images for client {client_id}: {e}")
         return []
 
-def get_generated_videos_by_client(client_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+
+def get_generated_videos_by_client(
+    client_id: str, status: Optional[str] = None, limit: int = 50
+) -> List[Dict[str, Any]]:
     """
     Get generated videos for a specific client, optionally filtered by status.
 
@@ -2009,7 +2173,10 @@ def get_generated_videos_by_client(client_id: str, status: Optional[str] = None,
         print(f"Error getting videos for client {client_id}: {e}")
         return []
 
-def get_generated_images_by_campaign(campaign_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+
+def get_generated_images_by_campaign(
+    campaign_id: str, status: Optional[str] = None, limit: int = 50
+) -> List[Dict[str, Any]]:
     """
     Get generated images for a specific campaign, optionally filtered by status.
 
@@ -2057,7 +2224,10 @@ def get_generated_images_by_campaign(campaign_id: str, status: Optional[str] = N
         print(f"Error getting images for campaign {campaign_id}: {e}")
         return []
 
-def get_generated_videos_by_campaign(campaign_id: str, status: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+
+def get_generated_videos_by_campaign(
+    campaign_id: str, status: Optional[str] = None, limit: int = 50
+) -> List[Dict[str, Any]]:
     """
     Get generated videos for a specific campaign, optionally filtered by status.
 
@@ -2115,6 +2285,7 @@ def get_generated_videos_by_campaign(campaign_id: str, status: Optional[str] = N
 # ============================================================================
 # VIDEO SUB-JOB MANAGEMENT (for parallel image-pair to video generation)
 # ============================================================================
+
 
 def create_sub_job(
     job_id: int,
@@ -2359,7 +2530,13 @@ def get_sub_job_progress_summary(job_id: int) -> Dict[str, int]:
             (job_id,),
         ).fetchall()
 
-        summary = {"total": 0, "pending": 0, "processing": 0, "completed": 0, "failed": 0}
+        summary = {
+            "total": 0,
+            "pending": 0,
+            "processing": 0,
+            "completed": 0,
+            "failed": 0,
+        }
 
         for row in rows:
             status = row["status"]

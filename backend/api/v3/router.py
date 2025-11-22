@@ -50,12 +50,7 @@ from .models import (
 )
 from ...schemas.assets import UploadAssetFromUrlInput, BulkAssetFromUrlInput
 
-# Audio generation service (will be created)
-try:
-    from ...services.scene_audio_generator import generate_scene_audio_track
-except ImportError:
-    generate_scene_audio_track = None
-    logger.warning("Audio generation service not available")
+from ...services.scene_audio_generator import generate_scene_audio_track
 from ...database_helpers import (
     create_client,
     get_client_by_id,
@@ -80,6 +75,7 @@ from ...database_helpers import (
     update_job_scene,
     delete_job_scene,
 )
+from ...database import update_job_parameters
 from ...auth import verify_auth
 from ...services.storyboard_generator import generate_storyboard_task
 from ...services.video_renderer import render_video_task
@@ -1140,94 +1136,108 @@ async def create_job(
                 num_scenes=None,  # Auto-determine based on duration
             )
 
-# Store generated scenes in database
-        for scene in scenes:
-            create_job_scene(
-                job_id=job_id,
-                scene_number=scene["sceneNumber"],
-                duration=scene["duration"],
-                description=scene["description"],
-                script=scene.get("script"),
-                shot_type=scene.get("shotType"),
-                transition=scene.get("transition"),
-                assets=scene.get("assets", []),
-                metadata=scene.get("metadata", {}),
-            )
-
-        logger.info(f"Generated and stored {len(scenes)} scenes for job {job_id}")
-
-        # Generate audio track if requested and service is available
-        audio_info = None
-        if request.generateAudio and generate_scene_audio_track:
-            try:
-                # Prepare scene prompts for audio generation
-                scene_prompts = []
-                for scene in scenes:
-                    combined_prompt = f"{scene['description']}"
-                    if scene.get('script'):
-                        combined_prompt += f". Voiceover: {scene['script']}"
-                    
-                    scene_prompts.append({
-                        "scene_number": scene["sceneNumber"],
-                        "prompt": combined_prompt,
-                        "duration": scene["duration"]
-                    })
-
-                logger.info(f"🎵 Generating audio track for {len(scene_prompts)} scenes (job {job_id})")
-                
-                # Generate the audio track
-                audio_result = await generate_scene_audio_track(
-                    scenes=scene_prompts,
-                    default_duration=4.0,
-                    model_id="meta/musicgen"
+            # Store generated scenes in database
+            for scene in scenes:
+                create_job_scene(
+                    job_id=job_id,
+                    scene_number=scene["sceneNumber"],
+                    duration=scene["duration"],
+                    description=scene["description"],
+                    script=scene.get("script"),
+                    shot_type=scene.get("shotType"),
+                    transition=scene.get("transition"),
+                    assets=scene.get("assets", []),
+                    metadata=scene.get("metadata", {}),
                 )
-                
-                audio_info = {
-                    "audio_id": audio_result["audio_id"],
-                    "audio_url": audio_result["audio_url"],
-                    "total_duration": audio_result["total_duration"],
-                    "segments": audio_result["segments"],
-                    "model_used": audio_result["model_used"]
-                }
-                
-                logger.info(f"✓ Audio track generated successfully for job {job_id}: {audio_info['audio_id']}")
-                
-                # Store audio info in job parameters for rendering
-                from ...database import update_job_parameters  
-                current_params = {
-                    "context": request.context.dict(),
-                    "ad_basics": request.adBasics.dict(),
-                    "creative": request.creative.dict(),
-                    "advanced": request.advanced.dict() if request.advanced else None,
-                    "processed_asset_ids": processed_asset_ids,
-                    "scenes": [s for s in scenes],  # Store scenes in params
-                    "audio_info": audio_info
-                }
-                update_job_parameters(job_id, current_params)
-                
-            except Exception as audio_error:
-                logger.error(f"⚠️ Audio generation failed for job {job_id}: {audio_error}")
-                audio_info = {"error": str(audio_error), "status": "failed"}
-        elif request.generateAudio:
-            logger.warning("Audio requested but service not available - skipping")
-            audio_info = {"status": "service_unavailable"}
 
-        # Update job status to storyboard_ready
-        update_video_status(job_id, "storyboard_ready")
+            logger.info(f"Generated and stored {len(scenes)} scenes for job {job_id}")
 
-        # Prepare response with audio info
-        job_response = {
-            "id": str(job_id),
-            "status": JobStatus.STORYBOARD_READY,
-            "assetIds": processed_asset_ids,
-            "scenes": scenes,
-            "audio": audio_info,
-            "estimatedCost": 5.0 + (2.0 if request.generateAudio else 0.0),
-            "createdAt": get_current_timestamp(),
-            "updatedAt": get_current_timestamp(),
-        }
+            # Generate audio track if requested
+            audio_info = None
+            actual_cost = 5.0
+            if request.generateAudio:
+                try:
+                    # Prepare scene prompts for audio generation
+                    scene_prompts = []
+                    for scene in scenes:
+                        combined_prompt = f"{scene['description']}"
+                        if scene.get('script'):
+                            combined_prompt += f". Voiceover: {scene['script']}"
+                        
+                        scene_prompts.append({
+                            "scene_number": scene["sceneNumber"],
+                            "prompt": combined_prompt,
+                            "duration": scene["duration"]
+                        })
 
-        return APIResponse.success(data=job_response, meta=create_api_meta())
+                    logger.info(f"🎵 Generating audio track for {len(scene_prompts)} scenes (job {job_id})")
+                    
+                    # Generate the audio track
+                    audio_result = await generate_scene_audio_track(
+                        scenes=scene_prompts,
+                        default_duration=4.0,
+                        model_id="meta/musicgen",
+                        user_id=current_user["id"]
+                    )
+                    
+                    audio_info = {
+                        "status": "completed",
+                        "audio_id": audio_result["audio_id"],
+                        "audio_url": audio_result["audio_url"],
+                        "total_duration": audio_result["total_duration"],
+                        "scenes_processed": audio_result["scenes_processed"],
+                        "model_used": audio_result["model_used"]
+                    }
+                    
+                    actual_cost += 2.0  # Audio cost
+                    logger.info(f"✓ Audio track generated successfully for job {job_id}: {audio_info['audio_id']}")
+                    
+                    # Store audio info in job parameters for rendering
+                    current_params = {
+                        "context": request.context.dict(),
+                        "ad_basics": request.adBasics.dict(),
+                        "creative": request.creative.dict(),
+                        "advanced": request.advanced.dict() if request.advanced else None,
+                        "processed_asset_ids": processed_asset_ids,
+                        "scenes": [{k: v for k, v in s.items() if k != 'metadata'} for s in scenes],  # Store scenes without large metadata
+                        "audio_info": audio_info
+                    }
+                    update_job_parameters(job_id, current_params)
+                    
+                except Exception as audio_error:
+                    logger.error(f"⚠️ Audio generation failed for job {job_id}: {audio_error}")
+                    audio_info = {
+                        "status": "failed", 
+                        "error": str(audio_error),
+                        "requested": True,
+                        "fallback_available": False
+                    }
+                    # No additional cost for failed audio
+            else:
+                audio_info = {"status": "not_requested"}
+
+            # Update job status to storyboard_ready
+            update_video_status(job_id, "storyboard_ready")
+            
+            # Prepare response with audio info and actual cost
+            job_response = {
+                "id": str(job_id),
+                "status": JobStatus.STORYBOARD_READY,
+                "assetIds": processed_asset_ids,
+                "scenes": scenes,
+                "audio": audio_info,
+                "estimatedCost": actual_cost,
+                "createdAt": get_current_timestamp(),
+                "updatedAt": get_current_timestamp(),
+            }
+
+            logger.info(f"Job {job_id} ready: {len(scenes)} scenes, audio: {audio_info.get('status', 'none')}, cost: ${actual_cost}")
+            return APIResponse.success(data=job_response, meta=create_api_meta())
+
+        except SceneGenerationError as e:
+            logger.error(f"Scene generation failed for job {job_id}: {e}")
+            update_video_status(job_id, "failed")
+            return APIResponse.create_error(f"Failed to generate scenes: {str(e)}")
     except AssetDownloadError as e:
         logger.error(f"Asset download error: {e}", exc_info=True)
         return APIResponse.create_error(f"Failed to download asset: {str(e)}")
@@ -1270,47 +1280,7 @@ async def get_job_status(
         scenes = get_scenes_by_job(int(job_id))
 
         # Extract audio info from job parameters
-        audio_info = None
-        if "parameters" in job_dict:
-            params = (
-                json.loads(job_dict["parameters"])
-                if isinstance(job_dict["parameters"], str)
-                else job_dict["parameters"]
-            )
-            if "audio" in params:
-                audio_info = params["audio"]
-            elif "audio_id" in params:
-                # Legacy format - single audio track
-                audio_info = {
-                    "audio_id": params.get("audio_id"),
-                    "audio_url": params.get("audio_url"),
-                    "total_duration": params.get("audio_duration", 0.0),
-                }
-
-        job_data = {
-            "id": str(job_dict["id"]),
-            "status": v3_status,
-            "progress": job_dict["progress"] if "progress" in job_dict else None,
-            "storyboard": job_dict["storyboard_data"]
-            if "storyboard_data" in job_dict
-            and isinstance(job_dict["storyboard_data"], dict)
-            else None,
-            "scenes": scenes,  # Include scenes from job_scenes table
-            "audio": audio_info,  # Include audio track info
-            "videoUrl": job_dict["video_url"] if "video_url" in job_dict else None,
-            "error": job_dict["error_message"] if "error_message" in job_dict else None,
-            "estimatedCost": job_dict["estimated_cost"]
-            if "estimated_cost" in job_dict
-            else None,
-            "actualCost": job_dict["actual_cost"]
-            if "actual_cost" in job_dict
-            else None,
-            "createdAt": job_dict["created_at"],
-            "updatedAt": job_dict["updated_at"],
-        }
-
-        # Extract audio information from job parameters
-        audio_info = None
+        audio_info = {"status": "not_requested"}
         if "parameters" in job_dict:
             try:
                 params = (
@@ -1319,7 +1289,6 @@ async def get_job_status(
                     else job_dict["parameters"]
                 )
                 
-                # Check for audio info in parameters
                 if "audio_info" in params:
                     audio_info = params["audio_info"]
                 elif "audio" in params:
@@ -1336,7 +1305,7 @@ async def get_job_status(
             "progress": job_dict.get("progress"),
             "storyboard": job_dict.get("storyboard_data"),
             "scenes": scenes,
-            "audio": audio_info,  # Include audio track information
+            "audio": audio_info,
             "videoUrl": job_dict.get("video_url"),
             "error": job_dict.get("error_message"),
             "estimatedCost": job_dict.get("estimated_cost"),
@@ -1345,17 +1314,93 @@ async def get_job_status(
             "updatedAt": job_dict.get("updated_at", ""),
         }
 
-        # Handle storyboard data formatting
+        # Extract comprehensive audio information from job parameters and database
+        audio_info = {"status": "not_requested"}
+        
+        if "parameters" in job_dict:
+            try:
+                params = (
+                    json.loads(job_dict["parameters"])
+                    if isinstance(job_dict["parameters"], str)
+                    else job_dict["parameters"]
+                )
+                
+                # Check for audio info in parameters
+                if "audio_info" in params:
+                    audio_info = params["audio_info"].copy()
+                    audio_info["source"] = "job_parameters"
+                elif "audio" in params:
+                    audio_info = params["audio"].copy()
+                    audio_info["source"] = "legacy_parameters"
+                elif params.get("generate_audio", False):
+                    # Audio was requested but may not be complete yet
+                    audio_info = {
+                        "status": "processing" if v3_status in ["scene_generation", "storyboard_processing"] else "requested",
+                        "requested": True,
+                        "source": "job_parameters"
+                    }
+                
+                # Enhance with current status info
+                if audio_info.get("status") == "completed" and "audio_id" in audio_info:
+                    # Verify audio still exists in database
+                    audio_record = get_audio_by_id(audio_info["audio_id"])
+                    if audio_record:
+                        audio_info["verified"] = True
+                        audio_info["current_status"] = audio_record.get("status", "unknown")
+                    else:
+                        audio_info["status"] = "missing"
+                        audio_info["verified"] = False
+                        
+            except (json.JSONDecodeError, KeyError, AttributeError) as param_error:
+                logger.debug(f"Could not parse audio info from job {job_id} params: {param_error}")
+                audio_info["parse_error"] = str(param_error)
+
+        # If audio was requested but no info found, check job metadata
+        if audio_info.get("requested", False) and audio_info.get("status") == "processing":
+            # Check if audio generation is still in progress
+            job_status = job_dict.get("status", "")
+            if job_status in ["storyboard_ready", "video_processing", "completed"]:
+                audio_info["status"] = "available_but_not_found"
+                audio_info["recommendation"] = "Check job parameters or regenerate audio"
+
+        job_data = {
+            "id": str(job_dict["id"]),
+            "status": v3_status,
+            "progress": job_dict.get("progress", 0.0),
+            "storyboard": job_dict.get("storyboard_data"),
+            "scenes": scenes or [],  # Ensure scenes is always a list
+            "audio": audio_info,  # Comprehensive audio information
+            "videoUrl": job_dict.get("video_url"),
+            "error": job_dict.get("error_message"),
+            "estimatedCost": job_dict.get("estimated_cost", 0.0),
+            "actualCost": job_dict.get("actual_cost", None),
+            "createdAt": job_dict.get("created_at", ""),
+            "updatedAt": job_dict.get("updated_at", job_dict.get("created_at", "")),
+        }
+
+        # Handle storyboard data formatting with better error handling
         if job_data["storyboard"]:
             sb_data = job_data["storyboard"]
             if isinstance(sb_data, str):
                 try:
-                    job_data["storyboard"] = json.loads(sb_data)
-                except json.JSONDecodeError:
-                    job_data["storyboard"] = None
+                    parsed = json.loads(sb_data)
+                    job_data["storyboard"] = parsed if isinstance(parsed, dict) else {"scenes": parsed}
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse storyboard JSON for job {job_id}: {e}")
+                    job_data["storyboard"] = {"error": "Invalid JSON format"}
             elif isinstance(sb_data, list):
                 job_data["storyboard"] = {"scenes": sb_data}
+            # If it's already a dict, leave it as-is
 
+        # Add debugging info in development
+        if get_settings().debug:
+            job_data["_debug"] = {
+                "raw_parameters": str(job_dict.get("parameters", ""))[:200] + "..." if len(str(job_dict.get("parameters", ""))) > 200 else str(job_dict.get("parameters", "")),
+                "parameter_parse_success": "parameters" in job_dict,
+                "audio_debug": audio_info
+            }
+
+        logger.debug(f"Job {job_id} status response prepared: audio status={audio_info.get('status', 'unknown')}")
         return APIResponse.success(data=job_data, meta=create_api_meta())
     except Exception as e:
         import traceback
@@ -1394,7 +1439,7 @@ async def perform_job_action(
                 data={"message": "Job cancelled successfully"}, meta=create_api_meta()
             )
 
-        el        if request.action == JobAction.REGENERATE_SCENE:
+        elif request.action == JobAction.REGENERATE_SCENE:
             # Regenerate a specific scene using payload
             payload = request.payload or {}
             scene_id = payload.get("sceneId")
@@ -1728,6 +1773,7 @@ async def create_job_from_image_pairs(
             return APIResponse.create_error("campaignId is required")
 
         # Fetch campaign assets (images only)
+        # Fetch campaign assets (images only)
         assets = list_assets(
             user_id=current_user["id"],
             campaign_id=campaign_id,
@@ -1735,6 +1781,29 @@ async def create_job_from_image_pairs(
             limit=1000,
             offset=0
         )
+
+        # Convert asset objects to dicts for xAI processing
+        asset_data = []
+        for asset in assets:
+            if hasattr(asset, '__dict__'):
+                asset_dict = asset.__dict__
+            else:
+                asset_dict = dict(asset)
+            
+            asset_data.append({
+                "id": asset_dict.get("id", ""),
+                "name": asset_dict.get("name", ""),
+                "description": asset_dict.get("name", ""),  # Use name as description if no desc
+                "tags": asset_dict.get("tags", []),
+                "type": asset_dict.get("type", "image"),
+                "url": asset_dict.get("url", ""),
+                "thumbnailUrl": asset_dict.get("thumbnail_url", asset_dict.get("url", "")),
+                "durationSeconds": asset_dict.get("duration", 0),
+                "width": asset_dict.get("width", 0),
+                "height": asset_dict.get("height", 0),
+            })
+        
+        logger.info(f"Prepared {len(asset_data)} assets for xAI processing")
 
         if len(assets) < 2:
             return APIResponse.create_error(
@@ -2148,30 +2217,41 @@ async def list_ai_generated_videos(
             params.extend([limit, offset])
             cursor = conn.execute(query, params)
 
-            videos = []
-            for row in cursor.fetchall():
-                import json
-
+        videos = []
+        for row in cursor.fetchall():
+            try:
                 input_params = json.loads(row[11]) if row[11] else {}
-
-                video_record = {
-                    "id": row[0],
-                    "jobId": row[1],
-                    "subJobNumber": row[2],
-                    "modelId": row[3],
-                    "videoUrl": row[4] or "",
-                    "status": row[5],
-                    "durationSeconds": row[6],
-                    "progress": row[7],
-                    "errorMessage": row[8],
-                    "createdAt": row[9],
-                    "completedAt": row[10],
-                    "prompt": input_params.get(
-                        "prompt", f"Job {row[1]} - Clip {row[2]}"
-                    ),
-                    "thumbnailUrl": row[4] or "",  # Use video URL as thumbnail for now
-                }
-                videos.append(video_record)
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON in input_parameters for sub-job {row[0]}")
+                input_params = {}
+            
+            # Handle potential None values
+            safe_row = [r if r is not None else "" for r in row]
+            
+            video_record = {
+                "id": str(safe_row[0]),
+                "jobId": safe_row[1],
+                "subJobNumber": safe_row[2],
+                "modelId": safe_row[3] or "unknown",
+                "videoUrl": safe_row[4] or "",
+                "status": safe_row[5] or "unknown",
+                "durationSeconds": safe_row[6] or 0.0,
+                "progress": safe_row[7] or 0.0,
+                "errorMessage": safe_row[8],
+                "createdAt": safe_row[9] or "",
+                "completedAt": safe_row[10] or "",
+                "prompt": input_params.get("prompt", f"Job {safe_row[1]} - Clip {safe_row[2]}"),
+                "thumbnailUrl": safe_row[4] or "",  # Use video URL as thumbnail for now
+                "assetIds": input_params.get("asset_ids", []),  # Include source assets
+            }
+            
+            # Add audio info if available in parameters
+            if "audio_info" in input_params:
+                video_record["audioInfo"] = input_params["audio_info"]
+            
+            videos.append(video_record)
+        
+        logger.info(f"Retrieved {len(videos)} AI videos for offset {offset}, limit {limit}")
 
             return APIResponse.success(
                 data={"videos": videos, "total": total}, meta=create_api_meta()
