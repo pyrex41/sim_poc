@@ -292,20 +292,30 @@ async def _process_single_sub_job(
         # Use NGROK_URL if available, otherwise fall back to BASE_URL
         external_url = current_settings.NGROK_URL or current_settings.BASE_URL
 
-        # Prefer source_url (original URL) if available, otherwise construct full URL
+        # Generate temporary access tokens for assets (valid for 2 hours)
+        from ..auth import create_asset_access_token
+
+        image1_token = create_asset_access_token(sub_job["image1AssetId"])
+        image2_token = create_asset_access_token(sub_job["image2AssetId"])
+
+        # Prefer source_url (original URL) if available, otherwise construct full URL with token
         if hasattr(image1, 'source_url') and image1.source_url:
             image1_url = image1.source_url
         elif hasattr(image1, 'sourceUrl') and image1.sourceUrl:
             image1_url = image1.sourceUrl
         else:
-            image1_url = f"{external_url}{image1.url}" if not image1.url.startswith('http') else image1.url
+            # Construct URL with access token for external services
+            base_url = f"{external_url}{image1.url}" if not image1.url.startswith('http') else image1.url
+            image1_url = f"{base_url}?token={image1_token}"
 
         if hasattr(image2, 'source_url') and image2.source_url:
             image2_url = image2.source_url
         elif hasattr(image2, 'sourceUrl') and image2.sourceUrl:
             image2_url = image2.sourceUrl
         else:
-            image2_url = f"{external_url}{image2.url}" if not image2.url.startswith('http') else image2.url
+            # Construct URL with access token for external services
+            base_url = f"{external_url}{image2.url}" if not image2.url.startswith('http') else image2.url
+            image2_url = f"{base_url}?token={image2_token}"
 
         # Debug: Log URLs being sent to Replicate
         logger.error(f"[DEBUG ORCHESTRATOR] NGROK_URL: {current_settings.NGROK_URL}")

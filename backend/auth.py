@@ -62,6 +62,54 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
+def create_asset_access_token(asset_id: str, expires_delta: Optional[timedelta] = None) -> str:
+    """
+    Create a temporary JWT token for public asset access.
+
+    This allows external services (like Replicate) to download assets
+    without user authentication.
+
+    Args:
+        asset_id: The asset ID to grant access to
+        expires_delta: Optional expiration time (default: 2 hours)
+
+    Returns:
+        JWT token string
+    """
+    if expires_delta is None:
+        expires_delta = timedelta(hours=2)  # Default: 2 hours
+
+    to_encode = {
+        "asset_id": asset_id,
+        "type": "asset_access",
+        "exp": datetime.utcnow() + expires_delta
+    }
+
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def verify_asset_access_token(token: str) -> Optional[str]:
+    """
+    Verify an asset access token and return the asset ID.
+
+    Args:
+        token: JWT token string
+
+    Returns:
+        Asset ID if valid, None otherwise
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        # Check token type
+        if payload.get("type") != "asset_access":
+            return None
+
+        # Return asset ID
+        return payload.get("asset_id")
+    except JWTError:
+        return None
+
 def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
     """Decode and validate a JWT token."""
     try:
