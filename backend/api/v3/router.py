@@ -793,8 +793,8 @@ async def upload_assets_from_urls(
         if not request.assets:
             return APIResponse.create_error("No assets provided")
 
-        if len(request.assets) > 20:  # Limit bulk uploads to prevent abuse
-            return APIResponse.create_error("Maximum 20 assets allowed per bulk upload")
+        if len(request.assets) > 100:  # Limit bulk uploads to prevent abuse
+            return APIResponse.create_error("Maximum 100 assets allowed per bulk upload")
 
         logger.info(
             f"Bulk uploading {len(request.assets)} assets for user {current_user['id']}"
