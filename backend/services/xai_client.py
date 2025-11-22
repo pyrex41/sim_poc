@@ -942,13 +942,12 @@ Begin your analysis and selection now.
                     )
                     continue
 
-                # Validate images are different
+                # Allow same-image pairs for camera movement simulation (zoom, pan, etc.)
                 if image1_id == image2_id:
-                    logger.warning(
-                        f"[GROK VALIDATION] REJECTED Pair {i}: "
-                        f"Same image used twice: {image1_id}"
+                    logger.info(
+                        f"[GROK VALIDATION] ACCEPTED Pair {i}: "
+                        f"Same image used twice (camera movement simulation): {image1_id}"
                     )
-                    continue
 
                 logger.info(f"[GROK VALIDATION] ACCEPTED Pair {i}")
                 pairs.append((image1_id, image2_id, float(score), reasoning))
