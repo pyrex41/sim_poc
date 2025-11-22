@@ -30,7 +30,9 @@ from ..database import (
     increment_sub_job_retry_count,
 )
 from .replicate_client import ReplicateClient
-from .video_combiner import combine_video_clips, store_clip_and_combined
+from .video_combiner import combine_video_clips, store_clip_and_combined, add_audio_to_video
+from .musicgen_client import MusicGenClient
+from .scene_prompts import get_all_scenes
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -162,8 +164,15 @@ async def process_image_pairs_to_videos(
         update_video_status(job_id, "video_combining")
 
         clip_paths = [r["clip_path"] for r in successful_clips]
-        clip_urls, combined_url, total_cost = await _combine_clips(
+        clip_urls, combined_video_path, total_cost = await _combine_clips(
             job_id, clip_paths, successful_clips
+        )
+
+        # Step 4.5: Generate progressive audio and merge with video
+        update_video_status(job_id, "audio_generation")
+
+        combined_url = await _add_music_to_video(
+            job_id, combined_video_path, len(successful_clips)
         )
 
         # Step 5: Update main job with results
@@ -420,6 +429,123 @@ async def _download_video(job_id: int, clip_number: int, video_url: str) -> str:
     return str(temp_path)
 
 
+async def _add_music_to_video(
+    job_id: int, combined_video_path: str, num_scenes: int
+) -> str:
+    """
+    Generate progressive audio and merge with combined video.
+
+    Args:
+        job_id: Job ID
+        combined_video_path: Path to combined video (without audio)
+        num_scenes: Number of scenes/clips in the video
+
+    Returns:
+        URL to final video with audio
+    """
+    logger.info(f"Generating progressive audio for {num_scenes} scenes")
+
+    try:
+        # Get all scene templates (use first 7 or repeat if more)
+        all_scenes = get_all_scenes()
+        scene_prompts = []
+
+        for i in range(num_scenes):
+            # Use scenes 1-7, repeating if we have more than 7 clips
+            scene_index = i % len(all_scenes)
+            scene_prompts.append(all_scenes[scene_index])
+
+        # Initialize MusicGen client
+        musicgen_client = MusicGenClient()
+
+        # Generate progressive audio across all scenes
+        result = await asyncio.to_thread(
+            musicgen_client.generate_progressive_audio,
+            scene_prompts,
+            duration_per_scene=4,  # 4 seconds per scene
+        )
+
+        if not result["success"]:
+            logger.error(f"Music generation failed: {result['error']}")
+            # Fall back to video without music
+            logger.warning("Proceeding without background music")
+            return await _store_final_video(job_id, combined_video_path)
+
+        # Download the audio file
+        audio_url = result["final_audio_url"]
+        temp_dir = Path(tempfile.gettempdir()) / f"job_{job_id}"
+        audio_path = temp_dir / "background_music.mp3"
+
+        logger.info(f"Downloading audio from {audio_url}")
+
+        response = await asyncio.to_thread(
+            requests.get, audio_url, stream=True, timeout=300
+        )
+        response.raise_for_status()
+
+        with open(audio_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        logger.info(f"Audio downloaded to {audio_path}")
+
+        # Merge audio with video
+        final_video_path = temp_dir / "final_with_audio.mp4"
+
+        success, output_path, error = await asyncio.to_thread(
+            add_audio_to_video,
+            combined_video_path,
+            str(audio_path),
+            str(final_video_path),
+            audio_fade_duration=0.5,
+        )
+
+        if not success:
+            logger.error(f"Failed to merge audio with video: {error}")
+            # Fall back to video without music
+            logger.warning("Proceeding without background music")
+            return await _store_final_video(job_id, combined_video_path)
+
+        logger.info(f"Successfully merged audio with video: {output_path}")
+
+        # Store the final video with audio
+        return await _store_final_video(job_id, output_path)
+
+    except Exception as e:
+        logger.error(f"Error adding music to video: {e}", exc_info=True)
+        # Fall back to video without music
+        logger.warning("Proceeding without background music due to error")
+        return await _store_final_video(job_id, combined_video_path)
+
+
+async def _store_final_video(job_id: int, video_path: str) -> str:
+    """
+    Store the final combined video and return its URL.
+
+    Args:
+        job_id: Job ID
+        video_path: Path to final video file
+
+    Returns:
+        URL to the stored video
+    """
+    import shutil
+
+    base_path = Path(settings.VIDEO_STORAGE_PATH) / str(job_id)
+    base_path.mkdir(parents=True, exist_ok=True)
+
+    combined_dest = base_path / "combined.mp4"
+
+    # Copy the final video
+    await asyncio.to_thread(shutil.copy2, video_path, combined_dest)
+
+    combined_url = f"/api/v3/videos/{job_id}/combined"
+
+    logger.info(f"Stored final video at {combined_dest}")
+
+    return combined_url
+
+
 async def _combine_clips(
     job_id: int, clip_paths: List[str], clip_results: List[Dict[str, Any]]
 ) -> Tuple[List[str], str, float]:
@@ -432,7 +558,7 @@ async def _combine_clips(
         clip_results: Results from sub-job processing (for cost calculation)
 
     Returns:
-        Tuple of (clip_urls, combined_url, total_cost)
+        Tuple of (clip_urls, combined_temp_path, total_cost)
     """
     logger.info(f"Combining {len(clip_paths)} clips for job {job_id}")
 
@@ -454,20 +580,28 @@ async def _combine_clips(
     if not success:
         raise SubJobOrchestratorError("Failed to combine video clips")
 
-    # Store clips and combined video in organized structure
-    clip_urls, combined_url = await asyncio.to_thread(
-        store_clip_and_combined,
-        job_id,
-        clip_paths,
-        str(combined_temp_path),
-        data_dir=settings.VIDEO_STORAGE_PATH,
-    )
+    # Store individual clips only (combined video will be stored after audio is added)
+    clip_urls = []
+    clips_dir = Path(settings.VIDEO_STORAGE_PATH) / str(job_id) / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+
+    for i, clip_path in enumerate(clip_paths, 1):
+        clip_filename = f"clip_{i:03d}.mp4"
+        dest_path = clips_dir / clip_filename
+
+        # Copy the file
+        import shutil
+        await asyncio.to_thread(shutil.copy2, clip_path, dest_path)
+
+        # Generate URL
+        clip_url = f"/api/v3/videos/{job_id}/clips/{clip_filename}"
+        clip_urls.append(clip_url)
 
     # Calculate total cost
     total_cost = sum(r.get("cost", 0.0) for r in clip_results)
 
     logger.info(
-        f"Combined video created: {combined_url}, total cost: ${total_cost:.2f}"
+        f"Combined video created at {combined_temp_path}, total cost: ${total_cost:.2f}"
     )
 
-    return clip_urls, combined_url, total_cost
+    return clip_urls, str(combined_temp_path), total_cost

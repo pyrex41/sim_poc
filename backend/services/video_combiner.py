@@ -334,6 +334,111 @@ def store_clip_and_combined(
     return clip_urls, combined_url
 
 
+def add_audio_to_video(
+    video_path: str,
+    audio_path: str,
+    output_path: str,
+    audio_fade_duration: float = 0.5,
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Add an audio track to a video file using FFmpeg.
+
+    Args:
+        video_path: Path to input video file
+        audio_path: Path to audio file (mp3, wav, etc.)
+        output_path: Path for output video with audio
+        audio_fade_duration: Fade in/out duration in seconds (default: 0.5)
+
+    Returns:
+        Tuple of (success, output_path, error_message)
+
+    Example:
+        success, path, error = add_audio_to_video(
+            "combined_video.mp4",
+            "background_music.mp3",
+            "final_video.mp4"
+        )
+    """
+    if not check_ffmpeg_available():
+        return False, None, "ffmpeg is not available on this system"
+
+    if not os.path.exists(video_path):
+        return False, None, f"Video file not found: {video_path}"
+
+    if not os.path.exists(audio_path):
+        return False, None, f"Audio file not found: {audio_path}"
+
+    logger.info(f"Adding audio to video: {video_path} + {audio_path} -> {output_path}")
+
+    try:
+        # Ensure output directory exists
+        output_dir = Path(output_path).parent
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build FFmpeg command to merge video and audio
+        # -i video_path: input video
+        # -i audio_path: input audio
+        # -c:v copy: copy video codec (no re-encoding)
+        # -c:a aac: encode audio as AAC
+        # -b:a 192k: audio bitrate
+        # -map 0:v:0: use video from first input
+        # -map 1:a:0: use audio from second input
+        # -shortest: end output when shortest input ends
+        # -af: audio filter for fade in/out
+
+        audio_filter = f"afade=t=in:st=0:d={audio_fade_duration},afade=t=out:st=0:d={audio_fade_duration}"
+
+        cmd = [
+            "ffmpeg",
+            "-i", video_path,  # Input video
+            "-i", audio_path,  # Input audio
+            "-c:v", "copy",  # Copy video without re-encoding
+            "-c:a", "aac",  # Encode audio as AAC
+            "-b:a", "192k",  # Audio bitrate
+            "-map", "0:v:0",  # Map video from first input
+            "-map", "1:a:0",  # Map audio from second input
+            "-af", audio_filter,  # Apply audio fades
+            "-shortest",  # Match duration to shortest input
+            "-y",  # Overwrite output file
+            output_path
+        ]
+
+        logger.debug(f"FFmpeg command: {' '.join(cmd)}")
+
+        # Execute FFmpeg
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,  # 10 minute timeout
+        )
+
+        if result.returncode != 0:
+            error_msg = f"FFmpeg failed: {result.stderr}"
+            logger.error(error_msg)
+            return False, None, error_msg
+
+        if not os.path.exists(output_path):
+            error_msg = "Output file was not created"
+            logger.error(error_msg)
+            return False, None, error_msg
+
+        file_size = os.path.getsize(output_path)
+        logger.info(f"Successfully added audio to video: {output_path} ({file_size} bytes)")
+
+        return True, output_path, None
+
+    except subprocess.TimeoutExpired:
+        error_msg = "FFmpeg operation timed out"
+        logger.error(error_msg)
+        return False, None, error_msg
+
+    except Exception as e:
+        error_msg = f"Error adding audio to video: {e}"
+        logger.error(error_msg, exc_info=True)
+        return False, None, error_msg
+
+
 def cleanup_temp_clips(clip_paths: List[str]) -> None:
     """
     Clean up temporary clip files.

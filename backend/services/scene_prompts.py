@@ -18,6 +18,10 @@ LUXURY_PROPERTY_SCENES = [
             "Cinematic wide shot, low angle. Clear water or reflective surface gently rippling. "
             "Subtle, smooth camera push-in (dolly forward). Bright natural lighting with glistening "
             "highlights on the water/surface. Photorealistic 4K, high fidelity, sharp focus on the edge detail."
+        ),
+        "music_prompt": (
+            "Cinematic ambient opening, gentle water sounds, soft synthesizer pads, "
+            "subtle orchestral strings, uplifting and inviting, 120 BPM"
         )
     },
     {
@@ -30,6 +34,10 @@ LUXURY_PROPERTY_SCENES = [
             "Smooth sideways camera truck (left or right – choose direction that creates natural parallax). "
             "Luxurious bedroom with large windows or glass walls. Parallax effect: bed and foreground elements "
             "move slightly faster than the background view. Soft natural light, no zoom, pure linear sideways motion."
+        ),
+        "music_prompt": (
+            "Soft luxurious ambiance, gentle piano melody, warm pad atmosphere, "
+            "elegant and serene, subtle string harmonies"
         )
     },
     {
@@ -41,6 +49,10 @@ LUXURY_PROPERTY_SCENES = [
         "prompt": (
             "Cinematic sideways truck (left or right – opposite of Scene 2). Modern bathroom vanity with mirror. "
             "Reflections shift naturally as camera moves. Clean, bright lighting, sharp focus on surfaces and fixtures."
+        ),
+        "music_prompt": (
+            "Clean spa-like ambiance, subtle chimes, flowing water undertones, "
+            "peaceful and modern, minimal percussion"
         )
     },
     {
@@ -53,6 +65,10 @@ LUXURY_PROPERTY_SCENES = [
             "Slow, smooth dolly forward toward the centerpiece tub or shower. Background view through window "
             "or opening remains steady. Serene spa-like atmosphere, soft balanced lighting, high detail on "
             "textures and materials."
+        ),
+        "music_prompt": (
+            "Serene spa atmosphere, gentle harp arpeggios, soft ambient pads, "
+            "tranquil and meditative, nature sounds"
         )
     },
     {
@@ -65,6 +81,10 @@ LUXURY_PROPERTY_SCENES = [
             "Wide shot, smooth sideways pan or truck (choose direction that follows the natural lines of "
             "furniture/layout). Spacious living room with prominent seating. Natural light streaming in, "
             "subtle atmospheric particles in the air. Fluid, steady camera motion."
+        ),
+        "music_prompt": (
+            "Spacious orchestral sweep, warm string section, elegant movement, "
+            "building energy, sophisticated and grand"
         )
     },
     {
@@ -77,6 +97,10 @@ LUXURY_PROPERTY_SCENES = [
             "Almost static tripod shot with very subtle handheld float or gentle drift. Elegant dining or "
             "lifestyle area. Warm, inviting lighting. Minimal natural movement (candles, slight breeze, "
             "or soft fabric sway if present)."
+        ),
+        "music_prompt": (
+            "Warm inviting atmosphere, acoustic guitar fingerpicking, soft jazz undertones, "
+            "intimate and cozy, evening ambiance"
         )
     },
     {
@@ -89,6 +113,10 @@ LUXURY_PROPERTY_SCENES = [
             "Smooth dolly outward or subtle drone-style pull-back. Establishing shot of the property at its "
             "most inviting time of day. Warm interior glow visible through windows (if applicable). "
             "Calm, cinematic, and peaceful closing moment."
+        ),
+        "music_prompt": (
+            "Grand cinematic finale, full orchestral swell, inspiring and aspirational, "
+            "peaceful resolution, warm golden hour feeling, uplifting conclusion"
         )
     }
 ]
