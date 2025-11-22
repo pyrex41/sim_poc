@@ -106,8 +106,14 @@ async def process_image_pairs_to_videos(
             logger.info(f"Rounded clip duration from {clip_duration}s to {rounded_duration}s for Veo3 compatibility")
 
         # Step 1: Create all sub-jobs in database with rounded duration
+        # Import scene prompts
+        from ..services.scene_prompts import get_scene_prompt
+
         sub_job_ids = []
         for i, (image1_id, image2_id, score, reasoning) in enumerate(image_pairs, 1):
+            # Get scene-specific prompt (scenes are numbered 1-7, repeating if needed)
+            scene_info = get_scene_prompt(i if i <= 7 else ((i - 1) % 7) + 1)
+
             sub_job_id = create_sub_job(
                 job_id=job_id,
                 sub_job_number=i,
@@ -115,9 +121,13 @@ async def process_image_pairs_to_videos(
                 image2_asset_id=image2_id,
                 model_id=video_model,
                 input_parameters={
-                    "duration": rounded_duration,
+                    "duration": rounded_duration or scene_info["duration"],
                     "score": score,
                     "reasoning": reasoning,
+                    "prompt": scene_info["prompt"],  # Scene-specific cinematography prompt
+                    "scene_number": scene_info["scene_number"],
+                    "scene_name": scene_info["name"],
+                    "motion_goal": scene_info["motion_goal"],
                 },
             )
             sub_job_ids.append(sub_job_id)
@@ -300,6 +310,10 @@ async def _process_single_sub_job(
         update_sub_job_status(sub_job_id, "processing")
 
         # Generate video using Replicate
+        # Check if there's a scene-specific prompt in inputParameters
+        input_params = sub_job.get("inputParameters", {})
+        scene_prompt = input_params.get("prompt") or input_params.get("scene_prompt")
+
         replicate_client = ReplicateClient()
         result = await asyncio.to_thread(
             replicate_client.generate_video_from_pair,
@@ -307,6 +321,7 @@ async def _process_single_sub_job(
             image2_url,
             model=sub_job["modelId"],
             duration=clip_duration,
+            prompt=scene_prompt,  # Pass scene-specific prompt if available
         )
 
         if not result["success"]:
