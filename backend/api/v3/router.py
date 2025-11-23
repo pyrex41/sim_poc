@@ -2107,9 +2107,9 @@ async def create_job_from_property_photos(
     Returns:
         APIResponse with job details and Grok's selection metadata
     """
-    from ..services.property_photo_selector import PropertyPhotoSelector
-    from ..services.sub_job_orchestrator import process_image_pairs_to_videos
-    from ..database_helpers import create_asset, get_campaign_by_id, get_client_by_id
+    from ...services.property_photo_selector import PropertyPhotoSelector
+    from ...services.sub_job_orchestrator import process_image_pairs_to_videos
+    from ...database_helpers import create_asset, get_campaign_by_id, get_client_by_id
 
     try:
         logger.info(
