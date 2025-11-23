@@ -701,30 +701,30 @@ def get_campaign_by_id(campaign_id: str, user_id: int) -> Optional[Dict[str, Any
 
 
 def list_campaigns(
-    user_id: int, client_id: Optional[str] = None, limit: int = 100, offset: int = 0
+    user_id: Optional[int] = None, client_id: Optional[str] = None, limit: int = 100, offset: int = 0
 ) -> List[Dict[str, Any]]:
-    """List campaigns for a user, optionally filtered by client."""
+    """List campaigns, optionally filtered by user and/or client."""
     with get_db() as conn:
+        # Build query dynamically based on filters
+        query = "SELECT * FROM campaigns"
+        conditions = []
+        params = []
+
+        if user_id is not None:
+            conditions.append("user_id = ?")
+            params.append(user_id)
+
         if client_id:
-            rows = conn.execute(
-                """
-                SELECT * FROM campaigns
-                WHERE user_id = ? AND client_id = ?
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (user_id, client_id, limit, offset),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT * FROM campaigns
-                WHERE user_id = ?
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (user_id, limit, offset),
-            ).fetchall()
+            conditions.append("client_id = ?")
+            params.append(client_id)
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        rows = conn.execute(query, params).fetchall()
 
         campaigns = []
         for row in rows:
