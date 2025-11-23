@@ -2087,6 +2087,7 @@ async def create_job_from_image_pairs(
 @router.post("/jobs/from-property-photos", response_model=APIResponse, tags=["v3-jobs"])
 async def create_job_from_property_photos(
     request: PropertyVideoRequest,
+    background_tasks: BackgroundTasks,
     current_user: Dict = Depends(verify_auth),
 ) -> APIResponse:
     """
@@ -2230,20 +2231,18 @@ async def create_job_from_property_photos(
         # Update status to indicate AI selection complete
         update_video_status(job_id, "image_pair_selection")
 
-        # Launch parallel video generation in background
+        # Launch parallel video generation in background using FastAPI BackgroundTasks
         async def run_orchestration():
             try:
                 await process_image_pairs_to_videos(
                     job_id, image_pairs, request.clipDuration
                 )
             except Exception as e:
-                logger.error(f"Orchestration failed for job {job_id}: {e}")
+                logger.error(f"Orchestration failed for job {job_id}: {e}", exc_info=True)
                 update_video_status(job_id, "failed", metadata={"error": str(e)})
 
-        # Schedule orchestration in background
-        import asyncio
-
-        asyncio.create_task(run_orchestration())
+        # Schedule orchestration in background (FastAPI ensures it completes)
+        background_tasks.add_task(run_orchestration)
 
         # Return job details with Grok's selection metadata
         return APIResponse.success(
