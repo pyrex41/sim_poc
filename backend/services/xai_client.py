@@ -36,10 +36,13 @@ class XAIClient:
 
     def _group_assets_by_room(self, assets: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Group assets by room type extracted from tags.
+        Group assets by room instance extracted from tags.
 
-        For tags like ["Bedroom 1 2"], extracts "Bedroom" as the room type.
-        For tags like ["Ensuite Bathroom 1 1"], extracts "Ensuite Bathroom".
+        For tags like ["Bedroom 1 2"], extracts "Bedroom 1" as the room instance.
+        For tags like ["Ensuite Bathroom 1 3"], extracts "Ensuite Bathroom 1".
+        For tags like ["Kitchen 5"], extracts "Kitchen".
+
+        Removes the last number (photo index within room) to get room instance.
         """
         from collections import defaultdict
         import json
@@ -59,16 +62,25 @@ class XAIClient:
             if tags and len(tags) > 0:
                 tag = tags[0]  # Use first tag
 
-                # Extract room type from tag
+                # Extract room instance by removing last number
+                # "Bedroom 1 2" → "Bedroom 1"
+                # "Kitchen 5" → "Kitchen"
+                # "Ensuite Bathroom 1 3" → "Ensuite Bathroom 1"
                 parts = tag.split()
                 if len(parts) >= 1:
-                    # Handle multi-word room types
-                    if parts[0] in ['Ensuite', 'Half', 'Dining', 'Living', 'Laundry', 'Tv']:
-                        room_type = ' '.join(parts[:2]) if len(parts) >= 2 else parts[0]
+                    # Remove the last part if it's a number (photo index)
+                    if len(parts) > 1 and parts[-1].isdigit():
+                        room_instance = ' '.join(parts[:-1])
                     else:
-                        room_type = parts[0]
+                        room_instance = tag  # Keep as-is if no trailing number
 
-                    room_groups[room_type].append(asset)
+                    room_groups[room_instance].append(asset)
+
+                    logger.debug(f"[ROOM GROUPING] Tag '{tag}' → Room instance '{room_instance}'")
+
+        logger.info(f"[ROOM GROUPING] Created {len(room_groups)} room instance groups")
+        for room_instance, group_assets in sorted(room_groups.items(), key=lambda x: len(x[1]), reverse=True)[:10]:
+            logger.info(f"[ROOM GROUPING]   {room_instance}: {len(group_assets)} images")
 
         return dict(room_groups)
 
@@ -290,93 +302,38 @@ Select exactly {num_rooms} room types that will create the most compelling prope
         campaign_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[Tuple[str, str, float, str]]:
         """
-        Stage 2: Select best 2 images from a specific room to form a pair.
+        Stage 2: Deterministically select first 2 images from a room instance to form a pair.
 
         Args:
-            room_type: Name of the room type (e.g., "Bedroom", "Kitchen")
-            room_assets: List of assets for this room
-            campaign_context: Optional campaign info
+            room_type: Name of the room instance (e.g., "Bedroom 1", "Kitchen")
+            room_assets: List of assets for this room instance
+            campaign_context: Optional campaign info (unused for deterministic selection)
 
         Returns:
-            Tuple of (image1_id, image2_id, score, reasoning) or None if failed
+            Tuple of (image1_id, image2_id, score, reasoning) or None if < 2 images
         """
         if len(room_assets) < 2:
             logger.warning(f"[PAIR SELECTION {room_type}] Only {len(room_assets)} images, need at least 2 for interpolation")
             return None  # Can't create a valid pair without 2 different images
 
-        # Build pair selection prompt
-        prompt = f"""You are an expert luxury real estate cinematographer selecting images for video generation.
+        # Deterministic selection: just grab first 2 images from this room instance
+        image1 = room_assets[0]
+        image2 = room_assets[1]
 
-Select the BEST 2 images from this {room_type} to create a smooth video transition.
+        image1_tags = ', '.join(image1.get('tags', []))
+        image2_tags = ', '.join(image2.get('tags', []))
 
-The video will interpolate between Image 1 (start frame) and Image 2 (end frame) to create motion.
+        logger.info(
+            f"[PAIR SELECTION {room_type}] Deterministic selection: "
+            f"[{image1_tags}] → [{image2_tags}]"
+        )
 
-AVAILABLE {room_type.upper()} IMAGES ({len(room_assets)} total):
-"""
-
-        for i, asset in enumerate(room_assets, 1):
-            tags_str = ', '.join(asset.get('tags', []))
-            prompt += f"""
-{i}. ID: {asset['id']}
-   Name: {asset.get('name', 'Unnamed')}
-   Description: {asset.get('description', 'No description')}
-   Tags: {tags_str}
-"""
-
-        prompt += f"""
-SELECTION CRITERIA:
-1. Visual Continuity: Choose images with similar lighting, color palette, and composition
-2. Camera Movement Potential: Select images that suggest natural camera motion (e.g., wide to close-up)
-3. Feature Showcase: Highlight the best features of this {room_type}
-4. Transition Quality: Images should interpolate smoothly without jarring changes
-
-RESPONSE FORMAT (JSON):
-{{
-  "image1_id": "uuid-of-first-image",
-  "image2_id": "uuid-of-second-image",
-  "score": 0.95,
-  "reasoning": "Brief explanation of why this pair works well"
-}}
-
-Select the 2 images that will create the most compelling {room_type} scene.
-"""
-
-        # Call Grok with retry logic
-        try:
-            data = self._call_grok_api(prompt, temperature=0.3)
-            content = data["choices"][0]["message"]["content"].strip()
-
-            # Parse JSON
-            if "```json" in content:
-                content = content.split("```json")[1].split("```")[0].strip()
-            elif "```" in content:
-                content = content.split("```")[1].split("```")[0].strip()
-
-            result = json.loads(content)
-
-            image1_id = result["image1_id"]
-            image2_id = result["image2_id"]
-            score = float(result.get("score", 0.8))
-            reasoning = result.get("reasoning", f"Selected pair for {room_type}")
-
-            # Validate IDs exist in room_assets
-            valid_ids = {a['id'] for a in room_assets}
-            if image1_id not in valid_ids or image2_id not in valid_ids:
-                raise ValueError(f"Selected image IDs not in {room_type} assets")
-
-            return (image1_id, image2_id, score, reasoning)
-
-        except Exception as e:
-            logger.error(f"[PAIR SELECTION {room_type}] Failed: {e}")
-            # Fallback: use first 2 images
-            if len(room_assets) >= 2:
-                return (
-                    room_assets[0]['id'],
-                    room_assets[1]['id'],
-                    0.5,
-                    f"Fallback selection for {room_type} after error"
-                )
-            return None
+        return (
+            image1['id'],
+            image2['id'],
+            0.8,  # Default confidence score
+            f"Deterministic selection: first 2 images from {room_type}"
+        )
 
     def _build_selection_prompt(
         self,
