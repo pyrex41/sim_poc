@@ -1,5 +1,5 @@
 # Current Progress Review
-**Last Updated:** November 22, 2025 (Late Evening)
+**Last Updated:** November 22, 2025 (End of Day)
 **Project:** AI-Powered Luxury Property Video Generation System
 **Branch:** simple
 
@@ -7,100 +7,91 @@
 
 ## 🎯 Executive Summary
 
-**Project Status: ~75% Complete for MVP**
+**Project Status: ~70% Complete for MVP**
 
-The luxury property video generation system has achieved a major milestone: **end-to-end video playback is now fully functional on production**. After fixing critical storage and authentication issues, videos are successfully generated, stored in the database, and playable in the browser.
+The luxury property video generation system continues debugging production deployment issues. The two-stage property photo selection feature has been deployed with multiple critical fixes for import paths, API signatures, database queries, and parameter handling. However, video generation jobs are still failing after successful pair selection.
 
-**Latest Achievement:** Fixed video playback on production deployment by:
-1. Adding missing video serving endpoints
-2. Migrating from filesystem to database blob storage
-3. Fixing authentication for external services (Replicate)
-4. Successfully testing job 141 end-to-end on production
+**Latest Session Focus:** Debugging two-stage property photo selection deployment issues
+1. Fixed import path errors in v3 router
+2. Fixed Grok API method signature mismatches
+3. Fixed database query filtering for campaigns list
+4. Fixed client_id whitespace handling
+5. ⚠️ Video generation still failing after pair selection completes
 
 **Production Status:**
-- ✅ Complete V3 API architecture (28 endpoints)
-- ✅ Video generation working end-to-end
-- ✅ Videos stored in persistent database (/data/scenes.db)
-- ✅ Video playback working in browser
-- ✅ X-API-Key and temporary token authentication
-- ✅ AI-powered image pair selection using Grok
-- ✅ Scene-based video generation with professional cinematography
-- ✅ Progressive audio generation with MusicGen
-- ✅ Full sub-job orchestration with unlimited parallelism
+- ✅ Complete V3 API architecture (28+ endpoints)
+- ✅ Two-stage AI selection deployed (Stage 1: room instances, Stage 2: deterministic pairs)
+- ✅ Import paths corrected (services accessible)
+- ✅ Database queries fixed (dynamic WHERE clauses)
+- ✅ Parameter sanitization working
+- ✅ Cross-user API access via API keys
+- ⚠️ Video generation jobs failing (status: "failed" after pair selection)
+- ⚠️ Need to debug Replicate API integration
 - ⚠️ Frontend integration partially complete
-- ⚠️ Production monitoring needs enhancement
 
 ---
 
-## 🚀 Most Recent Session (Nov 22 - Late Evening)
+## 🚀 Most Recent Session (Nov 22 - Debugging Two-Stage Selection)
 
-### Session: Video Playback Fix and Production Testing
-**Commits:** `83b6d69`, `411c518`, `169b31d`, `1c727e7`, `3f514b7`, `199ad40`, `2e6aff9`, `21897cb`, `94d2c48`
-**Files Changed:** 3 files (router.py, sub_job_orchestrator.py, auth.py)
-**Lines Modified:** ~450 lines
+### Session: Two-Stage Property Photo Selection Debugging
+**Commits:** `f1a4b27`, `77bd3db`, `b516a56`, `c538e66`, `0696f29`, `fe2b3bb` (checkpoint)
+**Files Changed:** 4 files (router.py, xai_client.py, database_helpers.py, progress log)
+**Lines Modified:** ~150 lines across multiple critical fixes
+**Deployments:** 6 production deploys via Fly.io
 
 ### Problem Discovery
-User reported that videos were successfully generated on deployment but couldn't be watched. The frontend showed a "Generated Video" modal with a video player that wouldn't load, displaying 404/500 errors in the console.
+User reported that the `/jobs/from-property-photos` endpoint was returning empty data despite campaigns existing in the database. Multiple deployment iterations revealed cascading issues with import paths, API signatures, database queries, and parameter handling.
 
 ### Root Causes Identified
 
-1. **Missing Video Serving Endpoints**
-   - Sub-job orchestrator was creating URLs like `/api/v3/videos/141/combined`
-   - These endpoints didn't exist in the API
-   - Frontend received 404 errors when trying to load videos
+1. **Import Path Errors** (backend/api/v3/router.py:2110-2112)
+   - `ModuleNotFoundError: No module named 'backend.api.services'`
+   - Using `..services` instead of `...services`
+   - Router at `backend/api/v3/router.py` needs three dots to reach backend root
+   - Services directory is at `backend/services/`, not `backend/api/services/`
 
-2. **Wrong Storage Approach**
-   - Initial fix used filesystem storage (`./DATA/videos`)
-   - Filesystem is ephemeral on Fly.io deployments
-   - Videos generated locally weren't accessible in production
-   - User correction: "videos should be stored as blob data in the /data/scenes.db just like all the other assets"
+2. **Grok API Method Signature Mismatch** (backend/services/xai_client.py:728-763)
+   - `TypeError: _call_grok_api() got an unexpected keyword argument 'temperature'`
+   - Missing `temperature` parameter in method signature
+   - Missing required `image_assets` parameter at call site (line 271)
+   - Method expected different parameters than being passed
 
-3. **Authentication Blocking External Services**
-   - Replicate (Veo3) couldn't access asset URLs for video generation
-   - Authentication was always required even with valid temporary tokens
-   - Caused "The input was invalid" (E006) errors from Replicate
+3. **Database Query Filtering Issues** (backend/database_helpers.py:703-727)
+   - Empty campaign list despite data existing in database
+   - Hardcoded `WHERE user_id = ?` with `user_id=None` → SQL: `WHERE user_id = NULL` (matches nothing)
+   - Database had 9 campaigns, 2 clients, 603 images - all confirmed healthy
+   - Needed dynamic query building to skip WHERE clauses for None values
+
+4. **Client ID Whitespace Handling** (backend/api/v3/router.py:332)
+   - Frontend sending `client_id=%209c57cc62...` (with `%20` = space before UUID)
+   - Query searching for `" 9c57cc62..."` with leading space
+   - Didn't match actual `"9c57cc62..."` in database
+   - Needed parameter sanitization before querying
 
 ### Solutions Implemented
 
-#### 1. Video Serving Endpoints (`backend/api/v3/router.py:2209-2275`)
+#### 1. Import Path Corrections (`backend/api/v3/router.py:2110-2112`)
 
-Added two new endpoints to serve videos:
+Fixed relative import paths to correctly reach services directory:
 
 ```python
-@router.get("/videos/{job_id}/clips/{clip_filename}", tags=["v3-videos"])
-async def get_video_clip(job_id: str, clip_filename: str):
-    """Serve individual video clip from database blob storage"""
-    # Serves clips like scene_1_clip.mp4, scene_2_clip.mp4, etc.
+# Before (WRONG):
+from ..services.property_photo_selector import PropertyPhotoSelector
+from ..services.sub_job_orchestrator import process_image_pairs_to_videos
+from ..database_helpers import create_asset, get_campaign_by_id, get_client_by_id
 
-@router.get("/videos/{job_id}/combined", tags=["v3-videos"])
-async def get_combined_video(job_id: str):
-    """Serve combined video from database blob storage"""
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT video_data FROM generated_videos WHERE id = ?",
-            (job_id,),
-        ).fetchone()
-
-        if not row or not row["video_data"]:
-            raise HTTPException(status_code=404, detail="Combined video not found")
-
-        video_data = row["video_data"]
-
-    return Response(
-        content=video_data,
-        media_type="video/mp4",
-        headers={
-            "Accept-Ranges": "bytes",  # Enable seeking
-            "Cache-Control": "public, max-age=31536000",  # Long-term cache
-            "Content-Length": str(len(video_data)),
-        },
-    )
+# After (CORRECT):
+from ...services.property_photo_selector import PropertyPhotoSelector
+from ...services.sub_job_orchestrator import process_image_pairs_to_videos
+from ...database_helpers import create_asset, get_campaign_by_id, get_client_by_id
 ```
 
-**Key Headers:**
-- `Accept-Ranges: bytes` - Enables video seeking/scrubbing
-- `Cache-Control: public, max-age=31536000` - Caches for 1 year
-- `Content-Length` - Required for proper video playback
+**Commit:** `f1a4b27` - "fix: correct import paths in property photos endpoint"
+
+**Reasoning:**
+- Router at `backend/api/v3/router.py`
+- Services at `backend/services/`
+- Need to go up 3 levels: v3 → api → backend
 
 #### 2. Database Blob Storage (`backend/services/sub_job_orchestrator.py`)
 
