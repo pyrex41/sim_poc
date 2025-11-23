@@ -661,11 +661,11 @@ def create_campaign(
 
 
 def get_campaign_by_id(campaign_id: str, user_id: int) -> Optional[Dict[str, Any]]:
-    """Get a campaign by ID (user must own the campaign)."""
+    """Get a campaign by ID (allows cross-user access for API keys)."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM campaigns WHERE id = ? AND user_id = ?",
-            (campaign_id, user_id),
+            "SELECT * FROM campaigns WHERE id = ?",
+            (campaign_id,),
         ).fetchone()
 
         if row:
