@@ -462,7 +462,7 @@ async def get_assets(
     """Get assets with optional filtering"""
     try:
         assets = list_assets(
-            user_id=current_user["id"],
+            user_id=None,  # Allow access to all campaigns
             client_id=client_id,
             campaign_id=campaign_id,
             asset_type=asset_type,
@@ -1904,9 +1904,8 @@ async def create_job_from_image_pairs(
             return APIResponse.create_error("campaignId is required")
 
         # Fetch campaign assets (images only)
-        # Fetch campaign assets (images only)
         assets = list_assets(
-            user_id=current_user["id"],
+            user_id=None,  # Allow access to all campaigns
             campaign_id=campaign_id,
             asset_type="image",
             limit=1000,

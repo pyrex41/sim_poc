@@ -301,12 +301,8 @@ Select exactly {num_rooms} room types that will create the most compelling prope
             Tuple of (image1_id, image2_id, score, reasoning) or None if failed
         """
         if len(room_assets) < 2:
-            logger.warning(f"[PAIR SELECTION {room_type}] Only {len(room_assets)} images, need at least 2")
-            if len(room_assets) == 1:
-                # Use same image twice as fallback
-                asset = room_assets[0]
-                return (asset['id'], asset['id'], 0.5, f"Only 1 {room_type} image available (duplicated)")
-            return None
+            logger.warning(f"[PAIR SELECTION {room_type}] Only {len(room_assets)} images, need at least 2 for interpolation")
+            return None  # Can't create a valid pair without 2 different images
 
         # Build pair selection prompt
         prompt = f"""You are an expert luxury real estate cinematographer selecting images for video generation.
@@ -942,12 +938,13 @@ Begin your analysis and selection now.
                     )
                     continue
 
-                # Allow same-image pairs for camera movement simulation (zoom, pan, etc.)
+                # Reject same-image pairs - video interpolation requires 2 different images
                 if image1_id == image2_id:
-                    logger.info(
-                        f"[GROK VALIDATION] ACCEPTED Pair {i}: "
-                        f"Same image used twice (camera movement simulation): {image1_id}"
+                    logger.warning(
+                        f"[GROK VALIDATION] REJECTED Pair {i}: "
+                        f"Same image used twice: {image1_id} (need 2 different images for interpolation)"
                     )
+                    continue
 
                 logger.info(f"[GROK VALIDATION] ACCEPTED Pair {i}")
                 pairs.append((image1_id, image2_id, float(score), reasoning))
