@@ -10,6 +10,7 @@ from fastapi import (
     Request,
     Form,
 )
+from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -24,8 +25,12 @@ import hashlib
 import json
 import requests
 import asyncio
+import logging
 from dotenv import load_dotenv
 from pathlib import Path
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Import Asset Pydantic models
 from .schemas.assets import (
@@ -130,6 +135,9 @@ from .api_routes import router as clients_campaigns_router
 
 # Import v3 API router
 from .api.v3.router import router as v3_router
+
+# Import Luigi workflow router
+from .workflows.fastapi_integration import luigi_router
 
 # Import logging
 import logging
@@ -318,7 +326,64 @@ openapi_tags = [
     },
 ]
 
-app = FastAPI(title="Physics Simulator API", version="1.0.0", openapi_tags=openapi_tags)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown events for the application."""
+    # Startup: Recover orphaned jobs from previous shutdown
+    logger.info("Checking for orphaned jobs from previous shutdown...")
+    try:
+        from .database import get_db
+        from .workflows.runner import run_pipeline_async
+
+        with get_db() as conn:
+            orphaned = conn.execute("""
+                SELECT id, parameters
+                FROM generated_videos
+                WHERE status IN ('image_pair_selection', 'sub_job_processing', 'sub_job_creation')
+                AND created_at > datetime('now', '-2 hours')
+            """).fetchall()
+
+            if orphaned:
+                logger.warning(f"Found {len(orphaned)} orphaned jobs, re-triggering...")
+
+                for job in orphaned:
+                    job_id = job['id']
+                    try:
+                        params = json.loads(job['parameters']) if isinstance(job['parameters'], str) else job['parameters']
+                        campaign_id = params.get('campaign_id')
+                        clip_duration = params.get('clip_duration')
+                        num_pairs = params.get('num_pairs')
+
+                        logger.info(f"Recovering job {job_id} for campaign {campaign_id}")
+
+                        # Re-trigger in background (don't block startup)
+                        asyncio.create_task(run_pipeline_async(
+                            job_id=job_id,
+                            campaign_id=campaign_id,
+                            clip_duration=clip_duration,
+                            num_pairs=num_pairs,
+                            use_local_scheduler=True,
+                        ))
+                    except Exception as e:
+                        logger.error(f"Failed to recover job {job_id}: {e}")
+            else:
+                logger.info("No orphaned jobs found")
+    except Exception as e:
+        logger.error(f"Error during startup recovery: {e}")
+
+    yield  # Application runs here
+
+    # Shutdown: Log warning about running pipelines
+    logger.info("Shutting down - any running pipelines will be recovered on next startup")
+
+
+app = FastAPI(
+    title="Physics Simulator API",
+    version="1.0.0",
+    openapi_tags=openapi_tags,
+    lifespan=lifespan
+)
 
 # CORS middleware (for development)
 app.add_middleware(
@@ -7023,6 +7088,7 @@ app.include_router(clients_campaigns_router, prefix="/api", tags=["Core Entities
 
 # Include v3 API router (tags are defined within the router)
 app.include_router(v3_router)
+app.include_router(luigi_router)
 
 # ============================================
 # Video/Image Retry Endpoints

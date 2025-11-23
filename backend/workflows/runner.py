@@ -8,8 +8,11 @@ and monitoring their progress.
 import luigi
 import logging
 import asyncio
+import subprocess
+import json
 from typing import Dict, Any, List, Optional
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from .campaign_pipeline import CampaignPipelineWorkflow
 
@@ -25,10 +28,13 @@ def run_pipeline_sync(
     clip_duration: Optional[float] = None,
     num_pairs: Optional[int] = None,
     workers: int = 10,
-    use_local_scheduler: bool = False,
+    use_local_scheduler: bool = True,  # No separate daemon needed
 ) -> Dict[str, Any]:
     """
-    Run the campaign pipeline workflow synchronously.
+    Run the campaign pipeline workflow synchronously via subprocess.
+
+    This runs Luigi as a separate process to avoid signal handler conflicts
+    when called from FastAPI background tasks.
 
     Args:
         job_id: Parent job ID
@@ -46,31 +52,37 @@ def run_pipeline_sync(
     )
 
     try:
-        # Build task parameters
-        task_params = {
-            "job_id": job_id,
-            "campaign_id": campaign_id,
-        }
+        # Build Luigi command-line arguments
+        cmd = [
+            "python", "-m", "luigi",
+            "--module", "backend.workflows.campaign_pipeline",
+            "CampaignPipelineWorkflow",
+            "--job-id", str(job_id),
+            "--campaign-id", campaign_id,
+            "--workers", str(workers),
+        ]
 
         if clip_duration is not None:
-            task_params["clip_duration"] = clip_duration
+            cmd.extend(["--clip-duration", str(clip_duration)])
 
         if num_pairs is not None:
-            task_params["num_pairs"] = num_pairs
+            cmd.extend(["--num-pairs", str(num_pairs)])
 
-        # Create workflow task
-        workflow = CampaignPipelineWorkflow(**task_params)
+        if use_local_scheduler:
+            cmd.append("--local-scheduler")
 
-        # Run the workflow
-        result = luigi.build(
-            [workflow],
-            workers=workers,
-            local_scheduler=use_local_scheduler,
-            log_level="INFO",
+        # Run Luigi as subprocess
+        logger.info(f"Running Luigi command: {' '.join(cmd)}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=7200,  # 2 hours timeout for large campaigns
         )
 
-        if result:
+        if result.returncode == 0:
             logger.info(f"Luigi pipeline completed successfully for job {job_id}")
+            logger.debug(f"Luigi stdout: {result.stdout}")
             return {
                 "success": True,
                 "job_id": job_id,
@@ -78,12 +90,22 @@ def run_pipeline_sync(
             }
         else:
             logger.error(f"Luigi pipeline failed for job {job_id}")
+            logger.error(f"Luigi stderr: {result.stderr}")
+            logger.error(f"Luigi stdout: {result.stdout}")
             return {
                 "success": False,
                 "job_id": job_id,
-                "message": "Pipeline failed - check Luigi scheduler for details",
+                "message": f"Pipeline failed with exit code {result.returncode}",
+                "error": result.stderr,
             }
 
+    except subprocess.TimeoutExpired:
+        logger.error(f"Luigi pipeline timed out for job {job_id}")
+        return {
+            "success": False,
+            "job_id": job_id,
+            "error": "Pipeline execution timed out after 1 hour",
+        }
     except Exception as e:
         logger.error(f"Error running Luigi pipeline for job {job_id}: {e}", exc_info=True)
         return {
@@ -99,7 +121,7 @@ async def run_pipeline_async(
     clip_duration: Optional[float] = None,
     num_pairs: Optional[int] = None,
     workers: int = 10,
-    use_local_scheduler: bool = False,
+    use_local_scheduler: bool = True,  # No separate daemon needed
 ) -> Dict[str, Any]:
     """
     Run the campaign pipeline workflow asynchronously.

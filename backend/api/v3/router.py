@@ -1895,7 +1895,6 @@ async def create_job_from_image_pairs(
     }
     """
     from ...services.xai_client import XAIClient
-    from ...services.sub_job_orchestrator import process_image_pairs_to_videos
     from ...database_helpers import list_assets, get_campaign_by_id, get_client_by_id
 
     try:
@@ -2016,65 +2015,59 @@ async def create_job_from_image_pairs(
 
         # Log summary of asset data
         logger.info(
-            f"[IMAGE PAIRING] Asset data summary: "
-            f"{len(asset_data)} assets with tags={sum(1 for a in asset_data if a['tags'])}"
+            f"[ASSET SUMMARY] {len(asset_data)} assets available for campaign {campaign_id}"
         )
 
-        try:
-            image_pairs = xai_client.select_image_pairs(
-                assets=asset_data,
-                campaign_context=campaign_context,
-                client_brand_guidelines=brand_guidelines,
-                num_pairs=num_pairs,
-            )
-        except Exception as e:
-            logger.error(f"Image pair selection failed: {e}")
-            update_video_status(job_id, "failed", metadata={"error": str(e)})
-            return APIResponse.create_error(f"Image pair selection failed: {str(e)}")
+        # Image pairing is now handled by Luigi pipeline:
+        # 1. AssetGroupingTask - Groups assets by room (e.g., "Bedroom 1", "Kitchen")
+        # 2. GroupSelectionTask - Uses Claude to select 7 groups in narrative order
+        # 3. ImagePairSelectionTask - Takes first 2 images from each selected group
+        # 4. SubJobCreationTask - Creates sub-jobs for each pair
+        # 5. ParallelVideoGenerationTask - Generates videos in parallel
+        # 6. VideoCombinationTask - Combines all clips
+        # 7. AudioGenerationTask - Generates background music
+        # 8. AudioMergingTask - Merges audio with video
+        # 9. VideoStorageTask - Stores final video in database
+        logger.info("[PIPELINE] Triggering Luigi workflow for campaign video generation")
 
-        # Store selected pairs in job parameters
-        from ...database import get_job, update_job_progress
+        # Launch Luigi workflow in background using FastAPI BackgroundTasks
+        from ...workflows.runner import run_pipeline_async
 
-        job = get_job(job_id)
-        if job:
-            params = (
-                json.loads(job["parameters"])
-                if isinstance(job["parameters"], str)
-                else job["parameters"]
-            )
-            params["selected_pairs"] = [
-                {
-                    "image1_id": pair[0],
-                    "image2_id": pair[1],
-                    "score": pair[2],
-                    "reasoning": pair[3],
-                }
-                for pair in image_pairs
-            ]
-            update_job_progress(job_id, {"selected_pairs": len(image_pairs)})
-
-        logger.info(f"Selected {len(image_pairs)} image pairs for job {job_id}")
-
-        # Launch parallel video generation in background
-        async def run_orchestration():
+        async def run_luigi_workflow():
             try:
-                await process_image_pairs_to_videos(job_id, image_pairs, clip_duration)
+                logger.info(f"Starting Luigi pipeline for job {job_id}, campaign {campaign_id}")
+                result = await run_pipeline_async(
+                    job_id=job_id,
+                    campaign_id=campaign_id,
+                    clip_duration=clip_duration,
+                    num_pairs=num_pairs,
+                    workers=10,
+                    use_local_scheduler=True  # Embedded scheduler, no daemon needed
+                )
+                if not result.get("success"):
+                    logger.error(f"Luigi workflow failed for job {job_id}: {result.get('message', 'Unknown error')}")
+                    update_video_status(job_id, "failed", metadata={"error": result.get("message", "Luigi workflow failed")})
+                else:
+                    logger.info(f"Luigi pipeline completed successfully for job {job_id}")
             except Exception as e:
-                logger.error(f"Orchestration failed for job {job_id}: {e}")
+                logger.error(f"Luigi workflow exception for job {job_id}: {e}", exc_info=True)
                 update_video_status(job_id, "failed", metadata={"error": str(e)})
 
-        # Schedule orchestration in background
-        import asyncio
+        # Use FastAPI's background_tasks to trigger Luigi workflow
+        # This ensures Luigi runs in a proper context and doesn't block the response
+        background_tasks.add_task(run_luigi_workflow)
 
-        asyncio.create_task(run_orchestration())
+        logger.info(f"Job {job_id} created, Luigi workflow scheduled in background")
 
         # Return job ID immediately for polling
+        # The Luigi pipeline will handle all image pairing and video generation
         return APIResponse.success(
             data={
                 "jobId": str(job_id),
                 "status": "image_pair_selection",
-                "totalPairs": len(image_pairs),
-                "message": f"Job created with {len(image_pairs)} image pairs. Video generation started.",
+                "campaignId": campaign_id,
+                "totalAssets": len(assets),
+                "message": f"Job created successfully. Luigi pipeline is processing {len(assets)} assets from campaign {campaign_id}.",
             },
             meta=create_api_meta(),
         )
