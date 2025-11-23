@@ -328,9 +328,12 @@ async def get_campaigns(
 ) -> APIResponse:
     """Get campaigns, optionally filtered by client"""
     try:
+        # Strip whitespace from client_id if provided
+        clean_client_id = client_id.strip() if client_id else None
+
         campaigns = list_campaigns(
             user_id=None,  # Allow access to all campaigns
-            client_id=client_id, limit=limit, offset=offset
+            client_id=clean_client_id, limit=limit, offset=offset
         )
         meta = create_api_meta(page=(offset // limit) + 1, total=len(campaigns))
         return APIResponse.success(data=campaigns, meta=meta)
