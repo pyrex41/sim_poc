@@ -17,6 +17,7 @@ class ImageFormat(str, Enum):
     WEBP = "webp"
     GIF = "gif"
     SVG = "svg"
+    SVG_XML = "svg+xml"
 
 
 class VideoFormat(str, Enum):
