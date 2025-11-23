@@ -1,0 +1,12 @@
+# Luigi Workflow Dependencies
+
+# Core workflow orchestration
+luigi>=3.5.0
+
+# Luigi task history database support (optional)
+# Uncomment if you want persistent task history
+# sqlalchemy>=1.4.0
+
+# Luigi monitoring and notifications (optional)
+# tornado>=6.0.0  # For Luigi scheduler web UI (usually included)
+# python-daemon>=2.3.0  # For running Luigi as daemon
