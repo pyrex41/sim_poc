@@ -726,7 +726,7 @@ Begin your analysis and selection now.
         return prompt
 
     def _call_grok_api(
-        self, prompt: str, image_assets: List[Dict[str, Any]]
+        self, prompt: str, image_assets: List[Dict[str, Any]] = None, temperature: float = 0.7
     ) -> Dict[str, Any]:
         """
         Call the xAI Grok API.
@@ -734,10 +734,14 @@ Begin your analysis and selection now.
         Args:
             prompt: The text prompt
             image_assets: List of image assets (for potential vision API support)
+            temperature: Sampling temperature (0.0 to 1.0)
 
         Returns:
             API response dict
         """
+        if image_assets is None:
+            image_assets = []
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -756,7 +760,7 @@ Begin your analysis and selection now.
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.7,  # Some creativity but mostly consistent
+            "temperature": temperature,
             "response_format": {"type": "json_object"},  # Request JSON response
         }
 
