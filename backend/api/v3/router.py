@@ -329,7 +329,8 @@ async def get_campaigns(
     """Get campaigns, optionally filtered by client"""
     try:
         campaigns = list_campaigns(
-            user_id=current_user["id"], client_id=client_id, limit=limit, offset=offset
+            user_id=None,  # Allow access to all campaigns
+            client_id=client_id, limit=limit, offset=offset
         )
         meta = create_api_meta(page=(offset // limit) + 1, total=len(campaigns))
         return APIResponse.success(data=campaigns, meta=meta)
