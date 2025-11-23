@@ -268,7 +268,7 @@ Select exactly {num_rooms} room types that will create the most compelling prope
         # Call Grok for room selection with retry logic
         logger.info(f"[ROOM SELECTION] Asking Grok to select {num_rooms} rooms from {len(room_groups)} options")
 
-        data = self._call_grok_api(prompt, temperature=0.3)
+        data = self._call_grok_api(prompt, image_assets=[], temperature=0.3)
         content = data["choices"][0]["message"]["content"].strip()
 
         # Parse JSON response
